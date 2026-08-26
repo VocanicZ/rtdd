@@ -190,6 +190,14 @@ type Result struct {
     ImportTime map[string][]int // empty-context lines: executed, attributed to no test
 }
 
+// Merge unions other into r, sorting PerTest by Test. Used to combine the
+// .coverage read after each argv chunk: pytest erases .coverage at the start of
+// every run unless --cov-append is passed, so RTDD reads and merges per chunk.
+// Per-test file line sets and ImportTime are unioned sorted and deduped; a test
+// present only in other is appended; merging into a zero Result yields other's
+// content; Merge(nil) is a no-op; nothing in r aliases other. CONTRACT ADDITION.
+func (r *Result) Merge(other *Result)
+
 // ReadSQLite reads .coverage directly:
 //   SELECT DISTINCT f.path, c.context, lb.numbits FROM line_bits lb
 //     JOIN file f ON f.id = lb.file_id JOIN context c ON c.id = lb.context_id
