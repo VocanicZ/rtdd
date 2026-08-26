@@ -1,0 +1,53 @@
+# Harness per-project config for VocanicZ/rtdd.
+# Lines use := so a pre-set environment variable overrides this file.
+: "${HARNESS_MODE:=prd}"
+
+# TOPOLOGY IS `multi` WITH A SINGLE ROW IN targets.tsv, DELIBERATELY, NOT `single`.
+# Under `single`, unit_checkout() returns PROJECT_ROOT, so every orchestration session runs
+# `git reset -q --hard origin/main` in THIS working tree and writes .harness-task.md into the
+# repo root — destroying any uncommitted work for the life of the run. `multi` puts the unit's
+# checkout in .harness/checkouts/rtdd instead. Copied from the hardcore-gacha-2 config, where
+# this was learned the hard way.
+: "${HARNESS_TOPOLOGY:=multi}"
+
+: "${HARNESS_OWNER:=VocanicZ}"
+: "${HARNESS_REPO:=VocanicZ/rtdd}"
+: "${HARNESS_SPEC:=docs/specs/2026-08-26-rtdd-design.md}"
+: "${HARNESS_AUTONOMOUS:=true}"
+
+# Pool sized at 2, not the usual 3: hzg2-neuro (3 workers) and hzcl-main (2) are already live
+# on this host and share one Claude account. Raise to 3 once one of those retires.
+: "${HARNESS_POOL:=2}"
+: "${HARNESS_CAP:=2}"
+
+: "${HARNESS_POLL:=300}"
+: "${HARNESS_PRIORITY_POLL:=60}"
+: "${HARNESS_LABEL_READY:=ready-for-agent}"
+: "${HARNESS_LABEL_PRD:=prd}"
+: "${HARNESS_LABEL_WORKING:=agent-working}"
+: "${HARNESS_LABEL_BLOCKED:=agent-blocked}"
+: "${HARNESS_LABEL_REVIEWED:=reviewed}"
+: "${HARNESS_LABEL_COORD:=coordination}"
+: "${HARNESS_LABEL_PAUSED:=agent-paused}"
+: "${HARNESS_LABEL_BUG:=bug}"
+: "${HARNESS_LABEL_BUG_TRIAGED:=bug-triaged}"
+: "${HARNESS_AUTHOR_ALLOWLIST:=}"
+: "${HARNESS_USE_POLLER:=}"
+
+# Distinct session prefix. `hz` (bangwa, Harness), `hzg2` (hardcore-gacha-2) and `hzcl` are
+# taken; team_sessions matches ^<prefix>-<unit>($|-i), so a shared prefix makes one fleet reap
+# another's sessions and worktrees.
+: "${HARNESS_SESS_PREFIX:=hzrt}"
+
+# Per-role models: opus orchestrates/reviews, sonnet implements. Must be a hook, not a flag —
+# HARNESS_CLAUDE_FLAGS carries no --model because a CLI flag overrides the hook's
+# settings.local.json and flattens every role onto one model.
+: "${HARNESS_WORKTREE_HOOK:=.harness/worktree-hook.sh}"
+
+: "${HARNESS_GAUNTLET_ROUNDS:=3}"
+
+# CI gate OFF until M1a lands .github/workflows/ci.yml. ci_gate_ok holds all dispatch while the
+# default branch's CI is red; with no workflow at all the read is not meaningful and would risk
+# wedging the fleet before it starts. M1a's acceptance criteria include the workflow; flip to 1
+# once it is green on main.
+: "${HARNESS_CI_GATE:=0}"
