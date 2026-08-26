@@ -109,3 +109,58 @@ func readRepoFileForTest(t *testing.T, dir, rel string) string {
 	}
 	return string(b)
 }
+
+// `rtdd init` run from a subdirectory installs at the REPO ROOT, not at the working
+// directory. Every other command resolves the root with findRepoRoot; init must agree.
+//
+// The `.gitattributes` assertion is deliberately made through `git check-attr` rather
+// than by reading the file: attribute patterns are directory-scoped, so a
+// `.gitattributes` written into sub/deep/ binds `merge=union` to a path that does not
+// exist and leaves the real map at the root with no union merge driver at all. Reading
+// file contents cannot see that; asking git can.
+func TestInitInstallsAtTheRepoRootFromASubdirectory(t *testing.T) {
+	dir := newTestRepo(t)
+	deep := filepath.Join(dir, "sub", "deep")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	code, _, stderr := rtdd(t, deep, "init")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+
+	for _, rel := range []string{".gitattributes", ".rtdd/config.yaml", "AGENTS.md", "CLAUDE.md", ".cursor/rules/rtdd.mdc"} {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
+			t.Errorf("%s was not installed at the repo root: %v", rel, err)
+		}
+		if _, err := os.Stat(filepath.Join(deep, filepath.FromSlash(rel))); err == nil {
+			t.Errorf("%s was installed into the working directory sub/deep, not the repo root", rel)
+		}
+	}
+
+	got := gitRun(t, dir, "check-attr", "merge", "--", ".rtdd/map.jsonl")
+	if !strings.Contains(got, "merge: union") {
+		t.Errorf("git check-attr merge -- .rtdd/map.jsonl = %q, want the union merge driver", got)
+	}
+}
+
+// Outside a git repository there is no root to find, and `rtdd init` must still work:
+// installing before `git init` is a legitimate order. It falls back to the working
+// directory.
+func TestInitFallsBackToTheWorkingDirectoryOutsideAGitRepository(t *testing.T) {
+	dir := t.TempDir()
+
+	code, stdout, stderr := rtdd(t, dir, "init")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	for _, rel := range []string{".gitattributes", ".rtdd/config.yaml", "AGENTS.md", "CLAUDE.md", ".cursor/rules/rtdd.mdc"} {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
+			t.Errorf("%s was not installed into the working directory: %v", rel, err)
+		}
+		if !strings.Contains(stdout, rel) {
+			t.Errorf("init output is missing %q:\n%s", rel, stdout)
+		}
+	}
+}

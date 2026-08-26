@@ -23,16 +23,25 @@ func RenderInit(acts []initrepo.Action) string {
 }
 
 // cmdInit implements `rtdd init`: it installs the union merge driver, the config and the
-// agent front-ends into the working directory. Nothing is ever clobbered.
+// agent front-ends into the REPO ROOT. Nothing is ever clobbered.
+//
+// The root is resolved with findRepoRoot, exactly as `rtdd run` and `rtdd seed` do, so
+// running init from a subdirectory installs where the other commands will look. The
+// working directory is only a fallback for the one case where there is no root to find:
+// installing before `git init`. Getting this wrong is silent — `.gitattributes` patterns
+// are directory-scoped, so a copy under sub/deep/ binds `merge=union` to a path that does
+// not exist and leaves the real .rtdd/map.jsonl with no union merge driver at all.
 func cmdInit(args []string, stdout, stderr io.Writer) int {
 	if len(args) != 0 {
 		fmt.Fprintln(stderr, "usage: rtdd init")
 		return 2
 	}
-	repoRoot, err := os.Getwd()
+	repoRoot, err := findRepoRoot(".")
 	if err != nil {
-		fmt.Fprintf(stderr, "rtdd init: %v\n", err)
-		return 3
+		if repoRoot, err = os.Getwd(); err != nil {
+			fmt.Fprintf(stderr, "rtdd init: %v\n", err)
+			return 3
+		}
 	}
 	acts, err := initrepo.Run(repoRoot)
 	if err != nil {
