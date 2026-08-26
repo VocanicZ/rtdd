@@ -16,7 +16,7 @@ import (
 // not exist in the other.
 type meta = mapstore.Meta
 
-func rtddDir(repoRoot string) string  { return filepath.Join(repoRoot, ".rtdd") }
+func rtddDir(repoRoot string) string  { return filepath.Join(repoRoot, rtddDirName) }
 func metaPath(repoRoot string) string { return filepath.Join(rtddDir(repoRoot), "meta.json") }
 func mapPath(repoRoot string) string  { return filepath.Join(rtddDir(repoRoot), "map.jsonl") }
 

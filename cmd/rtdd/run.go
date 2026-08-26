@@ -61,7 +61,8 @@ func cmdRun(args []string) int {
 		fmt.Fprintln(os.Stderr, "rtdd:", err)
 		return 2
 	}
-	changes, err := gitctx.ChangedSet(root, *base)
+	// changedSet, not gitctx.ChangedSet: rtdd's own .rtdd/ writes must not select.
+	changes, err := changedSet(root, *base)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "rtdd:", err)
 		return 2
