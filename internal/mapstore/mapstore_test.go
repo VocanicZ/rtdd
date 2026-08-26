@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -270,5 +271,59 @@ func TestPackagePrintsNothingOutsideTests(t *testing.T) {
 	}
 	if scanned == 0 {
 		t.Fatal("scanned no non-test source files; the guard would pass vacuously")
+	}
+}
+
+func fixtureMap() *Map {
+	m := New()
+	m.Replace(Row{T: "tests/test_auth.py::test_login", F: []string{"src/auth.py", "src/db.py"}, C: "aaa1111", D: 412, S: "pass"})
+	m.Replace(Row{T: "tests/test_auth.py::test_logout", F: []string{"src/auth.py"}, C: "aaa1111", D: 90, S: "fail"})
+	m.Replace(Row{T: "tests/test_db.py::test_query", F: []string{"src/db.py"}, C: "aaa1111", D: 15, S: "pass"})
+	m.Replace(Row{T: "tests/test_render.py::test_page", F: []string{"src/render.py", "templates/page.html"}, C: "aaa1111", D: 230, S: "pass"})
+	return m
+}
+
+func TestTestsCovering(t *testing.T) {
+	tests := []struct {
+		name  string
+		files []string
+		want  []string
+	}{
+		{"single file, two tests", []string{"src/auth.py"},
+			[]string{"tests/test_auth.py::test_login", "tests/test_auth.py::test_logout"}},
+		{"single file, one test", []string{"src/render.py"},
+			[]string{"tests/test_render.py::test_page"}},
+		{"two files union without duplicating a test", []string{"src/auth.py", "src/db.py"},
+			[]string{"tests/test_auth.py::test_login", "tests/test_auth.py::test_logout", "tests/test_db.py::test_query"}},
+		{"unknown file selects nothing", []string{"src/brand_new.py"}, []string{}},
+		{"no files selects nothing", nil, []string{}},
+		{"a deleted path still selects its tests", []string{"templates/page.html"},
+			[]string{"tests/test_render.py::test_page"}},
+	}
+	m := fixtureMap()
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := m.TestsCovering(tc.files)
+			sort.Strings(got)
+			if len(got) == 0 {
+				got = []string{}
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("TestsCovering(%v) = %#v, want %#v", tc.files, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFanOut(t *testing.T) {
+	got := fixtureMap().FanOut()
+	want := map[string]int{
+		"src/auth.py":         2,
+		"src/db.py":           2,
+		"src/render.py":       1,
+		"templates/page.html": 1,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("FanOut() = %#v, want %#v", got, want)
 	}
 }
