@@ -68,6 +68,25 @@ func cmdRun(args []string) int {
 		return 2
 	}
 
+	// The static-import fallback, wired exactly as `rtdd which` wires it (newImportFallback
+	// in which.go). Without it the advisory command and the executing command disagree:
+	// an import-time-only file is covered by no map row, so T0 finds nothing and the
+	// selection falls to empty — `which` says "run these tests", `run` runs none.
+	//
+	// The unmapped set is computed from the map alone, so Cov is nil here: this pre-run
+	// signal answers only "which changed files does no row cover", which is precisely the
+	// fallback's trigger (spec §6, D14). The post-run BuildSignal below, which classifies
+	// against fresh coverage, is a separate call and stays that way.
+	//
+	// newImportFallback builds no scanner when that set is empty, so the ordinary T0 loop
+	// pays no python subprocess at all.
+	pre := BuildSignal(SignalInput{
+		Changes:          changes,
+		IsInstrumentable: ad.IsInstrumentable,
+		Map:              m,
+	})
+	fb := newImportFallback(root, m, pre.UnmappedFiles)
+
 	merge, _ := gitctx.IsMergeCommit(root, "HEAD")
 	choose := func(allTests []string) selector.Selection {
 		return selector.Select(selector.Inputs{
@@ -85,7 +104,7 @@ func cmdRun(args []string) int {
 			},
 			Cycles:     mt.Cycles,
 			Merge:      merge,
-			ImportOnly: func(string) []string { return nil }, // static import fallback lands in M2
+			ImportOnly: fb.testsImporting,
 		})
 	}
 
@@ -113,28 +132,32 @@ func cmdRun(args []string) int {
 		fmt.Println()
 	}
 
-	// The static import fallback lands with selector.Inputs.ImportOnly; until it fires
-	// this stays empty, and the key is always present so a front-end can bind to it.
-	importFallback := map[string][]string{}
+	// What the fallback actually produced, per file — `selection.import_fallback`. The map
+	// is always non-nil, so the key is present even when nothing fired and a front-end can
+	// bind to it unconditionally.
+	importFallback := fb.fired
+
+	// A failed scan DEGRADES selection; it never fails the command (internal/importscan:
+	// Scanner.Err). Saying so on stderr keeps --json's stdout a single document.
+	if err := fb.err(); err != nil {
+		fmt.Fprintf(os.Stderr, "rtdd run: the static import scan failed, so an import-time-only "+
+			"file may be under-selected: %v\n", err)
+	}
 
 	if sel.Tier == selector.TierEmpty || len(sel.Tests) == 0 {
 		if *asJSON {
 			// Nothing executed, so there is no fresh coverage and therefore no honest
 			// uncovered report: UncoveredOK stays false and `files` is omitted rather
 			// than sent as an empty list a consumer would read as "nothing uncovered".
-			sig := BuildSignal(SignalInput{
-				Changes:          changes,
-				IsInstrumentable: ad.IsInstrumentable,
-				Map:              m,
-			})
+			// `pre` is exactly that Cov-less signal, already computed for the fallback.
 			out := BuildOutput(OutputInput{
 				Command:        "run",
 				Base:           *base,
 				Adapter:        ad.Name,
 				Sel:            sel,
 				Changes:        changes,
-				Instrumentable: sig.Instrumentable,
-				UnmappedFiles:  sig.UnmappedFiles,
+				Instrumentable: pre.Instrumentable,
+				UnmappedFiles:  pre.UnmappedFiles,
 				ImportFallback: importFallback,
 			})
 			if err := emitJSON(out); err != nil {
