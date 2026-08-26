@@ -2,6 +2,7 @@ package coverage
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -13,6 +14,9 @@ import (
 
 const lineBitsQuery = `SELECT DISTINCT f.path, c.context, lb.numbits FROM line_bits lb
   JOIN file f ON f.id = lb.file_id JOIN context c ON c.id = lb.context_id`
+
+const arcQuery = `SELECT DISTINCT f.path, c.context, a.fromno, a.tono FROM arc a
+  JOIN file f ON f.id = a.file_id JOIN context c ON c.id = a.context_id`
 
 // ReadSQLite reads coverage.py's .coverage store directly. It *is* the bipartite
 // test<->file relation, and is the only export format that carries a test
@@ -33,24 +37,86 @@ func ReadSQLite(dbPath, repoRoot string) (*Result, error) {
 
 	acc := newAccumulator(repoRoot)
 
+	hasArcs, err := readHasArcs(db)
+	if err != nil {
+		return nil, fmt.Errorf("coverage: reading meta in %s: %w", dbPath, err)
+	}
+	if hasArcs {
+		if err := readArcs(db, acc); err != nil {
+			return nil, fmt.Errorf("coverage: %s: %w", dbPath, err)
+		}
+		return acc.result(), nil
+	}
+	if err := readLineBits(db, acc); err != nil {
+		return nil, fmt.Errorf("coverage: %s: %w", dbPath, err)
+	}
+	return acc.result(), nil
+}
+
+// readHasArcs reports whether the store was recorded with branch coverage on, in
+// which case `line_bits` is empty and `arc` holds everything. A store with no
+// has_arcs row is line mode: erroring there would turn a readable store into a
+// fatal exit on a run that measured fine.
+func readHasArcs(db *sql.DB) (bool, error) {
+	var v string
+	err := db.QueryRow(`SELECT value FROM meta WHERE key = 'has_arcs'`).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	// coverage.py has written both the int and the repr of the bool over its life.
+	return v == "1" || v == "True" || v == "true", nil
+}
+
+func readLineBits(db *sql.DB, acc *accumulator) error {
 	rows, err := db.Query(lineBitsQuery)
 	if err != nil {
-		return nil, fmt.Errorf("coverage: querying line_bits in %s: %w", dbPath, err)
+		return fmt.Errorf("querying line_bits: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var path, ctx string
 		var numbits []byte
 		if err := rows.Scan(&path, &ctx, &numbits); err != nil {
-			return nil, fmt.Errorf("coverage: scanning line_bits in %s: %w", dbPath, err)
+			return fmt.Errorf("scanning line_bits: %w", err)
 		}
 		acc.add(path, ctx, Numbits(numbits))
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("coverage: reading line_bits in %s: %w", dbPath, err)
+		return fmt.Errorf("reading line_bits: %w", err)
 	}
+	return nil
+}
 
-	return acc.result(), nil
+// readArcs reconstructs executed lines from the `arc` table. Measured: with
+// [run] branch = True — a very common host setting — line_bits has ZERO rows and
+// every executed line lives in arc. Reading line_bits there yields an empty map on
+// a run that exited 0, the same silent corruption shape as COVERAGE_CORE=sysmon.
+//
+// Executed lines = {fromno > 0} union {tono > 0}; negative values are scope
+// entry/exit sentinels and zero is the synthetic module frame. The rule was
+// verified to reproduce the line-mode answer exactly on every measured
+// file/context pair.
+func readArcs(db *sql.DB, acc *accumulator) error {
+	rows, err := db.Query(arcQuery)
+	if err != nil {
+		return fmt.Errorf("querying arc: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var path, ctx string
+		var fromno, tono int
+		if err := rows.Scan(&path, &ctx, &fromno, &tono); err != nil {
+			return fmt.Errorf("scanning arc: %w", err)
+		}
+		acc.add(path, ctx, []int{fromno, tono}) // acc.add drops the non-positive sentinels
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("reading arc: %w", err)
+	}
+	return nil
 }
 
 // accumulator collects (file, context, lines) triples into a Result, unioning
