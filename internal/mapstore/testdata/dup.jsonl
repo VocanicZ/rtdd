@@ -1,0 +1,3 @@
+{"t":"tests/test_auth.py::test_login","f":["src/auth.py","src/db.py"],"c":"aaa1111","d":412,"s":"pass"}
+{"t":"tests/test_auth.py::test_login","f":["src/auth.py","src/session.py"],"c":"ccc3333","d":88,"s":"fail"}
+{"t":"tests/test_db.py::test_query","f":["src/db.py"],"c":"bbb2222","d":15,"s":"pass"}
