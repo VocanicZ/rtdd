@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"github.com/VocanicZ/rtdd/internal/mapstore"
 	"github.com/VocanicZ/rtdd/internal/runner"
 	"github.com/VocanicZ/rtdd/internal/selector"
+	"github.com/VocanicZ/rtdd/internal/uncovered"
 )
 
 // cmdRun selects, executes, refreshes the map, and reports.
@@ -27,7 +29,7 @@ func cmdRun(args []string) int {
 	fs.SetOutput(os.Stderr)
 	base := fs.String("base", "HEAD", "diff base ref for the changed set")
 	failFast := fs.Bool("fail-fast", false, "stop at the first failure (opt-in only)")
-	asJSON := fs.Bool("json", false, "machine-readable output (schema lands in M2)")
+	asJSON := fs.Bool("json", false, "machine-readable output (schema v1)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -35,8 +37,6 @@ func cmdRun(args []string) int {
 		fmt.Fprintf(os.Stderr, "rtdd: run takes no positional arguments, got %v\n", fs.Args())
 		return 2
 	}
-	_ = asJSON // M2 defines the schema; the flag is accepted now so front-ends can bind to it.
-
 	root, err := findRepoRoot(".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "rtdd:", err)
@@ -102,13 +102,46 @@ func cmdRun(args []string) int {
 		sel = choose(all)
 	}
 
-	fmt.Printf("tier %s: %d selected", sel.Tier, len(sel.Tests))
-	if sel.Reason != "" {
-		fmt.Printf(" (%s)", sel.Reason)
+	// Under --json the document is the WHOLE of stdout: a consumer pipes it straight
+	// into a parser, and a human-readable tier line ahead of it is a syntax error. The
+	// same facts are in the document as `tier`, `selection` and `run`.
+	if !*asJSON {
+		fmt.Printf("tier %s: %d selected", sel.Tier, len(sel.Tests))
+		if sel.Reason != "" {
+			fmt.Printf(" (%s)", sel.Reason)
+		}
+		fmt.Println()
 	}
-	fmt.Println()
+
+	// The static import fallback lands with selector.Inputs.ImportOnly; until it fires
+	// this stays empty, and the key is always present so a front-end can bind to it.
+	importFallback := map[string][]string{}
 
 	if sel.Tier == selector.TierEmpty || len(sel.Tests) == 0 {
+		if *asJSON {
+			// Nothing executed, so there is no fresh coverage and therefore no honest
+			// uncovered report: UncoveredOK stays false and `files` is omitted rather
+			// than sent as an empty list a consumer would read as "nothing uncovered".
+			sig := BuildSignal(SignalInput{
+				Changes:          changes,
+				IsInstrumentable: ad.IsInstrumentable,
+				Map:              m,
+			})
+			out := BuildOutput(OutputInput{
+				Command:        "run",
+				Base:           *base,
+				Adapter:        ad.Name,
+				Sel:            sel,
+				Changes:        changes,
+				Instrumentable: sig.Instrumentable,
+				UnmappedFiles:  sig.UnmappedFiles,
+				ImportFallback: importFallback,
+			})
+			if err := emitJSON(out); err != nil {
+				return 2
+			}
+			return finishCycle(root, mt, 0)
+		}
 		fmt.Println("EMPTY SELECTION - nothing ran. This is not a pass.")
 		return finishCycle(root, mt, 0)
 	}
@@ -143,11 +176,78 @@ func cmdRun(args []string) int {
 		mt.V = 1
 	}
 
+	// Populate the changed line ranges from git diff --unified=0. WithLines is
+	// authoritative and overwrites Lines, so hunk parsing is the single source of truth.
+	rawDiff, err := gitctx.RawDiff(root, *base)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "rtdd:", err)
+		return 3
+	}
+	changes, err = uncovered.WithLines(root, changes, rawDiff)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "rtdd:", err)
+		return 3
+	}
+
+	// Classify against the coverage THIS run just produced — never against map.jsonl,
+	// which carries no line data at all and could therefore only ever answer at whole-file
+	// granularity, on numbers that drifted the moment the file was edited (spec §4, §6).
+	sig := BuildSignal(SignalInput{
+		Changes:          changes,
+		Cov:              res.Coverage,
+		IsInstrumentable: ad.IsInstrumentable,
+		Map:              m,
+	})
+
+	// A non-empty uncovered report NEVER moves the exit code: RTDD reports, it does not
+	// gate (spec §2 non-goals, §6, decision D3). res.ExitCode is still consulted so a
+	// runner-level failure the report log did not name cannot be swallowed.
+	code := ExitCodeFor(res.Outcomes, sig.Reports)
+	if code == 0 && res.ExitCode != 0 {
+		code = res.ExitCode
+	}
+
+	if *asJSON {
+		out := BuildOutput(OutputInput{
+			Command:        "run",
+			Base:           *base,
+			Adapter:        ad.Name,
+			Sel:            sel,
+			Changes:        changes,
+			Instrumentable: sig.Instrumentable,
+			Executed:       true,
+			Outcomes:       res.Outcomes,
+			Reports:        sig.Reports,
+			UncoveredOK:    true,
+			UnmappedFiles:  sig.UnmappedFiles,
+			ImportFallback: importFallback,
+		})
+		out.ExitCode = code
+		if err := emitJSON(out); err != nil {
+			return 2
+		}
+		return finishCycle(root, mt, code)
+	}
+
 	fmt.Printf("%d ran, %d failed, %d rows in the map\n", len(res.Outcomes), len(res.Failed), m.Len())
 	for _, id := range res.Failed {
 		fmt.Printf("FAILED %s\n", id)
 	}
-	return finishCycle(root, mt, res.ExitCode)
+	if s := RenderUncovered(sig.Reports); s != "" {
+		fmt.Fprint(os.Stdout, "\n"+s)
+	}
+	return finishCycle(root, mt, code)
+}
+
+// emitJSON writes the schema document to stdout, indented, as the whole of stdout.
+func emitJSON(out Output) error {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(out); err != nil {
+		fmt.Fprintln(os.Stderr, "rtdd:", err)
+		return err
+	}
+	return nil
 }
 
 // finishCycle increments `cycles` and persists meta.json, then returns code.
