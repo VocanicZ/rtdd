@@ -324,3 +324,25 @@ func TestInterfaceContractRecordsTheAdapterLoaders(t *testing.T) {
 		}
 	}
 }
+
+// M1b Task 4 adds ExpandTests to the contract, and narrows Expand to reject {tests}. The
+// doc is the interface of record: a signature that exists only in code is a drift the next
+// task would inherit, and here the drift is silent — a caller that reached Expand with a
+// {tests} template would join every id into one argument.
+func TestInterfaceContractRecordsExpandTests(t *testing.T) {
+	src := readRepoFile(t, "docs/plans/00-interfaces.md")
+
+	for _, want := range []string{
+		"func (a *Adapter) Expand(tmpl string, vars map[string]string) ([]string, error)",
+		"func (a *Adapter) ExpandTests(tmpl string, vars map[string]string, tests []string) ([]string, error)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("00-interfaces.md must record %q", want)
+		}
+	}
+	// The superseded form promised {tests} substitution inside Expand itself.
+	stale := "// Expand substitutes {tests} {src} {out} {log} into a command template and returns argv."
+	if strings.Contains(src, stale) {
+		t.Errorf("00-interfaces.md still carries the superseded Expand doc line %q", stale)
+	}
+}
