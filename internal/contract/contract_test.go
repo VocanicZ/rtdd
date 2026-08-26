@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/VocanicZ/rtdd/internal/doctor"
 )
 
 // repoRoot walks up from the test's working directory to the directory holding go.mod.
@@ -615,4 +617,45 @@ func precedingComment(t *testing.T, doc, decl string) string {
 		block = append([]string{lines[j]}, block...)
 	}
 	return strings.Join(block, "\n")
+}
+
+// M2 Task 6 adds internal/doctor to the contract. Spec §9 requires the fan-out caveat to
+// appear in the tool's OWN output, so it ships as an exported constant, not as prose in a
+// plan. The Additions block sketched it as `func Caveat() string`; the shipped shape is a
+// const, and both shapes in one document would say the shipped one is wrong.
+func TestInterfaceContractRecordsDoctorCaveat(t *testing.T) {
+	src := readRepoFile(t, "docs/plans/00-interfaces.md")
+
+	if !strings.Contains(src, "internal/doctor/") {
+		t.Error("00-interfaces.md must list internal/doctor/ in the package layout")
+	}
+	for _, want := range []string{
+		"const Caveat = ",
+		"func Hubs(m *mapstore.Map) []Hub",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("00-interfaces.md must record %q", want)
+		}
+	}
+	if strings.Contains(src, "func Caveat() string") {
+		t.Error("00-interfaces.md still carries the superseded signature \"func Caveat() string\"")
+	}
+}
+
+// The caveat is worthless if it is a vague warning: it has to name the mechanisms that
+// produce a fan-out of 1 so a reader can recognise one in their own repo.
+func TestDoctorCaveatNamesTheOncePerProcessMechanisms(t *testing.T) {
+	for _, want := range []string{
+		"lru_cache",
+		"module singleton",
+		"DI container",
+		"session-scoped fixture",
+		"fan-out of 1",
+		"most coupled",
+		"cleanest",
+	} {
+		if !strings.Contains(doctor.Caveat, want) {
+			t.Errorf("doctor.Caveat must name %q (spec §9)", want)
+		}
+	}
 }
