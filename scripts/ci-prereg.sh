@@ -19,6 +19,13 @@ uv sync
 echo "==> uv run pytest -q"
 uv run pytest -q
 
+echo "==> arm-composition gate"
+# Named separately from the suite above so the guarantee the whole benchmark
+# rests on is visible in the CI log: every context arm is its own control plus
+# one <test-context> block, byte for byte, and that block carries no imperative.
+# A run that does not print this line did not check it.
+uv run pytest tests/test_prompts.py -q
+
 echo "==> preflight gate"
 # The gate must REFUSE while the pre-registration is unsigned, and PASS once a
 # human has signed and tagged it. Either verdict is correct for its state; a
