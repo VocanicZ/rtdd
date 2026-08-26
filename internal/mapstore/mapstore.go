@@ -108,3 +108,35 @@ func unionStrings(a, b []string) []string {
 	sort.Strings(out)
 	return out
 }
+
+// TestsCovering returns every test id whose F intersects any of files. Unsorted.
+func (m *Map) TestsCovering(files []string) []string {
+	if len(files) == 0 {
+		return nil
+	}
+	want := make(map[string]struct{}, len(files))
+	for _, f := range files {
+		want[f] = struct{}{}
+	}
+	out := make([]string, 0, len(m.rows))
+	for t, r := range m.rows {
+		for _, f := range r.F {
+			if _, hit := want[f]; hit {
+				out = append(out, t)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// FanOut returns file -> number of tests whose F contains it.
+func (m *Map) FanOut() map[string]int {
+	out := make(map[string]int)
+	for _, r := range m.rows {
+		for _, f := range r.F {
+			out[f]++
+		}
+	}
+	return out
+}
