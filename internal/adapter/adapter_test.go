@@ -213,3 +213,28 @@ func TestFullEscalateBeatsTestGlobs(t *testing.T) {
 		t.Error("IsTestFile(tests/test_auth.py) = false, want true")
 	}
 }
+
+// A typo'd glob must fail the load with a configuration error (exit 2) rather than
+// classify nothing and let `rtdd which` report "no test file changed".
+func TestLoadRejectsAMalformedGlobInEveryGlobField(t *testing.T) {
+	const badGlob = `tests/[a-*.py`
+	for _, field := range []string{"test_globs", "source_globs", "opaque", "full_escalate"} {
+		t.Run(field, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "a.yaml")
+			content := "name: python\n" + field + ": [\"" + badGlob + "\"]\n"
+			if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Load(p)
+			if err == nil {
+				t.Fatalf("Load accepted a malformed glob in %s; that is a configuration error", field)
+			}
+			if !strings.Contains(err.Error(), badGlob) {
+				t.Errorf("error = %q, want it to name the offending pattern %q", err, badGlob)
+			}
+			if !strings.Contains(err.Error(), field) {
+				t.Errorf("error = %q, want it to name the offending field %q", err, field)
+			}
+		})
+	}
+}

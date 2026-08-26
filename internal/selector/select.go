@@ -86,7 +86,7 @@ func Select(in Inputs) Selection {
 		return Selection{
 			Tier:   TierEmpty,
 			Direct: direct,
-			Reason: "no test in the map covers the changed set, and no test file changed",
+			Reason: emptyReason(in),
 		}
 	case len(ranked) == 0:
 		return Selection{
@@ -103,6 +103,30 @@ func Select(in Inputs) Selection {
 			Reason: "tests whose recorded coverage intersects the changed set",
 		}
 	}
+}
+
+// emptyReason explains an empty selection without claiming more than the selector
+// checked. "no test file changed" is only sayable when the adapter was there to say it:
+// with no adapter every classifier returns false, so the sentence would deny a changed
+// test file the selector was never able to see. A deleted test file did change too — it
+// simply cannot be executed.
+func emptyReason(in Inputs) string {
+	const noCoverage = "no test in the map covers the changed set"
+	if in.Adapter == nil {
+		return noCoverage + ", and file classification is disabled (no adapter): " +
+			"a changed test file cannot be recognised"
+	}
+	var deleted []string
+	for _, c := range in.Changes {
+		if c.Status == gitctx.Deleted && in.Adapter.IsTestFile(c.Path) {
+			deleted = append(deleted, c.Path)
+		}
+	}
+	if len(deleted) > 0 {
+		return noCoverage + "; the only changed test files were deleted and cannot be run: " +
+			strings.Join(deleted, ", ")
+	}
+	return noCoverage + ", and no test file changed"
 }
 
 func escalateFull(in Inputs, m *mapstore.Map, cfg Config) (string, bool) {

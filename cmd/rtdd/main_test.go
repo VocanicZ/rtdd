@@ -363,7 +363,10 @@ type whichJSONForTest struct {
 			End   int `json:"end"`
 		} `json:"lines"`
 	} `json:"changed"`
-	MapTests int `json:"map_tests"`
+	MapTests int      `json:"map_tests"`
+	Adapter  string   `json:"adapter"`
+	Complete bool     `json:"complete"`
+	Warnings []string `json:"warnings"`
 }
 
 func decodeWhichJSON(t *testing.T, s string) whichJSONForTest {
@@ -413,6 +416,12 @@ func TestWhichJSON(t *testing.T) {
 	}
 	if got.Reason == "" {
 		t.Error("reason is empty; every selection must explain itself")
+	}
+	if !got.Complete {
+		t.Errorf("complete = false; a T0 selection is the whole list: %#v", got.Tests)
+	}
+	if got.Adapter != "python" {
+		t.Errorf("adapter = %q, want python", got.Adapter)
 	}
 }
 
@@ -496,5 +505,107 @@ func TestWhichJSONReportsARename(t *testing.T) {
 	}
 	if !hit {
 		t.Errorf("tests = %#v, want the old path to still select its test", got.Tests)
+	}
+}
+
+// A malformed glob is a configuration error (exit 2), not a silent "nothing is a test
+// file". Both commands that load the adapter must refuse it and name the pattern.
+func TestAMalformedGlobInTheAdapterIsAConfigurationError(t *testing.T) {
+	const badGlob = `tests/[a-*.py`
+	for _, cmd := range []string{"which", "status"} {
+		t.Run(cmd, func(t *testing.T) {
+			dir := newTestRepo(t)
+			installRTDD(t, dir, headShort(t, dir), 0)
+			writeFile(t, dir, ".rtdd/adapter.yaml", "name: python\ntest_globs: [\""+badGlob+"\"]\n")
+			writeFile(t, dir, "tests/test_new.py", "def test_new():\n    pass\n")
+
+			code, stdout, stderr := rtdd(t, dir, cmd)
+			if code != 2 {
+				t.Fatalf("exit code = %d, want 2 (a configuration error)\nstdout: %s\nstderr: %s",
+					code, stdout, stderr)
+			}
+			if !strings.Contains(stderr, badGlob) {
+				t.Errorf("stderr = %q, want it to name the offending pattern %q", stderr, badGlob)
+			}
+		})
+	}
+}
+
+// T2 means the full suite, and M1a cannot enumerate it. A direct test in the list does
+// not make the list complete, so the note must still print. Issue #38 case 2.
+func TestWhichNotesTheUnenumeratedSuiteEvenWhenADirectTestIsSelected(t *testing.T) {
+	dir := newTestRepo(t)
+	installRTDD(t, dir, headShort(t, dir), 0)
+	writeFile(t, dir, "requirements.txt", "pytest==9.0.3\n")
+	writeFile(t, dir, "tests/test_new.py", "def test_new():\n    pass\n")
+
+	code, stdout, stderr := rtdd(t, dir, "which")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	if !strings.Contains(stdout, "tier:     T2") {
+		t.Fatalf("want tier T2:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "not enumerate") {
+		t.Errorf("a T2 selection carrying a direct test is still partial; the note must print:\n%s", stdout)
+	}
+}
+
+func TestWhichJSONMarksAnUnenumeratedT2SelectionIncomplete(t *testing.T) {
+	dir := newTestRepo(t)
+	installRTDD(t, dir, headShort(t, dir), 0)
+	writeFile(t, dir, "requirements.txt", "pytest==9.0.3\n")
+	writeFile(t, dir, "tests/test_new.py", "def test_new():\n    pass\n")
+
+	code, stdout, stderr := rtdd(t, dir, "which", "--json")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	got := decodeWhichJSON(t, stdout)
+	if got.Tier != "T2" {
+		t.Fatalf("tier = %q, want T2 (reason: %s)", got.Tier, got.Reason)
+	}
+	if !strings.Contains(stdout, `"complete"`) {
+		t.Fatalf("--json must carry a `complete` field so a partial list is machine-readable:\n%s", stdout)
+	}
+	if got.Complete {
+		t.Errorf("complete = true, want false: tests = %#v is a partial list of the full suite", got.Tests)
+	}
+}
+
+// `status` warns when the adapter is missing; `which` is the command agents call, and
+// it silently ran with file classification disabled. Issue #38 case 3.
+func TestWhichReportsAMissingAdapter(t *testing.T) {
+	dir := newTestRepo(t)
+	installRTDD(t, dir, headShort(t, dir), 0)
+	if err := os.Remove(filepath.Join(dir, ".rtdd", "adapter.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, "tests/test_new.py", "def test_new():\n    pass\n")
+
+	code, stdout, stderr := rtdd(t, dir, "which")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	if !strings.Contains(stdout, "classification is disabled") {
+		t.Errorf("which must warn that a missing adapter disables classification:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "no test file changed") {
+		t.Errorf("tests/test_new.py changed; the reason must not deny it:\n%s", stdout)
+	}
+
+	code, stdout, stderr = rtdd(t, dir, "which", "--json")
+	if code != 0 {
+		t.Fatalf("--json exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	got := decodeWhichJSON(t, stdout)
+	if got.Adapter != "" {
+		t.Errorf("adapter = %q, want the empty string when no adapter file was found", got.Adapter)
+	}
+	if len(got.Warnings) == 0 {
+		t.Errorf("--json must carry the missing-adapter warning:\n%s", stdout)
+	}
+	if strings.Contains(got.Reason, "no test file changed") {
+		t.Errorf("reason = %q: a test file did change", got.Reason)
 	}
 }
