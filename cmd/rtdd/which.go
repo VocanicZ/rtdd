@@ -29,7 +29,8 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 
-	changes, err := gitctx.ChangedSet(e.root, *base)
+	// changedSet, not gitctx.ChangedSet: rtdd's own .rtdd/ writes must not select.
+	changes, err := changedSet(e.root, *base)
 	if err != nil {
 		fmt.Fprintf(stderr, "rtdd which: %v\n", err)
 		return 3
