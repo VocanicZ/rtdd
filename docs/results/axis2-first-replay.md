@@ -34,9 +34,9 @@ kept and their source half reverted — produced three detecting cycles, and the
 
 | strategy | change-level recall | selected-duration fraction |
 |---|---|---|
-| rtdd | 1.000 (3/3) | 0.253 |
-| path heuristic | 0.333 (1/3) | 0.013 |
-| testmon | 1.000 (3/3) | 0.117 |
+| rtdd | 1.000 (3/3) | 0.243 |
+| path heuristic | 0.333 (1/3) | 0.010 |
+| testmon | 1.000 (3/3) | 0.131 |
 | import graph | 0.000 (0/3) | 0.000 |
 
 RTDD catches every detecting change and the path heuristic catches one of three — but
@@ -52,6 +52,35 @@ Two further numbers belong beside that, from the same run:
   comparison to beat, and it is not the path heuristic.
 - **RTDD escalated on 7 of 23 natural cycles** (`T2`, `full-escalate file changed:
   pyproject.toml`), which is most of the gap in selected duration.
+
+## The parallel baseline, once it was actually parallel
+
+Baseline 5 is `pytest -n auto`, and it is in the set so that RTDD's instrumented subset
+is never compared only against a *serial* full run. Until #181 it was not doing that
+job: the strategy produced `Selection.exec_args=("-n","auto")` and nothing downstream
+read it, so the `xdist` row was a serial full run wearing the parallel label — 1 ms
+from the `full` row on a 32-core box, which is the tell.
+
+With the flags actually reaching pytest, the row says something, and what it says is
+not what the plan expected:
+
+| strategy | full uninstrumented | subset uninstrumented |
+|---|---|---|
+| full | 3127 ms | 3133 ms |
+| xdist | 3127 ms | 6593 ms |
+
+**`-n auto` is twice as slow as the serial suite here.** flask's suite runs in about
+three seconds; spinning up 32 workers, importing the tree in each, and collecting
+32 times costs more than the parallelism returns. The finding is that on a suite this
+size the intervention a real team reaches for makes things worse, and RTDD's ~1.3 s
+subset is not being flattered by a serial comparison — it beats the parallel one too.
+
+This is a property of *this* suite's size, not a general claim about `-n auto`. A repo
+whose suite runs for minutes rather than seconds should invert it, and that is exactly
+why the baseline is measured per repo rather than assumed. Note also that the parallel
+row's *instrumented* column is genuinely parallel as well: `-n auto` under
+`COVERAGE_CORE=ctrace` still writes one dynamic context per test, so no column of that
+row is silently serial.
 
 ## What this does not say
 
