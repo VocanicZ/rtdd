@@ -1,90 +1,128 @@
 # RTDD — Relational Test-Driven Development
 
-**Status:** design, approved 2026-08-26
+**Status:** design v2, 2026-08-26
 **Owner:** VocanicZ
-**Destination:** a published, benchmarked, agent-agnostic tool at `github.com/VocanicZ/rtdd`
+**Supersedes:** v1 of the same date, rewritten after three adversarial audits.
+See [`docs/audits/2026-08-26-design-audit.md`](../audits/2026-08-26-design-audit.md) for
+what was measured and what it killed.
 
 ---
 
 ## 1. Problem
 
-TDD degrades superlinearly with suite size. At 1,000 tests the implementation is a
-minority of the cycle; at 10,000 tests a single red-green-refactor iteration can take
-hours. The cost is **execution time** — process startup, I/O, fixtures, containers,
-database setup — not tokens and not authorship.
+TDD's cycle cost grows at least linearly with suite size while the useful signal per cycle
+stays constant. At 10,000 tests, an agent's red-green-refactor iteration is dominated by
+process startup, I/O, fixtures, containers, and database setup for thousands of tests that
+cannot observe the change. The cost is **execution time**, not tokens and not authorship.
 
-The waste is structural: a change to one function re-executes the entire suite, when
-only a small subset of tests can possibly observe that change.
-
-A second, quieter failure compounds it. A full-suite run reports **green** on a change
-that no test covers. Ten thousand passing tests, none of which touch the new function,
-and TDD's own feedback signal says the work is done. The suite's size actively hides
-the gap.
+A second problem sits underneath it. When an agent changes code that no test exercises,
+a full-suite run reports green. The suite's size hides the gap rather than surfacing it.
 
 ## 2. What RTDD is
 
-A single static binary plus a protocol document. It maintains a relation between tests
-and the code they execute, uses that relation to run only the tests that can observe a
-change, and treats an uncovered change as a **failing state** rather than a silent pass.
+A tool that tells an agent **which tests cover the code it just changed**, and **which of
+the lines it just changed nothing covers**, derived from real execution rather than a
+static call graph.
 
-RTDD is not a Claude Code skill with a CLI bolted on. It is a **CLI with generated agent
-front-ends**, so the same protocol reaches Claude Code, Codex, Cursor, and Copilot
-without drifting between them.
+RTDD is a **context provider, not a gate.** It reports; the agent decides. This is the
+central correction from v1, and it is empirically motivated rather than stylistic — see §3.
 
 ### Non-goals
 
-- Replacing CI. `rtdd verify` is a safety net, not a substitute for a full run.
-- Sound program analysis. RTDD is risk-managed test selection, and says so.
-- A general knowledge-graph tool. The map is a bipartite test↔file relation, nothing more.
-- Reducing token cost. The hot path contains no model calls; tokens are incidental.
+- **Enforcement.** RTDD does not block, gate, or fail a cycle on policy. `rtdd run` exits
+  nonzero when a test fails, and for no other reason.
+- Replacing CI. `rtdd verify` is a convenience, not a substitute for a full run.
+- Sound program analysis. This is risk-managed test selection and says so.
+- Reducing token cost. The hot path contains no model calls.
+- Polyglot repos, and every language but Python, in v1. See §8.
 
-## 3. Prior art, and what is actually new
+## 3. Prior art, and the actual open question
 
-Test Impact Analysis is mature: Bazel's target graph, Google TAP, Microsoft's TIA in
-Azure DevOps, `pytest-testmon`, `jest --findRelatedTests`, `cargo-nextest`, NCrunch,
-Meta's predictive test selection. RTDD does not claim to have invented test selection
-and the README must say so plainly.
+Test Impact Analysis is mature — Bazel, Google TAP, Microsoft's Azure DevOps TIA,
+[pytest-testmon](https://www.testmon.org/blog/determining-affected-tests/),
+`jest --findRelatedTests`, [Ekstazi](https://users.ece.utexas.edu/~gligoric/papers/GligoricETAL15Ekstazi.pdf),
+NCrunch, [Infinitest](https://github.com/infinitest/infinitest) (2007, explicitly marketed
+for "tight TDD cycles"), and Meta's predictive test selection. Agent-facing versions exist
+too: [Wallaby.js ships an MCP server](https://wallabyjs.com/docs/features/ai/) exposing
+`wallaby_coveredLinesForTest` and `wallaby_allTestsForFileAndLine` to Claude Code and Cursor
+today. "Uncovered change is a failure" is SonarQube's new-code coverage gate, Codecov's
+patch status, and `diff-cover`.
 
-Every one of those tools optimizes **CI**. None of them define how an **agent** should
-drive a TDD inner loop. That is the gap RTDD fills, and the contributions are:
+Most directly: **[TDAD (arXiv:2603.17973)](https://arxiv.org/abs/2603.17973)**, March 2026,
+builds a source↔test dependency map so an agent knows which tests to verify before
+committing, and ships it as an agent skill file. On SWE-bench Verified it reduced
+regressions from **6.08% to 1.82%**. A [TypeScript port](https://github.com/fmguerreiro/tdad-ts)
+exists.
 
-1. **Hard-RED on empty coverage.** Uncovered change is a failure, not a warning. RTDD is
-   *stricter* than full-suite TDD, not merely faster.
-2. **TDD-phase-aware selection.** `--expect red` and `--expect green` are different
-   execution strategies, and `--expect red` catches a new test that passes before
-   implementation exists.
-3. **Conflict-safe shared map.** Designed for N parallel agents on N branches, where a
-   merge conflict can only widen selection, never narrow it.
-4. **Adapters as data.** A new language is a YAML file, not a change to the engine.
-5. **A published safety number.** Detection recall alongside speed, in the same table.
+**RTDD does not claim to have invented any of this, and the README will say so.**
+
+TDAD's second result is why this design looks the way it does. Adding TDD *procedural*
+instructions without targeted test context raised regressions to **9.94% — worse than no
+intervention at all.** Their conclusion: surfacing contextual information outperforms
+prescribing procedural workflows. v1 of this spec was overwhelmingly procedural. v2 is not.
+
+### The question RTDD exists to answer
+
+TDAD's map is a **static dependency graph**. RTDD's is **dynamic coverage**.
+
+Static graphs are blind to dynamic dispatch, dependency injection, reflection, plugin
+registries, and monkeypatching — the places a call graph reports zero callers while real
+execution reaches the code. Coverage sees exactly what ran. It is also blind in its own
+way: it only knows paths some test actually took, and it attributes nothing to code
+executed at import time (§6).
+
+**Does a dynamic coverage map beat a static graph at reducing agent regressions?** That is
+an open, testable question with a published baseline and a published methodology. It is the
+contribution. Everything else in this document is the apparatus for answering it.
 
 ## 4. The map
 
-### Storage
+### What is stored
 
-`.rtdd/map.jsonl` — committed to the repository, sorted by test id, one line per test.
+`.rtdd/map.jsonl` — committed, sorted by test id, one line per test, **file-level only**.
 
 ```
 {"t":"tests/test_auth.py::test_login","f":["src/auth.py","src/db.py"],"c":"a3f21e0","d":412,"s":"pass"}
-{"t":"tests/test_cart.py::test_add","f":["src/cart.py","src/db.py"],"c":"a3f21e0","d":88,"s":"pass"}
 ```
 
-| Field | Meaning |
-|---|---|
-| `t` | Test identifier, in the form the adapter's runner accepts as a selector |
-| `f` | Repo-relative source files this test executed, sorted |
-| `c` | Short SHA of `HEAD` when the row was recorded — drives staleness escalation |
-| `d` | Last observed duration in ms — drives fastest-first tiebreaking |
-| `s` | Last observed outcome — drives last-failed-first ordering |
+| Field | Meaning | Source |
+|---|---|---|
+| `t` | Test id, in the form the runner accepts as a selector | test report |
+| `f` | Repo-relative source files this test executed, sorted | coverage |
+| `c` | Short SHA of `HEAD` when recorded | git |
+| `d` | Last duration in ms — ranking tiebreak | test report |
+| `s` | Last outcome — ranking tiebreak | test report |
 
-Metadata lives in a **separate** `.rtdd/meta.json` (schema version, adapter name, seed
-commit, cycle counter). Keeping it out of the JSONL is deliberate: the JSONL is
-union-merged, and a header line inside it would survive merges in duplicate.
+`s` and `d` come from the **test report** (`--report-log`), not the coverage report, which
+carries neither. Metadata lives in `.rtdd/meta.json`, kept out of the JSONL because the
+JSONL is union-merged.
 
-Granularity is **file-level**, not line-level. Line numbers shift on every edit and
-invalidate the map; file paths are stable under refactor. The failure mode of file-level
-granularity is over-selection, which is safe. Symbol-level tracking with content
-checksums is deferred to v2 (§10).
+**Line-level coverage is never persisted.** Measured: `coverage json --show-contexts` is
+12× larger than plain and extrapolates to ~0.5–1.2 GB at 10k tests, while file-level rows
+are ~200 B each — about 2 MB for the same suite. Line data is computed fresh after each run
+and used immediately (§6), which also removes the staleness problem entirely: line numbers
+recorded at an old commit are worthless, and post-run line numbers are current by
+construction.
+
+### Where it comes from
+
+Read `.coverage` (SQLite) directly — it *is* the bipartite relation, at a fraction of the
+size of any exported format:
+
+```sql
+SELECT DISTINCT f.path, c.context FROM line_bits lb
+  JOIN file f ON f.id = lb.file_id JOIN context c ON c.id = lb.context_id
+```
+
+`coverage lcov` and `coverage xml` have no `--show-contexts` option at all; gocover and
+JaCoCo XML cannot express a test identifier. Only the SQLite store and
+`coverage json --show-contexts` carry contexts, and SQLite is the cheaper of the two.
+
+**`COVERAGE_CORE=ctrace` is forced.** With `sysmon` — the default on Python 3.14+ where
+supported — dynamic contexts are silently dropped with a *warning*, not an error, producing
+a 90%-empty map on a run that exits 0. RTDD treats the `no-sysmon-context` warning as fatal.
+The consequence is that the fast core is unavailable and Python pays ~2× tracing overhead
+during instrumented runs.
 
 ### Concurrency
 
@@ -93,306 +131,351 @@ checksums is deferred to v2 (§10).
 ```
 
 Two agents editing different tests merge cleanly. Two agents editing the same test leave
-two lines for that test id; RTDD resolves the duplicate by taking the **set-union of `f`**.
+two lines; RTDD resolves by **set-union of `f`**, which can only widen.
 
-This resolution can only widen the selection. A merge conflict may make RTDD slower. It
-can never make RTDD miss a test. `rtdd map compact` collapses duplicates on demand.
+The honest scope of that guarantee: union merge cannot narrow **relative to its two parent
+maps**. It can and does leave the merged map stale **relative to the merged code** — branch
+B may have created an edge that neither parent recorded. Merge commits therefore escalate
+(§5).
 
-Committing the map means a fresh Harness worktree inherits it from the branch point and
-pays **zero seed cost** — the property that makes RTDD viable inside a parallel fleet.
+Committing the map means a fresh worktree inherits the branch point's map — fresh or stale —
+and pays no seed cost. That is what makes RTDD usable inside a parallel fleet.
 
 ### Lifecycle
 
-Seeded once by a full instrumented run (`rtdd seed`). Every subsequent cycle rewrites
-only the rows of the tests it just executed. The map self-heals as a byproduct of the
-loop it serves; there is no separate maintenance step and no scheduled rebuild.
+Seeded once by `rtdd seed`. Each run refreshes the rows of the tests it executed.
+
+**`f` is unioned, never replaced**, outside a full re-seed. A subset run legitimately
+records *less* coverage than the seed run — import-time and first-caller-wins lines migrate
+to whichever test runs first in that subset, and a failing test records a truncated prefix
+of its real path. Replacing on those runs silently narrowed rows in v1, on a single branch,
+with no merge involved. Only `rtdd seed` may shrink a row.
 
 ## 5. Selection
+
+### The changed set
+
+Defined explicitly, because v1 left it implicit and both natural definitions were wrong:
+
+```
+rtdd --base <ref>     default: HEAD
+```
+
+The changed set is the union of `git diff --name-only <base>` and
+`git status --porcelain -uall` (untracked files included — a just-written file is the most
+common input in TDD and `git diff` does not list it), with deletions retained (a deleted
+path still selects the tests whose `f` contains it).
+
+Known behaviour to measure, not hide: with `--base HEAD` the changed set grows monotonically
+across a long uncommitted session, so selection ratio degrades toward 1.0 the longer an
+agent runs without committing. §10 measures this as its own axis.
 
 ### Tiers
 
 | Tier | Contents | Triggered by |
 |---|---|---|
-| **RED** | *nothing runs; exit 1* | A changed instrumentable file whose T0 is empty — an uncovered change |
-| **skip** | *nothing runs; exit 0* | Change touches only documentation / markdown |
-| **T0** | Tests whose `f` intersects the changed file set | Default path |
-| **T1** | T0 ∪ tests covering any file in a changed file's directory | An opaque file changed; or a selected row's `c` is staler than `stale_commits` |
-| **T2** | Full suite | Map unseeded or schema-mismatched; dependency manifest changed; test-harness config changed; cycle counter hit `drift_guard`; explicit `rtdd verify` |
+| **direct** | Changed and newly-added test files, run as-is | Always, ahead of everything else |
+| **T0** | Tests whose `f` intersects the changed set | Default |
+| **T1** | T0 ∪ tests whose test module transitively imports an import-time-only changed file (§6) ∪ tests covering files in a changed opaque file's directory | Import-time-only change; opaque file changed; row staler than `stale_commits`; merge commit |
+| **T2** | Full suite | Map unseeded or schema-mismatched; dependency manifest changed; test-harness config changed; `drift_guard` reached; `rtdd verify` |
+| **empty** | Nothing selected — reported explicitly, distinct from "all passed" | Every under-selection path terminates here, so it is never silently green |
 
-Tier thresholds are configurable in `.rtdd/config.yaml`, with defaults:
+The **direct** tier exists because in v1 a newly written test had no map row and was
+therefore in no tier — meaning step 3 of v1's own agent loop never executed the test the
+agent had just written.
 
-| Knob | Default | Meaning |
-|---|---|---|
-| `stale_commits` | 50 | A selected row whose `c` is more than this many commits behind `HEAD` escalates to T1 |
-| `drift_guard` | 100 | Every N successful cycles, one T2 run executes regardless of tier |
-| `hub_threshold` | 0.40 | Fan-out fraction above which `doctor` reports a file as a hub |
-
-**Opaque files** are those coverage cannot attribute — fixtures, SQL, templates, YAML,
-JSON data. Coverage records that a test read `users.json` nowhere. The adapter declares
-them by glob, and a change to one escalates to T1 within its directory.
-
-**Full-escalation files** are those that can invalidate the whole map at once: dependency
-manifests (`go.mod`, `package.json`, `requirements.txt`, `Cargo.toml`, `pom.xml`) and
-test-harness configuration (`conftest.py`, `vitest.config.ts`, `TestMain`). Declared by
-the adapter, they go straight to T2.
+Defaults in `.rtdd/config.yaml`: `stale_commits: 50`, `drift_guard: 100`,
+`hub_threshold: 0.40`.
 
 ### Ranking
 
-T0 executes in relevance order, not map order:
+T0 runs in relevance order: descending `|f ∩ changed| / |f|`, then last-failed first, then
+ascending `|f|`, then ascending `d`.
 
-1. **Specificity** — descending `|f ∩ changed| / |f|`. A test covering only the changed
-   file outranks a test that covers it among five hundred others.
-2. **Last outcome** — `s == "fail"` first.
-3. **Focus** — ascending `|f|`.
-4. **Duration** — ascending `d`.
+Fail-fast is **opt-in** (`--fail-fast`), never implied. In v1 it was on by default in the
+red phase, which combined with last-failed-first ordering meant a quarantined failing test
+halted the run before the agent's own test executed.
 
-Ranking exists because of hub files. When `db.py` is touched and T0 is 8,000 tests,
-ordering is the only thing standing between the agent and a full-suite wait.
+## 6. The uncovered-change signal
 
-### Hard-RED semantics
+RTDD's second output, and the one with no equivalent in a static-graph tool.
 
-A changed instrumentable file with an empty T0 is an **uncovered change**. RTDD exits 1
-and refuses to emit green:
-
-```
-$ rtdd cycle
-  changed: src/auth/refresh.py  (new file)
-  T0 → {}   no test covers this file
-
-  RED: uncovered change
-  Write a test whose execution reaches src/auth/refresh.py, then re-run.
-```
-
-This is not a special case grafted onto TDD — it *is* red-green-refactor, with the map
-acting as a faster oracle for "is there a red?". It is also the claim that makes RTDD
-stricter than the thing it replaces: a full suite run on the same change prints
-`10000 passed` and tells the agent to move on.
-
-## 6. The cycle
+Computed **after** the selected tests run, from fresh coverage, against the changed line
+ranges from `git diff --unified=0`. Both sides are current, so there is no line-drift
+problem.
 
 ```
-rtdd status                  # is the map seeded? stale? which adapter?
-rtdd seed                    # one full instrumented run, builds the map
-rtdd cycle --expect red      # after writing a test: T0 ranked, fail-fast, assert a red exists
-rtdd cycle --expect green    # after implementing: full T0, assert all green, rewrite rows
-rtdd verify                  # commit boundary: T2 full run
-rtdd doctor                  # fan-out report — coupling hotspots
+$ rtdd run
+  changed: src/auth.py:40-58, src/constants.py:1-12
+  12 tests selected, ranked
+
+  ..........✓✓                                    12 passed  1.4s
+
+  UNCOVERED: src/auth.py:52-58  (7 changed lines, no executing test)
+  import-time: src/constants.py:1-12  (executed during collection, not attributed)
+```
+
+Three classes, and the distinction is the whole point:
+
+- **Covered** — an executing test touched these changed lines.
+- **Uncovered** — no test executed them. This is the real signal, and it is **line-granular**.
+  v1's file-granular version detected only new *files*; adding a function to an
+  already-covered file left T0 non-empty and reported green on uncovered code, which was the
+  exact pathology §1 opens with.
+- **Import-time** — executed, but attributed to no test. Reported separately and **never
+  counted as uncovered**.
+
+That third class is not a technicality. Measured on this machine: a `constants.py`
+containing a dataclass and a module constant, imported and asserted on by two passing tests,
+is attributed to **zero** test contexts, because pytest imports every test module during
+collection before any dynamic context is set. Under v1's rule that file hard-REDed while
+being correctly tested. The affected class is enormous — dataclasses, enums, config modules,
+Pydantic and Django models, route decorators, `__init__.py` re-exports.
+
+**Selecting for import-time-only files** is the one place RTDD uses static analysis: a file
+that appears only in the empty context cannot be reached through the coverage relation, so
+RTDD falls back to a Python AST import scan and selects tests whose module transitively
+imports it. Bounded, single-purpose, and applied only where dynamic coverage provably cannot
+answer — which is a better argument for a hybrid than the one v1 rejected on speculation.
+
+`rtdd run` exits nonzero **only** when a test fails. An uncovered report is information, not
+a verdict.
+
+## 7. Commands
+
+```
+rtdd status                  # adapter, map freshness, seed state
+rtdd seed                    # one full instrumented run; the only op that may shrink a row
+rtdd which                   # print ranked selection + uncovered report; run nothing
+rtdd run [--fail-fast]       # run the selection, refresh rows, print the uncovered report
+rtdd verify                  # full suite
+rtdd doctor                  # fan-out / coupling report
+rtdd explain <file>          # which tests cover this file
 rtdd map compact             # collapse duplicate rows after a union merge
-rtdd explain <file>          # which tests cover this file, and why it was selected
+rtdd init                    # install .gitattributes, config, and agent front-ends
 ```
 
-`--expect red` is a correctness check, not only a speed strategy. If the newly written
-test **passes** before any implementation exists, the test is broken — asserting nothing,
-or asserting something already true. RTDD fails the cycle on it. Standard TDD relies on
-the developer noticing; RTDD enforces it.
+`rtdd which` is the primary integration point for an agent — it is the "surface the context"
+operation TDAD's result argues for, and it costs one map lookup and one git diff.
 
-`--expect green` runs the full T0 rather than stopping at first failure, because the
-green phase's question is "do *all* affected tests pass", and rewrites the map rows for
-every test it ran.
+There is no `--expect red` / `--expect green`. RTDD reports what happened; the TDD discipline
+stays with the agent and its skill prompt, where it can be exercised without a tool that
+mistakes a characterization test for a broken one.
 
-### Agent loop
+## 8. The Python adapter
 
-```
-1. rtdd status
-2. write ONE test                    ← one behaviour, vertical slice
-3. rtdd cycle --expect red           ← must fail, for the right reason
-4. implement the minimum
-5. rtdd cycle --expect green
-6. refactor
-7. rtdd cycle --expect green
-8. repeat from 2
-9. rtdd verify                       ← before commit / PR
-```
+**v1 is Python-only.** v1-of-this-spec shipped Go and TypeScript as first-class adapters on
+a capability that does not exist in either ecosystem:
 
-## 7. Adapters
+- **JS:** Istanbul/v8 coverage carries aggregate counters with no test dimension.
+  [vitest#6735](https://github.com/vitest-dev/vitest/issues/6735) requests per-test
+  attribution; open since October 2024, no maintainer response. Per-test-file isolation
+  measured at **27.5×**. Batched attribution instead produces a ratchet that drives
+  selection ratio to 1.0 within a few cycles.
+- **Go:** default `-coverprofile` records count 0 for every package but the one under test;
+  `-coverpkg=./...` is mandatory and still gives no test dimension. Per-test requires a
+  prebuilt `-c` binary driven once per test (7 ms floor on a *trivial* package, re-running
+  `TestMain` each time), or injecting a `TestMain` wrapper into the user's repo. Subtests —
+  the dominant Go idiom — are invisible to `go test -list` and their names are not
+  round-trippable.
 
-A language is a **declarative YAML file**. This is what makes "any programming language"
-a real property rather than an aspiration — adding Elixir is a data file and a benchmark
-row, not a pull request against the engine.
+Adding a language is therefore **engine work**, not a data file. v1's "adapters as data"
+claim is withdrawn. The YAML declares what genuinely is declarative; execution and parsing
+are implemented per language.
 
 ```yaml
 name: python
 detect: ["pytest.ini", "pyproject.toml", "setup.cfg"]
-list:   "pytest --collect-only -q"
-seed:   "pytest --cov --cov-context=test --cov-report=json:{out}"
-subset: "pytest {tests} --cov --cov-context=test --cov-report=json:{out}"
-parse:  coverage-json
-failfast_flag: "-x"
-opaque: ["**/*.yaml", "**/*.yml", "**/*.sql", "**/fixtures/**", "**/*.json"]
+env:    { COVERAGE_CORE: ctrace }
+seed:   "pytest --cov={src} --cov-context=test --report-log={log}"
+subset: "pytest {tests} --cov={src} --cov-context=test --report-log={log}"
+coverage: sqlite            # read .coverage directly
+report:   pytest-reportlog  # source of `s` and `d`
+test_globs: ["tests/**/*.py", "**/test_*.py"]
+exit_codes: { 4: bad-selector, 5: no-tests-collected }
+opaque: ["**/*.yaml", "**/*.yml", "**/*.sql", "**/*.html", "**/*.j2", "**/fixtures/**"]
 full_escalate: ["requirements.txt", "pyproject.toml", "**/conftest.py"]
 ```
 
-| Key | Purpose |
-|---|---|
-| `detect` | Files whose presence selects this adapter |
-| `list` | Enumerate test ids |
-| `seed` / `subset` | Run all / run `{tests}`, with coverage, writing to `{out}` |
-| `parse` | Coverage format: `coverage-json`, `lcov`, `cobertura`, `gocover`, `jacoco-xml` |
-| `failfast_flag` | Appended in the red phase |
-| `opaque` | Globs that escalate to T1 |
-| `full_escalate` | Globs that escalate to T2 |
+Engine responsibilities the YAML cannot express, and which v1 omitted: stripping the
+`|run`/`|setup`/`|teardown` phase suffix from context ids; round-tripping parametrised ids
+containing `::`, `[`, `]`; normalising coverage paths against git paths; respecting the host
+repo's own `.coveragerc` source/omit settings so seed and subset agree on scope; chunking
+test ids (8,000 ids ≈ 613 KB — fits Linux `ARG_MAX`, is 74× over the Windows `CMD` limit,
+and pytest has no argfile option); and mapping exit codes 4 and 5, which otherwise look like
+test failures.
 
-Where a mature TIA tool already exists, the adapter **delegates** to it rather than
-reimplementing it. RTDD is not competing with `pytest-testmon`; it is giving an agent a
-uniform protocol over it.
+## 9. `rtdd doctor`, and what it cannot see
 
-**v1 ships three first-class adapters:** Python (pytest + coverage.py), TypeScript/JS
-(vitest/jest + v8/c8), Go (`go test -coverprofile`). Rust (`cargo-llvm-cov`) and Java
-(JUnit + JaCoCo) follow in v1.1 through the same spec. Shipping five half-tested adapters
-would poison the benchmark table, which is the repository's entire credibility.
+Ranks source files by fan-out — how many tests cover them. That number is a coupling metric
+computed in milliseconds from data already on disk, and it surfaces the hub files where
+selection ratio collapses.
 
-## 8. `rtdd doctor`
+**Documented limitation, stated in the tool's own output:** anything executed once per
+process gets a fan-out of 1. `@lru_cache`, module singletons, DI containers, session-scoped
+fixtures, `sync.Once` — the body runs during whichever test happened to go first, so the
+repo's most coupled file can appear as its cleanest. `doctor` prints this caveat alongside
+the table rather than letting the number mislead. It is also why fan-out is reported as a
+diagnostic and never used as an automatic escalation trigger.
 
-Ranks source files by **fan-out** — the number of tests whose `f` contains them.
+## 10. Benchmark
 
-That number is a coupling metric, computed in milliseconds from data already on disk. A
-file covered by 80% of the suite is a hub, and a hub is exactly where RTDD's selection
-ratio collapses. `doctor` names them.
+Two axes. The first answers the research question; the second establishes that the selector
+is competitive.
 
-This is where the original "relational project structure" idea lands: not as a rule the
-developer must follow, but as a **measurement** that makes coupling visibly, numerically
-expensive. The pressure toward one-test-per-unit structure comes from the number, not
-from a style guide.
+### Axis 1 — agent regression rate (primary)
 
-```
-$ rtdd doctor
-  fan-out hotspots — files covered by the most tests
+**SWE-bench Verified**, matching TDAD's methodology so the numbers are directly comparable
+to published ones.
 
-  src/db.py            8,142 tests   96.3%   ← selection ratio ~1.0, refactor candidate
-  src/types.ts         5,004 tests   59.2%
-  src/utils/index.ts   3,880 tests   45.9%
+| arm | regressions | source |
+|---|---|---|
+| vanilla | 6.08% | TDAD, published |
+| TDD procedural prose | 9.94% | TDAD, published |
+| TDAD static graph | 1.82% | TDAD, published |
+| **RTDD dynamic coverage** | **?** | this work |
 
-  p50 selection ratio: 1.8%   p90: 12.4%   worst: 96.3%
-```
+This is the only benchmark that can answer §3's question, and it is far cheaper than v1's
+mutation harness. Reproduce at least the vanilla arm locally rather than citing it, so the
+comparison is on one harness.
 
-## 9. Benchmark
+### Axis 2 — selection quality on real commits
 
-The benchmark is the repository's credibility. "20x faster" is worthless in isolation —
-anything is fast if it runs fewer tests. Speed and safety are published **in the same
-table**, or the claim is marketing.
+Replay the last N real commits of each corpus repo; ground truth is what the suite actually
+did. Real commits add files, rename, move code, and change fixtures — the classes mutation
+testing structurally cannot produce, and precisely where file-level TIA is weakest.
 
-### Method
-
-Mutation-based fault injection over real open-source repositories, fixed seed,
-CI-enforced on every release so the numbers cannot rot.
-
-```
-for each seeded mutant m in M:
-    apply m
-    F_full  = failing tests under a full suite run      # ground truth
-    F_rtdd  = failing tests under rtdd selection
-    detected(m) = |F_rtdd| > 0  whenever  |F_full| > 0
-    record: selection ratio, wall-clock, detected
-```
+**Baselines, all of them, or the comparison means nothing:** pytest-testmon (method-level
+checksums — finer-grained than RTDD v1, and the first thing a reviewer will ask about), a
+naive `tests/test_<module>.py` path heuristic (if RTDD does not clearly beat this, the map
+is unjustified), `pytest --lf`, a static import graph, `pytest -n auto` (the intervention a
+real team actually reaches for), and random selection at equal selection ratio.
 
 ### Metrics
 
-- **Selection ratio** (primary) — tests selected / tests total. Deterministic, machine-
-  independent, portable across repos. This is the headline speed number.
-- **Detection recall** (safety) — fraction of mutants that a full suite detects and RTDD
-  also detects. The number that decides whether RTDD is a tool or a footgun.
-- **Wall-clock delta** (secondary) — reported with disclosed hardware, never as the
-  primary claim.
+- **Change-level recall** with `F_rtdd ∩ F_full ≠ ∅` required — an unrelated flaky failure
+  must not score as a detection.
+- **Test-level recall** `|F_rtdd ∩ F_full| / |F_full|`. Both are published; v1 published only
+  the flattering one. Meta publishes both.
+- **Stratified by `|F_full|`, with the `|F_full| == 1` stratum broken out.** Single-killer
+  changes are the only place selection safety is genuinely under test; pooled recall is
+  mostly a measurement of hub coverage.
+- **Selected-duration fraction**, not just test count. Durations are heavy-tailed; selecting
+  2% of tests that happen to be the integration tests is not a 98% saving. Ekstazi selects a
+  small fraction and still reports only 32% average end-to-end reduction — that gap is the
+  finding.
+- **End-to-end wall-clock**, three columns: full uninstrumented / subset instrumented /
+  subset uninstrumented, so the ~2× instrumentation tax RTDD *adds* per cycle is visible.
+- **False-signal rate** — how often the uncovered report fires on a change that is in fact
+  adequately tested. Given §6's import-time class, this is the number that decides whether
+  anyone leaves the feature on, and v1 never measured it.
 
-### Reporting rules
+### Rules
 
-- Published as **p50 / p90 / worst**, never a bare mean. Hub-file changes are the worst
-  case and they get printed.
-- **Recall below 100% is printed and the misses are categorized** by cause (opaque file,
-  stale row, dynamic dispatch, flaky test). Hiding a miss is the one thing that would
-  make this repository worthless.
-- The corpus covers **every adapter shipped in the release** — three at v1 (Python,
-  TypeScript, Go), five at v1.1. An adapter without a benchmark row does not ship.
-- At least one benchmark repository must have a **genuinely slow suite**. Benchmarking a
-  30-second suite proves nothing about the 40-minute case RTDD exists to solve.
+- **Pre-register** the corpus: selection criteria and the frozen repo list published before
+  results, with an "attempted and excluded, with reason" table. Exclusions are where
+  cherry-picking hides.
+- **Never pool across repos.** Per-repo tables, or duration-weighted aggregates.
+- Shipped defaults only; the full config printed in the results table.
+- Every cycle counted, including escalations; escalation rate published as its own number.
+- Wall-clock only from disclosed hardware, never from CI runners.
+- **A pre-registered kill criterion**, chosen before Axis 1 runs: a stratified recall floor
+  below which the tool is not published. Without it, "recall below 100% is printed" is
+  unfalsifiable.
 
-### Headline demo
+## 11. Deferred
 
-A worked scenario, reproducible from a clone, where a full suite prints `10000 passed`
-on uncovered code while RTDD prints `RED: uncovered change`. This sells the safety claim
-in a way a table cannot.
+- **Method-level checksums.** testmon has done this since ~2016; matching it is a v2 goal,
+  not a v1 claim.
+- **JS and Go adapters.** JS needs a published Vitest coverage provider built on
+  `Profiler.takePreciseCoverage()` (verified to reset counters per call, ~1.2 ms on a small
+  process); Go needs either a prebuilt-binary driver or `runtime/coverage.ClearCounters()`
+  with an injected `TestMain`. Both are real packages, not YAML.
+- **Polyglot repos.** `detect` resolves to one adapter; rows would need an adapter tag.
+- **Time-budgeted selection.**
 
-## 10. Deferred to v2
-
-- **Adaptive symbol-level granularity.** When a file's fan-out exceeds a threshold,
-  upgrade it to per-symbol tracking with content checksums (checksums survive line
-  shifts; line numbers do not). Huge win exactly where file-level fails. Requires
-  tree-sitter parsing, which v1 deliberately avoids.
-- **Time-budgeted selection.** `--budget 60s` runs ranked tests until exhausted, reporting
-  partial verification. Deferred because probabilistic green sits badly beside v1's
-  hard-RED semantics.
-- **Rust and Java adapters.**
-- **`rtdd explain --graph`** — optional graphify export for human-readable blast radius.
-  Explicitly out of the hot path: LLM-extracted semantic edges are good for explanation
-  and unfit as an execution gate.
-
-## 11. Milestones
-
-v1 is one coherent effort but four shippable slices. Each ends at a demonstrable state.
+## 12. Milestones
 
 | # | Slice | Done when |
 |---|---|---|
-| **M1** | Engine + Python adapter | `seed`, `cycle --expect red/green`, `status`, hard-RED, map read/write/compact all work end to end on a real Python repo |
-| **M2** | Node + Go adapters, `doctor`, `explain` | Same loop passes on a TS repo and a Go repo; fan-out report lands |
-| **M3** | Benchmark harness | Mutation runner, corpus, result tables, `bench.yml` green in CI |
-| **M4** | Protocol + front-ends + release | `PROTOCOL.md` generating `dist/`, drift check in CI, GoReleaser, README with the published table |
+| **M1a** | mapstore + selector + `status`/`which`, driven by a hand-written fixture map | Tier logic, ranking, union-merge resolution, compaction, and changed-set computation all provable with no subprocess and no coverage |
+| **M1b** | Python adapter, `seed`, `run` | Full loop works on a real Python repo; SQLite reader, report-log parser, `ctrace` forcing, path normalisation, id round-tripping, argv chunking |
+| **M2** | Uncovered-change signal, `doctor`, `explain`, `init` | Line-level post-run report with the three classes; import-time fallback selection |
+| **M3** | Axis 2 — real-commit replay + all baselines | Per-repo tables against testmon, path heuristic, `--lf`, import graph, xdist, random |
+| **M4** | Axis 1 — SWE-bench Verified | The four-arm table, with the vanilla arm reproduced locally |
+| **M5** | Front-ends, release | `PROTOCOL.md` → `SKILL.md`/`AGENTS.md`/`.mdc`, drift check in CI, GoReleaser, README |
 
-M3 is the gate on publishing. Nothing goes to the VocanicZ GitHub with an unbenchmarked
-recall claim.
+M1a is deliberately first and adapter-free: it is where all the set, rank, and merge logic
+gets tested cheaply, before it collides with the ugly realities in M1b. v1 put all of this
+in one slice, which was the entire engine.
 
-## 12. Repository layout
+**M3 and M4 gate publication.** No recall or regression claim ships unmeasured, and the kill
+criterion is set before M4 runs.
+
+## 13. Repository layout
 
 ```
 rtdd/
-  cmd/rtdd/                 CLI entrypoint
+  cmd/rtdd/
   internal/
-    mapstore/               JSONL read/write, union-merge resolution, compaction
-    selector/               tier rules, ranking
-    adapter/                YAML loading, detection, command templating
-    coverage/               format parsers: coverage-json, lcov, cobertura, gocover, jacoco
-    doctor/                 fan-out analysis
-  adapters/
-    python.yaml  node.yaml  go.yaml
-  protocol/
-    PROTOCOL.md             single source of the agent-facing instructions
-  dist/                     GENERATED — never hand-edited
-    SKILL.md                Claude Code
-    AGENTS.md               Codex / Cursor / Copilot
-    cursor/rules/rtdd.mdc   Cursor
+    mapstore/     JSONL I/O, union resolution, compaction
+    selector/     tiers, ranking, changed-set computation
+    adapter/      detection, templating, exit-code mapping, path normalisation
+    coverage/     .coverage SQLite reader, report-log parser
+    uncovered/    hunk parsing, line-class computation
+    doctor/
+  adapters/python.yaml
+  protocol/PROTOCOL.md
+  dist/           GENERATED — SKILL.md, AGENTS.md, cursor/rules/rtdd.mdc
   bench/
-    harness/                mutation runner
-    repos.yaml              benchmark corpus
-    results/                committed result tables
-  .github/workflows/
-    ci.yml  bench.yml
+    swebench/     Axis 1
+    replay/       Axis 2
+    corpus.yaml   pre-registered, frozen
+    results/
+  docs/specs/  docs/audits/
 ```
 
-`dist/` is generated from `protocol/PROTOCOL.md` by `make protocol`, and CI fails if the
-generated files are out of date. Front-ends cannot drift.
+`dist/` regenerates from `protocol/PROTOCOL.md`; CI fails if stale. `rtdd init` installs
+them into a host repo — including a merge strategy for an existing `AGENTS.md`/`CLAUDE.md`,
+which v1 had no answer for.
 
-## 13. Decisions of record
+## 14. Decisions of record
+
+Decisions carried from v1, unchanged:
 
 | # | Decision | Rationale |
 |---|---|---|
-| D1 | Coverage-derived edges, not static analysis | Ground truth: sees dynamic dispatch, DI, reflection. Zero LLM tokens in the hot path. Already transitive — no depth parameter, no leak. |
-| D2 | File-level granularity | Stable under refactor; line numbers are not. Over-selection is safe. |
-| D3 | Hard-RED on empty T0 | Makes RTDD stricter than full-suite TDD; the map's emptiness is the signal. |
-| D4 | Go static binary | Zero runtime deps forced into the host repo; ~5ms startup against a per-cycle tax. |
-| D5 | Committed sorted JSONL + union merge | Fleet worktrees inherit the map; conflicts widen, never narrow. |
-| D6 | Accept hub files; rank + fail-fast; publish the distribution | Honest about the weak case; ranking preserves time-to-red where it matters most. |
-| D7 | Mutation-based benchmark, recall published with speed | The only way the speed claim means anything. |
-| D8 | Adapters as declarative YAML | Makes language-agnosticism structural rather than aspirational. |
-| D9 | Three adapters at v1, not five | A half-tested adapter poisons the benchmark table. |
-| D10 | `rtdd verify` advisory, not enforced | Mandating it would fight every adopting repo's existing CI. |
+| D1 | Coverage-derived edges, not a static graph | Sees dynamic dispatch, DI, reflection. Zero LLM tokens in the hot path. Now framed as the testable hypothesis, not an assumed win. |
+| D4 | Go static binary | Zero runtime deps forced into the host repo. (Startup time was the wrong rationale — the runner subprocess dominates. Distribution is the real one.) |
+| D5 | Committed sorted JSONL + union merge | Worktrees inherit the map; conflicts widen relative to their parents. Viable now that only file-level rows are stored (~2 MB at 10k tests). |
 
-## 14. Open questions
+Decisions reversed or replaced:
 
-- **Seed cost on very large suites.** A 40-minute instrumented seed may be 2–3× slower
-  than an uninstrumented run. Needs measurement before recommending a default workflow;
-  may justify a `rtdd seed --shard` mode for CI parallelism.
-- **Per-test coverage collection cost per language.** `--cov-context=test` in Python is
-  well-supported; per-test attribution in the JS and Go ecosystems is less uniform and
-  may require running tests in smaller batches. This is an adapter-level measurement
-  task and is the highest-risk unknown in v1.
-- **Flaky tests.** A flaky failure inside T0 is indistinguishable from a real red. v1
-  reports it as a red; whether RTDD should track flakiness in `s` is unresolved.
+| # | v1 said | v2 says | Why |
+|---|---|---|---|
+| D2 | File-level granularity | File-level for **selection**; line-level, ephemeral, post-run for the **uncovered signal** | Over-selection is safe for selection and unsafe for the RED rule; v1 transferred the argument illegitimately |
+| D3 | Hard-RED on empty T0 | An uncovered **report**, line-granular, exit 0 | Import-time attribution made the gate fire on correctly-tested files (measured); TDAD measured procedural gating as net-harmful |
+| D6 | Fail-fast on by default in the red phase | Opt-in only | Combined with last-failed-first ranking, it halted runs before the agent's own test executed |
+| D7 | Mutation benchmark, recall + speed | SWE-bench regression rate + real-commit replay, with baselines | The mutation harness was degenerate (≈100% recall by construction), infeasible (455 CPU-h, ~$218/run), and blind to the uncovered path |
+| D8 | Adapters as declarative YAML | YAML declares; the engine implements per language | Three of five parse formats cannot carry a test id; JS and Go need real packages |
+| D9 | Three adapters at v1 | One — Python | Two of the three rested on a capability that does not exist |
+| D11 | *(new)* | `f` unions, never replaces, outside `seed` | Subset runs and failing tests silently narrowed rows |
+| D12 | *(new)* | Changed set defined explicitly, untracked and deleted files included | `git diff HEAD` omits untracked files, so the flagship case was invisible |
+| D13 | *(new)* | `COVERAGE_CORE=ctrace` forced; `no-sysmon-context` fatal | Default on Python 3.14+ silently drops ~90% of contexts and exits 0 |
+| D14 | *(new)* | Static import scan for import-time-only files | The one case dynamic coverage provably cannot reach |
+
+## 15. Open questions
+
+- **Does dynamic coverage actually beat a static graph for agent regressions?** The project's
+  reason to exist. Unknown until M4. If TDAD's static graph matches or beats RTDD on
+  SWE-bench Verified, the honest outcome is to publish that result and contribute to TDAD
+  rather than ship a competitor.
+- **The kill criterion.** The stratified-recall floor must be chosen and published before M4
+  runs, not after the number is known.
+- **Seed cost at real scale.** ~2× tracing overhead is measured on a small pure-Python
+  suite; I/O-bound suites should be lower, but this is unmeasured on a 10k-test repo.
+- **Session-scoped fixture attribution.** First-caller-wins gives shared setup a fan-out of
+  1 (§9). Whether RTDD should special-case fixture-executed lines the way it special-cases
+  import-time lines is unresolved, and it is the largest remaining correctness gap.
+- **Flaky tests.** A flaky failure in the selection is indistinguishable from a real one.
+  Whether to track flakiness in `s` is unresolved.
