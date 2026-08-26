@@ -591,3 +591,36 @@ rtdd which  [--base <ref>] [--json] [--adapter <path>]
 `adapter.LoadAll` are M1b; detection replaces the default in M1b and the flag stays as an
 override. `rtdd which --json` output is **provisional in M1a**; plan M2 task "JSON output"
 freezes the schema.
+
+### internal/gitctx/gittest — test-support helpers
+
+Git is never mocked, so every git-dependent test needs a real `git init` in `t.TempDir()`;
+at the same time `internal/gitctx` is the only part of the tree permitted to invoke git.
+`gittest` reconciles the two: it lives under `internal/gitctx/`, and it is the single place
+outside that package's own tests where a test fixture repository is built. Nothing outside
+a `_test.go` file may import it.
+
+```go
+package gittest
+
+func Init(t *testing.T) string                                // real `git init` in t.TempDir()
+func Run(t *testing.T, dir string, args ...string) string     // a git subcommand, pinned env
+func Write(t *testing.T, dir, rel, content string)            // write dir/rel, mkdir -p
+func Commit(t *testing.T, dir, msg string) string             // stage all + commit, returns short SHA
+func HeadShort(t *testing.T, dir string) string
+```
+
+### cmd/rtdd — internal to `main`
+
+```go
+func run(args []string, stdout, stderr io.Writer) int
+type env struct { root, mapPath, metaPath, adPath string; m *mapstore.Map; meta mapstore.Meta; ad *adapter.Adapter }
+// loadEnv resolves the repo root and loads .rtdd/. The returned int is the process exit
+// code to use when err is non-nil: 3 for a fatal environment error, 2 for a bad config.
+func loadEnv(adapterPath string) (*env, int, error)
+func cmdStatus(args []string, stdout, stderr io.Writer) int
+```
+
+`main` is a one-liner around `run` so every command is testable with in-memory writers and
+an asserted exit code. `env.ad` is nil when no adapter file is present — that is a reported
+state (`adapter: none`), not an error, because `adapter.Detect` is M1b.
