@@ -49,10 +49,12 @@ today. "Uncovered change is a failure" is SonarQube's new-code coverage gate, Co
 patch status, and `diff-cover`.
 
 Most directly: **[TDAD (arXiv:2603.17973)](https://arxiv.org/abs/2603.17973)**, March 2026,
-builds a source↔test dependency map so an agent knows which tests to verify before
-committing, and ships it as an agent skill file. On SWE-bench Verified it reduced
-regressions from **6.08% to 1.82%**. A [TypeScript port](https://github.com/fmguerreiro/tdad-ts)
-exists.
+builds a source↔test dependency map by AST-parsing Python into a graph of files, functions,
+classes and tests, so an agent knows which tests to verify before committing. Reference
+implementation: [github.com/pepealonso95/TDAD](https://github.com/pepealonso95/TDAD)
+(Python, MIT). On SWE-bench Verified (n=100, Qwen3-Coder 30B) its **GraphRAG + TDD-prose**
+arm reduced regressions from **6.08% to 1.82%** — a 72% reduction — at a small cost in
+resolution rate (31% → 29%).
 
 **RTDD does not claim to have invented any of this, and the README will say so.**
 
