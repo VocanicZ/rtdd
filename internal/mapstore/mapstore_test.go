@@ -1,7 +1,12 @@
 package mapstore
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -176,5 +181,94 @@ func TestUnionNilComparatorKeepsExistingC(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.F, []string{"src/a.py", "src/b.py"}) {
 		t.Errorf("F = %#v, want the union", got.F)
+	}
+}
+
+// printOffences reports every expression in src that would write to stdout or stderr.
+// The engine's rule is that cmd/ is the only place that prints; a library package that
+// prints corrupts the JSON and JSONL streams its callers emit.
+func printOffences(src string) ([]string, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "src.go", src, 0)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	ast.Inspect(f, func(n ast.Node) bool {
+		switch e := n.(type) {
+		case *ast.SelectorExpr:
+			pkg, ok := e.X.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			name := pkg.Name + "." + e.Sel.Name
+			switch {
+			case pkg.Name == "fmt" && (strings.HasPrefix(e.Sel.Name, "Print") || strings.HasPrefix(e.Sel.Name, "Fprint")),
+				pkg.Name == "log",
+				name == "os.Stdout", name == "os.Stderr":
+				out = append(out, name)
+			}
+		case *ast.CallExpr:
+			if id, ok := e.Fun.(*ast.Ident); ok && (id.Name == "print" || id.Name == "println") {
+				out = append(out, id.Name)
+			}
+		}
+		return true
+	})
+	return out, nil
+}
+
+func TestPrintOffencesDetectsWriters(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want []string
+	}{
+		{"clean package", "package p\n\nfunc f() int { return 1 }\n", nil},
+		{"fmt.Println", "package p\n\nimport \"fmt\"\n\nfunc f() { fmt.Println(\"x\") }\n", []string{"fmt.Println"}},
+		{"fmt.Fprintf to stderr", "package p\n\nimport (\"fmt\"; \"os\")\n\nfunc f() { fmt.Fprintf(os.Stderr, \"x\") }\n", []string{"fmt.Fprintf", "os.Stderr"}},
+		{"log.Printf", "package p\n\nimport \"log\"\n\nfunc f() { log.Printf(\"x\") }\n", []string{"log.Printf"}},
+		{"builtin println", "package p\n\nfunc f() { println(\"x\") }\n", []string{"println"}},
+		{"fmt.Sprintf is not printing", "package p\n\nimport \"fmt\"\n\nfunc f() string { return fmt.Sprintf(\"x\") }\n", nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := printOffences(tc.src)
+			if err != nil {
+				t.Fatalf("printOffences: %v", err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("printOffences = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPackagePrintsNothingOutsideTests(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	scanned := 0
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		b, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		offences, err := printOffences(string(b))
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		if len(offences) > 0 {
+			t.Errorf("%s writes to stdout/stderr via %v; only cmd/ may print", name, offences)
+		}
+		scanned++
+	}
+	if scanned == 0 {
+		t.Fatal("scanned no non-test source files; the guard would pass vacuously")
 	}
 }
