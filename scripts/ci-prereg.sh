@@ -33,6 +33,13 @@ echo "==> dry-run gate"
 # would actually be handed, which is where a driver-side sentence would appear.
 uv run python run_arm.py --dry-run
 
+echo "==> acceptance gate"
+# The end-to-end acceptance suite for M4 Tasks 1-12: the shipped entry points run
+# as subprocesses and asserted on, all five refusal cases in one walk, the failing
+# fixtures that prove the non-procedural guarantee is load-bearing, and one fixture
+# pass from raw records to tables.md. Named separately so a red build points at it.
+uv run pytest tests/test_acceptance.py -q
+
 echo "==> preflight gate"
 # The gate must REFUSE while the pre-registration is unsigned, and PASS once a
 # human has signed and tagged it. Either verdict is correct for its state; a

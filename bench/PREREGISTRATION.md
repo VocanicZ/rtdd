@@ -5,6 +5,7 @@ sample_seed: 20260826
 instance_list_sha256: 25abcba0175745095ae7f7c4deec046dfb667175bdcf595c3c2910879d0e2247
 model: Qwen3-Coder-30B-A3B-Instruct
 arms: [vanilla, tdd, tdad, rtdd, rtdd_tdd]
+tdad_commit: 73d1234d3fd02817bc58f1c03b434aca5027ea78
 stratified_recall_floor:
 vanilla_equivalence_k: 2
 signed_by:
@@ -124,6 +125,14 @@ nor the code it is compared against can move between signing and publication.
 |---|---|
 | RTDD, the implementation under test | the commit this file's `prereg-m4` tag points at, recorded in `bench/results/swebench/config.json` as `rtdd_commit` |
 | TDAD, arm C's context source | `73d1234d3fd02817bc58f1c03b434aca5027ea78` of `https://github.com/pepealonso95/TDAD.git` (MIT) |
+
+TDAD's pin is also carried machine-readably as `tdad_commit` in the front-matter above, and
+the acceptance suite asserts it against `providers.tdad.TDAD_PIN`, so the pin the arm runs
+and the pin this file promises cannot drift apart. RTDD's own pin is not a field here
+because it cannot be one: the commit under test is the commit this file is signed in, which
+is the commit `prereg-m4` points at. `prereg.assert_tagged` proves the signed file is
+reachable from that tag, and `report.write_config` writes the resolved sha into
+`bench/results/swebench/config.json` as `rtdd_commit`.
 
 Arm C **runs** TDAD's reference implementation on this harness at that commit; it does not
 cite TDAD's published figures. That is what puts all five arms on one scaffold, one model and

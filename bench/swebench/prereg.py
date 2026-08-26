@@ -90,6 +90,21 @@ def _git(repo_root: Path, *args: str) -> str:
     return proc.stdout.strip()
 
 
+def _tag_exists(repo_root: Path, tag: str) -> bool:
+    """Whether ``tag`` is a ref here.
+
+    Asked separately so an absent tag refuses in this module's own words. Left
+    to ``rev-list``, the refusal would be git's "ambiguous argument" text, which
+    names the tag but tells the reader nothing about what to do about it.
+    """
+    proc = subprocess.run(
+        ["git", "-C", str(repo_root), "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}"],
+        capture_output=True,
+        text=True,
+    )
+    return proc.returncode == 0
+
+
 def assert_tagged(repo_root: Path, path: Path, tag: str = "prereg-m4") -> str:
     """Return the commit the tag points at, or refuse.
 
@@ -97,6 +112,11 @@ def assert_tagged(repo_root: Path, path: Path, tag: str = "prereg-m4") -> str:
     (or equal to) the tag, so the signed values cannot be edited after tagging
     without moving the tag — which is visible in the reflog.
     """
+    if not _tag_exists(repo_root, tag):
+        raise PreregError(
+            f"the tag {tag} does not exist — the pre-registration has not been frozen; "
+            f"a human signs {path.name} and then runs `git tag {tag}`"
+        )
     tag_sha = _git(repo_root, "rev-list", "-n", "1", tag)
     rel = path.resolve().relative_to(repo_root.resolve()).as_posix()
     last = _git(repo_root, "log", "-n", "1", "--format=%H", "--", rel)
