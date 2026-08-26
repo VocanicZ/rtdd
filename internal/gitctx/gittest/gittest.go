@@ -8,6 +8,7 @@
 package gittest
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +21,16 @@ import (
 // developer's global git config.
 func Run(t *testing.T, dir string, args ...string) string {
 	t.Helper()
+	out, err := run(dir, args...)
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return out
+}
+
+// run is the single shell-out this package exists to contain. The environment is
+// pinned so the result never depends on the developer's global git config.
+func run(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
@@ -30,9 +41,29 @@ func Run(t *testing.T, dir string, args ...string) string {
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		return string(out), fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, out)
 	}
-	return string(out)
+	return string(out), nil
+}
+
+// InitRepo initialises dir as a git repository with a deterministic identity and
+// commits everything already in it. It is the *testing.T-free door into this
+// package, for helpers such as internal/pytestfixture that build a real repo
+// outside a test body and must not re-invent the shell-out.
+func InitRepo(dir, msg string) error {
+	for _, args := range [][]string{
+		{"init", "-q", "-b", "main"},
+		{"config", "user.email", "rtdd@example.com"},
+		{"config", "user.name", "rtdd test"},
+		{"config", "commit.gpgsign", "false"},
+		{"add", "-A"},
+		{"commit", "-q", "-m", msg},
+	} {
+		if _, err := run(dir, args...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Init creates an empty repository with a deterministic identity in t.TempDir() and

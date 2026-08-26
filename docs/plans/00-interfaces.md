@@ -38,6 +38,7 @@ internal/gitctx/     changed set, commit distance, merge detection
 internal/adapter/    YAML load, detection, file classification
 internal/coverage/   .coverage SQLite reader, context normalisation
 internal/report/     pytest-reportlog parser
+internal/pytestfixture/  test-only: materialises a real pytest project on disk
 internal/selector/   tiers + ranking
 internal/runner/     subprocess execution, argv chunking
 internal/uncovered/  line classification
@@ -216,6 +217,17 @@ type Outcome struct {
 // ReadReportLog parses pytest --report-log JSONL. Only "call"-phase TestReport
 // entries produce an Outcome; setup/teardown errors map to Status "error".
 func ReadReportLog(path string) ([]Outcome, error)
+```
+
+## internal/pytestfixture
+
+Test-only. Materialises a tiny real pytest project so coverage/report/runner can be
+tested against the actual toolchain. Never imported by `cmd/`.
+
+```go
+func Materialize(dir string) error
+func InitGit(dir string) error
+func HavePytest() bool
 ```
 
 ## internal/selector
@@ -510,10 +522,13 @@ const (
 type Block struct{ Path string; Action Action }
 func Install(repoRoot string, force bool) ([]Block, error)
 
-// internal/pytestfixture — TEST-ONLY helper, never imported by non-test code
-func HavePytest(t *testing.T) bool          // skips the test when pytest is absent
-func InitGit(t *testing.T, dir string)      // real `git init` + initial commit
-func Materialize(t *testing.T, files map[string]string) string // returns a temp repo root
+// internal/pytestfixture — TEST-ONLY helper, never imported by non-test code.
+// Shipped shape, see the internal/pytestfixture section above: the fixture's contents
+// are pinned by the package, so callers pass a directory rather than a file map, and
+// nothing takes a *testing.T.
+func Materialize(dir string) error          // writes the pinned pytest project into dir
+func InitGit(dir string) error              // real `git init` + initial commit
+func HavePytest() bool                      // reports whether pytest is on PATH
 ```
 
 ## Rule for future additions
