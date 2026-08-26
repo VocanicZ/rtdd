@@ -40,6 +40,7 @@ internal/coverage/   .coverage SQLite reader, context normalisation
 internal/report/     pytest-reportlog parser
 internal/pytestfixture/  test-only: materialises a real pytest project on disk
 internal/selector/   tiers + ranking
+internal/importscan/  static import fallback for import-time-only files
 internal/runner/     subprocess execution, argv chunking
 internal/uncovered/  line classification
 internal/doctor/     fan-out analysis
@@ -379,6 +380,18 @@ type FatalExitError struct {
 func (e *FatalExitError) Error() string
 ```
 
+## internal/importscan
+
+RTDD's single use of static analysis (spec §6, D14). Shells out to an embedded Python AST
+script; the Go engine never parses Python itself.
+
+```go
+// Scan returns, for each target, the test files whose module transitively imports it.
+// Import cycles terminate via a visited set. A target no module resolves to maps to an
+// empty slice, never a missing key.
+func Scan(repoRoot string, targets, tests []string) (map[string][]string, error)
+```
+
 ## internal/uncovered
 
 ```go
@@ -635,11 +648,13 @@ func Summarize(reports []FileReport) Summary
 // function returning a string; it ships as `const Caveat` so the text is one immutable
 // string every caller shares.
 
-// internal/importscan
-// Scanner shells out to an embedded Python AST script. The engine is Go and must
-// never parse Python itself. Satisfies selector.Inputs.ImportOnly.
-type Scanner struct{ RepoRoot string; Python string }
-func (s *Scanner) Scan(target string, testFiles []string) ([]string, error)
+// internal/importscan — SUPERSEDED by the `## internal/importscan` section above, which is
+// the shipped shape. The planning sketch that stood here declared a `Scanner` struct with
+// exported RepoRoot/Python fields and a per-target `Scan` method; the shipped package is a
+// single package-level `Scan` taking every target at once, because one Python subprocess
+// that walks the tree once is the whole reason the scan is shelled out rather than inlined.
+// The memoising `Scanner` that satisfies selector.Inputs.ImportOnly is a later task and will
+// be recorded here when it lands.
 
 // internal/initrepo — SUPERSEDED by the `## internal/initrepo` section above, which is
 // the shipped shape. The planning sketch that stood here named the enum `Action` and the record
