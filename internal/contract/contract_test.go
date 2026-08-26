@@ -360,6 +360,31 @@ func TestInterfaceContractRecordsInitrepo(t *testing.T) {
 	}
 }
 
+// M2 Task 4 adds internal/importscan to the contract. The M1a planning sketch declared a
+// `Scanner` struct with exported RepoRoot/Python fields and a per-target `Scan` method; the
+// shipped package is a single package-level Scan over all targets at once, because one
+// Python subprocess walking the tree once is the whole point of shelling out. Both shapes in
+// one document would say the shipped one is wrong.
+func TestInterfaceContractRecordsImportscan(t *testing.T) {
+	src := readRepoFile(t, "docs/plans/00-interfaces.md")
+
+	if !strings.Contains(src, "internal/importscan/") {
+		t.Error("00-interfaces.md must list internal/importscan/ in the package layout")
+	}
+	const want = "func Scan(repoRoot string, targets, tests []string) (map[string][]string, error)"
+	if !strings.Contains(src, want) {
+		t.Errorf("00-interfaces.md must record %q", want)
+	}
+	for _, stale := range []string{
+		"type Scanner struct{ RepoRoot string; Python string }",
+		"func (s *Scanner) Scan(target string, testFiles []string) ([]string, error)",
+	} {
+		if strings.Contains(src, stale) {
+			t.Errorf("00-interfaces.md still carries the superseded importscan signature %q", stale)
+		}
+	}
+}
+
 // M1b Task 4 adds ExpandTests to the contract, and narrows Expand to reject {tests}. The
 // doc is the interface of record: a signature that exists only in code is a drift the next
 // task would inherit, and here the drift is silent — a caller that reached Expand with a
