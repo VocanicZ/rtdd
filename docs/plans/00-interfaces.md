@@ -181,8 +181,18 @@ func (a *Adapter) IsFullEscalate(rel string) bool
 // IsInstrumentable: matches SourceGlobs AND is not a test file AND is not Opaque.
 func (a *Adapter) IsInstrumentable(rel string) bool
 
-// Expand substitutes {tests} {src} {out} {log} into a command template and returns argv.
+// Expand substitutes {src} {out} {log} into a command template and returns argv.
+// The template is tokenised on whitespace BEFORE substitution, so a substituted value
+// is never re-split. A template containing {tests} is an error here; an unrecognised
+// {placeholder} is an error, never a literal passed through to the runner.
 func (a *Adapter) Expand(tmpl string, vars map[string]string) ([]string, error)
+
+// ExpandTests is Expand for a template containing {tests}. Each test id becomes its own
+// argv element, spliced verbatim with no quoting or escaping, so ids containing spaces,
+// '[', ']', '-' or '|' round-trip intact — measured real ids include
+// `tests/test_a.py::test_param[1-one two]`. An empty tests slice is an error: a subset
+// command with the ids dropped would run the whole suite. CONTRACT ADDITION.
+func (a *Adapter) ExpandTests(tmpl string, vars map[string]string, tests []string) ([]string, error)
 ```
 
 ## internal/coverage
