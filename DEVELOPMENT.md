@@ -96,3 +96,41 @@ refuse and with which message, the deliberately failing fixtures that prove the
 non-procedural guarantee is load-bearing, and which plan tasks are out of scope because they
 are human-in-the-loop. `bench/swebench/tests/test_acceptance.py` is the executable form of
 the same page, and CI runs it.
+
+## The Axis 2 replay benchmark (`bench/replay/`)
+
+`bench/` is its own uv project — separate from `bench/swebench/` — and replays real
+commits of the frozen corpus in `bench/corpus.yaml`. Its results are committed under
+`bench/results/`; `bench/work/` (clones, worktrees, per-repo virtualenvs) and
+`bench/cache/` are not.
+
+```bash
+cd bench
+uv sync
+uv run python -m replay.cli doctor          # must print `publishable: yes`
+uv run python -m replay.cli replay --repo flask --replay-commits 25 --wallclock-sample 10
+uv run python -m replay.cli session --repo flask --cycles 25   # drift.json
+uv run python -m replay.cli report                             # aggregate.md
+```
+
+`doctor` needs the binary under test on `PATH`, which is the same static build the CI
+gate produces:
+
+```bash
+CGO_ENABLED=0 go build -o ~/bin/rtdd ./cmd/rtdd
+```
+
+Three things about the run are worth knowing before reading a table:
+
+- **Each corpus repo gets its own virtualenv**, built by `replay/envsetup.py` from that
+  repo's `install:` recipe in `corpus.yaml`. Only `uv pip install ...` commands are
+  executed; anything else is an `EnvError`. The harness's own instruments go in first so
+  the repo's pins win — flask replays commits from before pytest 9 removed
+  `_pytest.monkeypatch.notset`, so its recipe pins `pytest<9` and is believed.
+- **The worktree's source goes in front on `PYTHONPATH`.** The repo is installed editable
+  from the clone, and a `.pth` entry sorts after everything `PYTHONPATH` contributes; a
+  replay whose worktree does not win that lookup scores every commit against the clone's
+  code and publishes an empty `F_full`.
+- **`--replay-commits` bounds the walk** and the number it used is published in
+  `config.json` and in `summary.md`'s header, so a bounded table always says how many
+  commits produced it. Omit it to replay the corpus's own count.

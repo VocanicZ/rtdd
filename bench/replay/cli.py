@@ -10,15 +10,18 @@ deeper; this module is what a human and CI both actually run.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
+import os
 import pathlib
 import sys
 from collections.abc import Sequence
 
 from replay import rtddio
 from replay.cache import Cache
-from replay.config import RunConfig, canonical_json, tool_versions
+from replay.config import TRACKED_TOOLS, RunConfig, canonical_json, tool_versions
 from replay.corpus import CorpusError, load_corpus
+from replay.envsetup import EnvError, activate, provision, tool_versions_for, with_source_path
 from replay.gitwork import add_worktree, clone_pinned, remove_worktree, replay_points
 from replay.hardware import CIWallClockRefused, Hardware, probe, require_wallclock
 from replay.replay import ReplayOptions, replay_repo, strategy_order
@@ -39,6 +42,7 @@ BENCH = pathlib.Path(__file__).resolve().parents[1]
 CORPUS = BENCH / "corpus.yaml"
 LOCK = BENCH / "corpus.lock"
 WORK = BENCH / "work"
+ENVS = BENCH / "work" / "envs"
 CACHE = BENCH / "cache"
 RESULTS = BENCH / "results"
 
@@ -64,6 +68,7 @@ def _config(
     strategies: Sequence[str],
     replay_commits: int,
     version: str | None = None,
+    tools: Sequence[tuple[str, str]] | None = None,
 ) -> RunConfig:
     if version is None:
         try:
@@ -73,7 +78,7 @@ def _config(
     return RunConfig(
         corpus_digest=corpus_digest,
         rtdd_version=version,
-        tool_versions=tool_versions(),
+        tool_versions=tuple(tools) if tools is not None else tool_versions(),
         strategies=tuple(sorted(strategies)),
         variants=(
             tuple(args.variants.split(",")) if getattr(args, "variants", None) else ("natural",)
@@ -149,8 +154,23 @@ def cmd_replay(args) -> int:
         return EXIT_GUARD
     wallclock_enabled = _wallclock_enabled(hw, args)
     strategies = tuple(args.strategies.split(",")) if args.strategies else DEFAULT_STRATEGIES
-    cfg = _config(corpus.digest, args, strategies, spec.replay_commits)
+    commits = args.replay_commits or spec.replay_commits
+    spec = dataclasses.replace(spec, replay_commits=commits)
     repo = clone_pinned(spec.url, spec.pin, WORK / "repos" / spec.id)
+    try:
+        env = provision(spec, repo, ENVS)
+    except EnvError as exc:
+        print(str(exc), file=sys.stderr)
+        return EXIT_ENV
+    os.environ.update(activate(env))
+    os.environ.pop("PYTHONHOME", None)
+    cfg = _config(
+        corpus.digest,
+        args,
+        strategies,
+        commits,
+        tools=tool_versions_for(env.python, TRACKED_TOOLS),
+    )
     output = replay_repo(
         repo=repo,
         spec=spec,
@@ -164,6 +184,7 @@ def cmd_replay(args) -> int:
             wallclock_sample=args.wallclock_sample,
             wallclock_enabled=wallclock_enabled,
             rtdd_binary=args.rtdd_binary,
+            python=str(env.python),
         ),
         corpus=corpus,
     )
@@ -184,27 +205,56 @@ def cmd_session(args) -> int:
         print(str(exc), file=sys.stderr)
         return EXIT_GUARD
     repo = clone_pinned(spec.url, spec.pin, WORK / "repos" / spec.id)
+    try:
+        env = provision(spec, repo, ENVS)
+    except EnvError as exc:
+        print(str(exc), file=sys.stderr)
+        return EXIT_ENV
+    os.environ.update(activate(env))
+    os.environ.pop("PYTHONHOME", None)
     points = replay_points(repo, spec.pin, args.cycles)
     work = WORK / "trees" / f"{spec.id}-drift"
     try:
         add_worktree(repo, points[0].parent, work)
+        # Same reason as in the replay: the editable install pins the clone, and a
+        # `.pth` entry sorts after `PYTHONPATH`, so without this the drift session
+        # runs the pin's source against an older tree's tests.
+        os.environ["PYTHONPATH"] = with_source_path(
+            os.environ, work, spec.source_globs
+        )["PYTHONPATH"]
         rtddio.seed(work, binary=args.rtdd_binary)
         curve = run_drift(
-            repo, spec.id, work, points, python=sys.executable, binary=args.rtdd_binary
+            repo, spec.id, work, points, python=str(env.python), binary=args.rtdd_binary
         )
     finally:
         remove_worktree(repo, work)
-    cfg = _config(corpus.digest, args, DEFAULT_STRATEGIES, args.cycles)
+    cfg = _config(
+        corpus.digest,
+        args,
+        DEFAULT_STRATEGIES,
+        args.cycles,
+        tools=tool_versions_for(env.python, TRACKED_TOOLS),
+    )
     out_dir = RESULTS / spec.id
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "drift.json").write_text(canonical_json(curve.to_dict()), encoding="utf-8")
-    (out_dir / "config.json").write_text(
-        canonical_json({"config": cfg.to_dict(), "hardware": hw.to_dict()}), encoding="utf-8"
+    # The curve carries its own config rather than overwriting `config.json`: that
+    # file stamps the replay that produced `summary.md`, and a drift session runs a
+    # different one — its own cycle count, `rtdd` alone.
+    (out_dir / "drift.json").write_text(
+        canonical_json({**curve.to_dict(), "config": cfg.to_dict(), "hardware": hw.to_dict()}),
+        encoding="utf-8",
     )
+    config = out_dir / "config.json"
+    if not config.exists():
+        config.write_text(
+            canonical_json({"config": cfg.to_dict(), "hardware": hw.to_dict()}), encoding="utf-8"
+        )
     for p in curve.points:
         print(
             f"cycle {p.cycle:3d}  changed {p.changed_files:4d}  "
-            f"selected {p.selected:5d}/{p.total_tests:5d}  ratio {p.ratio():.3f}  {p.tier}"
+            f"selected {p.selected:5d}/{p.total_tests:5d}  "
+            f"ratio {'n/a (did not collect)' if p.ratio() is None else format(p.ratio(), '.3f')}"
+            f"  {p.tier}"
         )
     return EXIT_OK
 
@@ -236,6 +286,16 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--variants", default="natural,probe")
     r.add_argument("--strategies", default="")
     r.add_argument("--wallclock-sample", type=int, default=20, dest="wallclock_sample")
+    r.add_argument(
+        "--replay-commits",
+        type=int,
+        default=0,
+        dest="replay_commits",
+        help=(
+            "replay this many commits instead of the corpus's own count; "
+            "the number used is published in config.json and summary.md"
+        ),
+    )
     r.add_argument("--no-wallclock", action="store_true")
     r.add_argument("--seed", type=int, default=1)
     r.set_defaults(func=cmd_replay)

@@ -468,3 +468,191 @@ def test_state_a_strategy_built_in_the_base_tree_is_not_reported_as_a_change(
     )
 
     assert out.commits[0].changed == ("src/alpha.py",)
+
+
+def test_the_orchestrator_runs_the_suite_in_the_provisioned_interpreter(synth, cache_root):
+    """`opts.python` wins over `sys.executable`.
+
+    A corpus repo's suite needs the repo installed, which the harness's own
+    interpreter never has; a replay that quietly falls back to `sys.executable`
+    collects nothing and records every commit as skipped.
+    """
+    seen: list[str] = []
+    # A second name for this interpreter: the runs still work, and the path they
+    # were given is distinguishable from `sys.executable`.
+    shim_dir = synth.path.parent / "shim" / "bin"
+    shim_dir.mkdir(parents=True, exist_ok=True)
+    shim = shim_dir / "python"
+    if not shim.exists():
+        shim.symlink_to(sys.executable)
+    spec = _spec(synth)
+    cfg = _cfg(strategies=("full",))
+    opts = ReplayOptions(
+        variants=("natural",), strategy_ids=("full",), wallclock_sample=0, python=str(shim)
+    )
+    import replay.replay as mod
+
+    original = mod.collect
+
+    def spy(work, python=sys.executable):
+        seen.append(python)
+        return original(work, python=sys.executable)
+
+    mod.collect = spy
+    try:
+        replay_repo(
+            repo=synth.path,
+            spec=spec,
+            cfg=cfg,
+            cache=Cache(cache_root, cfg.digest()),
+            hw=probe(),
+            work_root=synth.path.parent / "trees",
+            opts=opts,
+        )
+    finally:
+        mod.collect = original
+    assert seen and set(seen) == {str(shim)}
+
+
+def test_the_materialised_worktree_wins_the_import_over_the_editable_clone(synth, cache_root):
+    """`PYTHONPATH` names the worktree while its commit is being scored.
+
+    The corpus repo is installed editable from the clone, so without this the
+    suite imports the clone's source at every commit and `F_full` is empty for
+    the whole replay.
+    """
+    import os
+
+    import replay.replay as mod
+
+    seen: list[str] = []
+    original = mod.collect
+
+    def spy(work, python=sys.executable):
+        seen.append(os.environ.get("PYTHONPATH", ""))
+        return original(work, python=python)
+
+    spec = _spec(synth)
+    cfg = _cfg(strategies=("full",))
+    before = os.environ.get("PYTHONPATH")
+    mod.collect = spy
+    try:
+        replay_repo(
+            repo=synth.path,
+            spec=spec,
+            cfg=cfg,
+            cache=Cache(cache_root, cfg.digest()),
+            hw=probe(),
+            work_root=synth.path.parent / "trees-pp",
+            opts=ReplayOptions(variants=("natural",), strategy_ids=("full",), wallclock_sample=0),
+        )
+    finally:
+        mod.collect = original
+    assert seen
+    for entry in seen:
+        assert entry.split(os.pathsep)[0].startswith(str(synth.path.parent / "trees-pp"))
+    assert os.environ.get("PYTHONPATH") == before, "the replay must not leak PYTHONPATH"
+
+
+def test_a_base_tree_that_collects_nothing_is_skipped_not_fatal(synth, cache_root, monkeypatch):
+    """A historical commit whose suite will not collect is data, not an abort.
+
+    pytest exits 5 on an empty collection and 4 on a bad selector; a replay of two
+    hundred real commits will meet both. The commit belongs in `skipped` with a
+    reason, and the walk continues — one unbuildable commit must not throw away
+    the other one hundred and ninety-nine.
+    """
+    from replay.runner import NoTestsCollectedError
+
+    import replay.replay as mod
+
+    calls = {"n": 0}
+    original = mod.run_full
+
+    def sometimes_empty(work, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise NoTestsCollectedError("pytest exit 5 (no tests collected)")
+        return original(work, **kw)
+
+    monkeypatch.setattr(mod, "run_full", sometimes_empty)
+    spec = _spec(synth)
+    cfg = _cfg(strategies=("full",))
+    out = replay_repo(
+        repo=synth.path,
+        spec=spec,
+        cfg=cfg,
+        cache=Cache(cache_root, cfg.digest()),
+        hw=probe(),
+        work_root=synth.path.parent / "trees-skip",
+        opts=ReplayOptions(variants=("natural",), strategy_ids=("full",), wallclock_sample=0),
+    )
+    assert any(s["reason"] == "no-tests-collected" for s in out.skipped)
+    assert out.commits, "the remaining commits must still be replayed"
+
+
+def test_a_refused_rtdd_run_is_published_not_fatal(synth, cache_root, monkeypatch):
+    """`rtdd run` exits 2 when its map names a test the tree no longer collects.
+
+    That is the shipped tool's real behaviour against a stale map — the runner
+    rejects the selector and rtdd says so — and a replay of real history meets it
+    on the first commit that deletes a test. It costs this cycle its uncovered
+    report, which is a measurement about RTDD worth publishing, and it must not
+    end the replay.
+    """
+    import replay.replay as mod
+    from replay.rtddio import RtddError
+
+    def refuse(work, binary="rtdd", base="HEAD"):
+        raise RtddError("rtdd run --base HEAD --json exited 2: bad-selector")
+
+    monkeypatch.setattr(mod.rtddio, "run", refuse)
+    monkeypatch.setattr(mod.rtddio, "seed", lambda work, binary="rtdd": None)
+    from replay.rtddio import WhichResult
+
+    monkeypatch.setattr(
+        mod.rtddio,
+        "which",
+        lambda work, binary="rtdd", base="HEAD": WhichResult(
+            tier="T0", reason="stub", tests=(ADD,), direct=(), changed=(), cycles=1, wall_ms=1
+        ),
+    )
+    spec = _spec(synth)
+    cfg = _cfg(strategies=("full",))
+    out = replay_repo(
+        repo=synth.path,
+        spec=spec,
+        cfg=cfg,
+        cache=Cache(cache_root, cfg.digest()),
+        hw=probe(),
+        work_root=synth.path.parent / "trees-refused",
+        opts=ReplayOptions(
+            variants=("natural",), strategy_ids=("rtdd", "full"), wallclock_sample=0
+        ),
+    )
+    assert out.commits, "the replay must continue past a refused rtdd run"
+    assert out.rtdd_run_errors
+    assert out.rtdd_run_errors[0]["reason"] == "rtdd-run-refused"
+
+
+def test_a_second_replay_reproduces_the_records_byte_for_byte(synth, tmp_path, cache_root):
+    """A re-run at an identical config must produce identical records.
+
+    `bench/results/` is committed and reviewed as a diff, so a number that moves
+    without a cause is noise a reviewer has to rule out by hand. `select_ms` is
+    measured, so the selection itself has to come out of the cache on the second
+    pass rather than being recomputed and re-timed.
+    """
+    spec = _spec(synth, commits=2)
+    cfg = _cfg(strategies=("full", "path"), commits=2)
+    cache = Cache(cache_root, cfg.digest())
+    opts = ReplayOptions(
+        variants=("natural",),
+        strategy_ids=("full", "path"),
+        wallclock_sample=0,
+        wallclock_enabled=False,
+    )
+    kwargs = dict(repo=synth.path, spec=spec, cfg=cfg, cache=cache, hw=probe({}), opts=opts)
+    first = replay_repo(work_root=tmp_path / "w1", **kwargs)
+    second = replay_repo(work_root=tmp_path / "w2", **kwargs)
+    assert [r.to_dict() for r in first.strategies] == [r.to_dict() for r in second.strategies]

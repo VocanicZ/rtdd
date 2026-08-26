@@ -156,6 +156,7 @@ def build_summary(output, strategy_ids: Sequence[str], hw: Hardware) -> dict:
         ),
         "by_variant": per_variant,
         "false_signal": falsesignal.summarise(head_uncovered, len(head_commits)),
+        "rtdd_run_errors": len(getattr(output, "rtdd_run_errors", ())),
         "isolation": isolation_table(output),
         "wallclock": wallclock_table(output, hw),
     }
@@ -181,6 +182,51 @@ def verdict_line(summary: dict) -> str:
         f"selected-duration fraction rtdd={_num(rd)} vs path={_num(pd)} — "
         f"{SUCCESS_WORDING if beats else FAILURE_WORDING}"
     )
+
+
+def _compare(r: dict, p: dict, label: str, bound: str) -> str | None:
+    rr = r["change_level_recall"]["value"]
+    pr = p["change_level_recall"]["value"]
+    if rr is None or pr is None:
+        return None
+    rd = r["selected_duration_fraction"]["value"]
+    pd = p["selected_duration_fraction"]["value"]
+    beats = rr > pr and (rd is None or pd is None or rd <= pd)
+    return (
+        f"verdict ({label}{bound}): change-level recall rtdd={rr:.3f} vs "
+        f"path heuristic={pr:.3f}; selected-duration fraction rtdd={_num(rd)} vs "
+        f"path={_num(pd)} — {SUCCESS_WORDING if beats else FAILURE_WORDING}"
+    )
+
+
+def secondary_verdict_lines(summary: dict) -> list[str]:
+    """The same comparison on every non-primary variant, each labelled.
+
+    Real commits are pushed green, so a `natural` population can detect nothing at
+    all and leave the pre-registered comparison reading `not computable` — a
+    summary that gates nothing. `probe` exists in the plan for exactly that case.
+    It never becomes the verdict: it seeds every map-based strategy at the child
+    commit and is therefore an upper bound, so it is printed under its own label,
+    beside the primary line and never in place of it.
+    """
+    primary = summary.get("primary_variant")
+    out: list[str] = []
+    for variant, per in sorted(summary.get("by_variant", {}).items()):
+        if variant == primary:
+            continue
+        r, p = per.get("rtdd"), per.get("path")
+        if not r or not p:
+            continue
+        bound = (
+            ", upper bound — map seeded at the child commit, never pooled with "
+            "`natural`"
+            if variant == "probe"
+            else ""
+        )
+        line = _compare(r, p, variant, bound)
+        if line:
+            out.append(line)
+    return out
 
 
 def _headline_rows(summary: dict) -> list[str]:
@@ -221,6 +267,9 @@ def render_markdown(summary: dict, cfg: RunConfig, hw: Hardware) -> str:
     )
     lines.append("")
     lines.append(verdict_line(summary))
+    for extra in secondary_verdict_lines(summary):
+        lines.append("")
+        lines.append(extra)
     lines.append("")
     lines.append(f"## Per-strategy — `{primary}`, all strata pooled within this repo")
     lines.append("")
@@ -246,6 +295,12 @@ def render_markdown(summary: dict, cfg: RunConfig, hw: Hardware) -> str:
     lines.append(f"- fired on {fs['fired']} of {fs['cycles']} cycles ({fmt(fs['fire_rate'])})")
     lines.append(f"- change-level false-signal rate: {fmt(fs['change_false_signal_rate'])}")
     lines.append(f"- line-level false-signal rate: {fmt(fs['line_false_signal_rate'])}")
+    lines.append(
+        f"- `rtdd run` refused on {summary.get('rtdd_run_errors', 0)} of {fs['cycles']} "
+        "cycles — the shipped "
+        "binary exits 2 rather than execute a map that names a test the tree no longer "
+        "collects, and those cycles have no uncovered report"
+    )
     lines.append("")
     lines.append("## Isolation")
     iso = summary["isolation"]

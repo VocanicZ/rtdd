@@ -30,3 +30,23 @@ Three rules the layout enforces:
   comparing RTDD against the naive path heuristic, printed win or lose.
 
 `bench/results/.cache/` is the one thing here that *is* gitignored.
+
+## The first published table
+
+`bench/results/flask/` is the first real replay: 25 consecutive commits of `flask` at
+the frozen pin, both variants, all eight strategies, on disclosed hardware off CI.
+Reproduce it with
+
+```bash
+cd bench && uv run python -m replay.cli replay --repo flask --replay-commits 25 --wallclock-sample 10
+```
+
+and `git diff --stat bench/results/flask/` must come back empty — a cached, identical
+config reproduces the same bytes, selection timings included.
+
+Its verdict fell against RTDD, and
+[`docs/results/axis2-first-replay.md`](../../docs/results/axis2-first-replay.md) records
+that rather than the run being repeated with different settings: the `natural`
+population had no detecting commits at this length, so the pre-registered criterion is
+undecided there, and on the `probe` upper bound RTDD wins recall but not at equal or
+better selected duration, which is what the criterion asks for.

@@ -311,7 +311,12 @@ def seed(work: pathlib.Path, binary: str = "rtdd") -> None:
     Any non-zero exit is fatal: seeding is the only operation that may shrink a
     map, so a partial seed produces a narrowed selection at every later commit.
     """
-    _invoke(work, [binary, "seed"])
+    # Exit 1 means a test failed *while seeding*; the map is written either way,
+    # and a base tree with a red test is measured and subtracted by
+    # `clean_tree_failures`. Only 2 (usage/config) and 3 (fatal environment) are
+    # faults here — treating a red suite as fatal would abandon the replay at the
+    # first commit whose history happened to be red.
+    _invoke(work, [binary, "seed"], _RUN_OK_CODES)
 
 
 def which(work: pathlib.Path, binary: str = "rtdd", base: str = "HEAD") -> WhichResult:

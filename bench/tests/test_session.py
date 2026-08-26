@@ -53,6 +53,7 @@ def test_ratio_and_serialisation():
         "selected": 8,
         "total_tests": 20,
         "tier": "T0",
+        "collect_failed": False,
         "selection_ratio": 0.4,
     }
 
@@ -208,3 +209,38 @@ def test_run_drift_rejects_a_worktree_that_is_not_at_the_first_parent(synth, tmp
             python=sys.executable,
             select=lambda w: _which(1),
         )
+
+
+def test_a_cycle_whose_tree_will_not_collect_publishes_no_ratio(synth, tmp_path, monkeypatch):
+    """An uncommitted session eventually reaches a tree pytest cannot collect.
+
+    Twenty-five real commits piled into one working tree pass through
+    intermediate states no commit ever had, and one of them will not collect. The
+    denominator is then unknown — not one. Falling back to the selection size
+    publishes `ratio 1.000`, which reads as "RTDD selected the whole suite" when
+    what happened is that nothing was counted.
+    """
+    import replay.session as mod
+
+    work = tmp_path / "work"
+    points = _points(synth)
+    monkeypatch.setattr(mod, "collect", lambda work, python=None: ())
+    monkeypatch.setattr(mod, "materialise_natural", lambda work, repo, point: None)
+    monkeypatch.setattr(mod, "working_changed_paths", lambda work: ())
+    monkeypatch.setattr(mod, "git", lambda work, *a: points[0].parent)
+    curve = mod.run_drift(
+        synth.path,
+        "synth",
+        work,
+        points[:1],
+        python="python",
+        select=lambda w: WhichResult(
+            tier="T2", reason="r", tests=("a::x",), direct=(), changed=(), cycles=1, wall_ms=1
+        ),
+    )
+    p = curve.points[0]
+    assert p.collect_failed is True
+    assert p.total_tests == 0
+    assert p.ratio() is None
+    assert p.to_dict()["selection_ratio"] is None
+    assert p.to_dict()["collect_failed"] is True

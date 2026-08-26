@@ -97,6 +97,11 @@ class StrategyRecord:
     escalated: bool
     reason: str
     select_ms: int
+    #: Ids the base tree collected and this commit does not — a rename or a
+    #: deletion seen from state built at the parent. Dropped from `selected`
+    #: because they cannot run, published because a shrunken count on its own
+    #: does not say why.
+    stale_dropped: tuple[str, ...] = ()
 
     def to_dict(self) -> dict:
         return {
@@ -110,6 +115,8 @@ class StrategyRecord:
             "escalated": self.escalated,
             "reason": self.reason,
             "select_ms": self.select_ms,
+            "stale_dropped": list(self.stale_dropped),
+            "n_stale_dropped": len(self.stale_dropped),
         }
 
     @classmethod
@@ -123,6 +130,7 @@ class StrategyRecord:
             escalated=bool(d["escalated"]),
             reason=d["reason"],
             select_ms=int(d["select_ms"]),
+            stale_dropped=tuple(d.get("stale_dropped", ())),
         )
 
 

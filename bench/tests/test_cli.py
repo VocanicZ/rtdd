@@ -9,7 +9,9 @@ caller can forget.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
+import sys
 import textwrap
 
 import pytest
@@ -90,6 +92,7 @@ def stub_replay(monkeypatch):
     def fake_replay_repo(*, repo, spec, cfg, cache, hw, work_root, opts, **kw):
         seen["opts"] = opts
         seen["cfg"] = cfg
+        seen["spec_commits"] = spec.replay_commits
         return ReplayOutput()
 
     def fake_write_results(out_dir, output, cfg, hw, strategy_ids, drift=None):
@@ -270,3 +273,149 @@ def test_report_regenerates_the_aggregate_from_committed_summaries(bench, capsys
 def test_the_exit_codes_are_distinct_and_meaningful():
     assert cli.EXIT_OK == 0
     assert len({cli.EXIT_OK, cli.EXIT_GUARD, cli.EXIT_ENV}) == 3
+
+
+# --- the per-repo environment --------------------------------------------
+
+
+@pytest.fixture
+def stub_provision(monkeypatch, tmp_path):
+    """Record what the CLI asks for, without building a real venv."""
+    from replay.envsetup import RepoEnv
+
+    seen: dict = {}
+
+    def fake_provision(spec, repo, root, **kw):
+        seen["spec"] = spec
+        seen["root"] = pathlib.Path(root)
+        venv = tmp_path / "envs" / spec.id
+        (venv / "bin").mkdir(parents=True, exist_ok=True)
+        python = venv / "bin" / "python"
+        if not python.exists():
+            python.symlink_to(sys.executable)
+        return RepoEnv(spec.id, venv, python, "d" * 64)
+
+    monkeypatch.setattr(cli, "provision", fake_provision)
+    return seen
+
+
+def test_replay_runs_the_corpus_repo_in_its_own_provisioned_interpreter(
+    bench, stub_replay, stub_provision, monkeypatch
+):
+    _no_ci(monkeypatch)
+    rc = cli.main(["--rtdd-binary", _fake_rtdd(bench), "replay", "--repo", "synth"])
+    assert rc == cli.EXIT_OK
+    env_python = stub_provision["spec"].id
+    assert stub_replay["opts"].python.endswith(f"envs/{env_python}/bin/python")
+    # `adapters/python.yaml` runs a bare `pytest`, so the venv has to win the
+    # PATH lookup the rtdd binary itself performs.
+    assert pathlib.Path(stub_replay["opts"].python).parent == pathlib.Path(
+        os.environ["PATH"].split(os.pathsep)[0]
+    )
+
+
+def test_replay_commits_can_be_bounded_and_the_bound_is_published(
+    bench, stub_replay, stub_provision, monkeypatch
+):
+    _no_ci(monkeypatch)
+    rc = cli.main(
+        ["--rtdd-binary", _fake_rtdd(bench), "replay", "--repo", "synth", "--replay-commits", "2"]
+    )
+    assert rc == cli.EXIT_OK
+    # The published config has to say how many commits produced the numbers.
+    assert stub_replay["cfg"].replay_commits == 2
+    assert stub_replay["spec_commits"] == 2
+
+
+def test_replay_defaults_to_the_frozen_commit_count(
+    bench, stub_replay, stub_provision, monkeypatch
+):
+    _no_ci(monkeypatch)
+    cli.main(["--rtdd-binary", _fake_rtdd(bench), "replay", "--repo", "synth"])
+    assert stub_replay["cfg"].replay_commits == 3
+    assert stub_replay["spec_commits"] == 3
+
+
+def test_session_runs_the_drift_worktree_with_its_own_source_in_front(
+    bench, stub_provision, monkeypatch, tmp_path
+):
+    """The drift session needs the same import fix the replay has.
+
+    It seeds `rtdd` in a worktree at an older commit while the repo is installed
+    editable from the clone at the pin; without the worktree's source in front of
+    `PYTHONPATH` the suite imports the pin's flask against the older tree's tests,
+    which does not even collect.
+    """
+    _no_ci(monkeypatch)
+    monkeypatch.setattr(cli, "RESULTS", tmp_path / "results")
+    seen: dict = {}
+
+    def fake_clone(url, pin, dest):
+        dest.mkdir(parents=True, exist_ok=True)
+        return dest
+
+    class _Point:
+        parent = "p"
+
+    monkeypatch.setattr(cli, "clone_pinned", fake_clone)
+    monkeypatch.setattr(cli, "replay_points", lambda repo, pin, n: [_Point()])
+    monkeypatch.setattr(cli, "add_worktree", lambda repo, sha, work: None)
+    monkeypatch.setattr(cli, "remove_worktree", lambda repo, work: None)
+
+    def record_seed(work, binary="rtdd"):
+        seen["pythonpath"] = os.environ.get("PYTHONPATH", "")
+        seen["work"] = pathlib.Path(work)
+
+    monkeypatch.setattr(cli.rtddio, "seed", record_seed)
+
+    from replay.session import DriftCurve
+
+    monkeypatch.setattr(cli, "run_drift", lambda *a, **kw: DriftCurve("synth", "p", ()))
+    rc = cli.main(["--rtdd-binary", _fake_rtdd(bench), "session", "--repo", "synth", "--cycles", "2"])
+    assert rc == cli.EXIT_OK
+    assert seen["pythonpath"].split(os.pathsep)[0].startswith(str(seen["work"]))
+
+
+def test_session_does_not_overwrite_the_replay_config_that_produced_the_table(
+    bench, stub_provision, monkeypatch, tmp_path
+):
+    """`drift.json` lands beside `summary.md`, and must not replace its `config.json`.
+
+    A drift session runs a different config — its own cycle count, one strategy —
+    so writing it over the replay's `config.json` would leave the published table
+    stamped with a config that did not produce it, which is the one thing the
+    results layout exists to prevent.
+    """
+    _no_ci(monkeypatch)
+    results = tmp_path / "results"
+    (results / "synth").mkdir(parents=True)
+    existing = '{"config":{"replay_commits":25},"hardware":{}}\n'
+    (results / "synth" / "config.json").write_text(existing, encoding="utf-8")
+    monkeypatch.setattr(cli, "RESULTS", results)
+
+    def fake_clone(url, pin, dest):
+        dest.mkdir(parents=True, exist_ok=True)
+        return dest
+
+    monkeypatch.setattr(cli, "clone_pinned", fake_clone)
+    monkeypatch.setattr(cli, "replay_points", lambda repo, pin, n: [object()])
+    monkeypatch.setattr(cli, "add_worktree", lambda repo, sha, work: None)
+    monkeypatch.setattr(cli, "remove_worktree", lambda repo, work: None)
+
+    class _Point:
+        parent = "p"
+
+    monkeypatch.setattr(cli, "replay_points", lambda repo, pin, n: [_Point()])
+    monkeypatch.setattr(cli.rtddio, "seed", lambda work, binary="rtdd": None)
+
+    from replay.session import DriftCurve
+
+    monkeypatch.setattr(cli, "run_drift", lambda *a, **kw: DriftCurve("synth", "p", ()))
+    rc = cli.main(["--rtdd-binary", _fake_rtdd(bench), "session", "--repo", "synth", "--cycles", "4"])
+    assert rc == cli.EXIT_OK
+    assert (results / "synth" / "config.json").read_text(encoding="utf-8") == existing
+    drift = json.loads((results / "synth" / "drift.json").read_text(encoding="utf-8"))
+    # The curve still carries the config that produced it — just not by
+    # overwriting somebody else's.
+    assert drift["config"]["replay_commits"] == 4
+    assert drift["hardware"]
