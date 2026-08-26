@@ -35,6 +35,11 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 		return 3
 	}
 
+	// allTests is the enumerated suite. adapter.List lands in M1b, so in M1a it is always
+	// empty and every T2 selection is a partial list — which is exactly what `complete`
+	// and the note below report.
+	var allTests []string
+
 	merge, _ := gitctx.IsMergeCommit(e.root, "HEAD")
 	distance := func(sha string) int {
 		d, derr := gitctx.CommitDistance(e.root, sha)
@@ -49,13 +54,16 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 		Changes:  changes,
 		Adapter:  e.ad,
 		Cfg:      selector.DefaultConfig(),
+		AllTests: allTests,
 		Cycles:   e.meta.Cycles,
 		Merge:    merge,
 		Distance: distance,
 	})
 
+	warnings := whichWarnings(e)
+
 	if *asJSON {
-		return emitWhichJSON(stdout, stderr, e, *base, changes, sel)
+		return emitWhichJSON(stdout, stderr, e, *base, changes, sel, allTests, warnings)
 	}
 
 	fmt.Fprintf(stdout, "base:     %s\n", *base)
@@ -76,14 +84,34 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 	for _, id := range sel.Tests {
 		fmt.Fprintf(stdout, "  %s\n", id)
 	}
+	for _, w := range warnings {
+		fmt.Fprintf(stdout, "\nWARNING: %s\n", w)
+	}
 	if sel.Tier == selector.TierEmpty {
 		fmt.Fprintf(stdout, "\nNOTE: an empty selection is not a pass. Nothing was checked.\n")
 	}
-	if sel.Tier == selector.TierT2 && len(sel.Tests) == 0 {
+	// Gated on the suite being unenumerated, not on the selection being empty: a T2
+	// selection that also carries a direct test is still a partial list of the full suite,
+	// and reading it as "T2 satisfied by one test" is exactly the under-run this note exists
+	// to prevent.
+	if sel.Tier == selector.TierT2 && len(allTests) == 0 {
 		fmt.Fprintf(stdout, "\nNOTE: T2 means the full suite. rtdd does not enumerate it in M1a "+
-			"(adapter.List is M1b), so no test ids are listed.\n")
+			"(adapter.List is M1b), so the %d test id(s) listed above are not the whole run.\n",
+			len(sel.Tests))
 	}
 	return 0
+}
+
+// whichWarnings are the conditions under which the selection is narrower than it looks.
+// `status` already reports a missing adapter; `which` is the command agents actually call,
+// and it used to run with file classification silently disabled.
+func whichWarnings(e *env) []string {
+	var out []string
+	if e.ad == nil {
+		out = append(out, fmt.Sprintf("no adapter (%s not found) - file classification is disabled: "+
+			"no changed file can be recognised as a test file, so the direct tier is empty", e.adPath))
+	}
+	return out
 }
 
 type jsonLineRange struct {
@@ -110,10 +138,21 @@ type whichJSON struct {
 	Tests    []string     `json:"tests"`
 	Changed  []jsonChange `json:"changed"`
 	MapTests int          `json:"map_tests"`
+	// Adapter is the loaded adapter's name, or "" when no adapter file was found.
+	Adapter string `json:"adapter"`
+	// Complete reports whether Tests is the whole set to run. It is false for a T2
+	// selection whose suite was not enumerated: the list is then a partial one.
+	Complete bool     `json:"complete"`
+	Warnings []string `json:"warnings"`
 }
 
-func emitWhichJSON(stdout, stderr io.Writer, e *env, base string, changes []gitctx.Change, sel selector.Selection) int {
+func emitWhichJSON(stdout, stderr io.Writer, e *env, base string, changes []gitctx.Change,
+	sel selector.Selection, allTests, warnings []string) int {
 	head, _ := gitctx.HeadSHA(e.root)
+	adapterName := ""
+	if e.ad != nil {
+		adapterName = e.ad.Name
+	}
 	out := whichJSON{
 		Base:     base,
 		Head:     head,
@@ -123,6 +162,9 @@ func emitWhichJSON(stdout, stderr io.Writer, e *env, base string, changes []gitc
 		Tests:    nonNilStrings(sel.Tests),
 		Changed:  make([]jsonChange, 0, len(changes)),
 		MapTests: e.m.Len(),
+		Adapter:  adapterName,
+		Complete: !(sel.Tier == selector.TierT2 && len(allTests) == 0),
+		Warnings: nonNilStrings(warnings),
 	}
 	for _, c := range changes {
 		jc := jsonChange{

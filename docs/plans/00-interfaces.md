@@ -522,7 +522,16 @@ Added by [`01-m1a-core.md`](01-m1a-core.md). These are part of the contract.
 // MatchGlob reports whether rel matches a slash-separated glob pattern.
 // "*" and "?" match within one path segment; "**" matches zero or more whole segments.
 func MatchGlob(pattern, rel string) bool
+
+// ValidateGlob reports whether pattern is a well-formed glob.
+func ValidateGlob(pattern string) error
 ```
+
+`adapter.Load` runs `ValidateGlob` over every glob field (`test_globs`, `source_globs`,
+`opaque`, `full_escalate`), so a malformed pattern is a configuration error (exit 2) that
+names the offending field and pattern. `MatchGlob` panics on a pattern `ValidateGlob`
+rejects: returning `false` would hide a typo behind a plausible "this is not a test file",
+which is what let a bad `test_globs` classify nothing and empty the direct tier.
 
 ### internal/mapstore
 
@@ -591,6 +600,16 @@ rtdd which  [--base <ref>] [--json] [--adapter <path>]
 `adapter.LoadAll` are M1b; detection replaces the default in M1b and the flag stays as an
 override. `rtdd which --json` output is **provisional in M1a**; plan M2 task "JSON output"
 freezes the schema.
+
+`rtdd which` may never narrow the selection silently. Two fields carry that guarantee into
+the JSON, and the M2 schema freeze inherits both:
+
+- `"complete"` — `false` when the tier is T2 and the suite was not enumerated, i.e. when
+  `tests` is a partial list of the run. Direct tests present in the list do not make it
+  complete. The human output prints the matching note under the same condition.
+- `"warnings"` — non-empty when the selection is narrower than it looks. In M1a the one
+  warning is a missing adapter, which disables file classification entirely; `"adapter"`
+  is `""` in that case. The human output prints the same text as a `WARNING:` line.
 
 ### internal/gitctx/gittest — test-support helpers
 

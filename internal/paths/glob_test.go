@@ -1,6 +1,10 @@
 package paths
 
-import "testing"
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
 
 func TestMatchGlob(t *testing.T) {
 	tests := []struct {
@@ -35,4 +39,58 @@ func TestMatchGlob(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A malformed glob must be a loud configuration error, never a silent non-match.
+// Swallowing path.ErrBadPattern is how a typo'd test_globs classifies nothing at all
+// and the direct tier — the one tier that must never depend on the map — goes empty.
+func TestValidateGlob(t *testing.T) {
+	valid := []string{
+		"pyproject.toml",
+		"tests/**/*.py",
+		"**/test_*.py",
+		"src/a?.py",
+		"**",
+		"**/fixtures/**",
+		"tests/[a-z]*.py",
+	}
+	for _, p := range valid {
+		if err := ValidateGlob(p); err != nil {
+			t.Errorf("ValidateGlob(%q) = %v, want nil", p, err)
+		}
+	}
+
+	bad := []string{
+		"",              // an empty glob declares nothing
+		"tests/[a-*.py", // unterminated character class
+		"[a-",           // unterminated, whole pattern
+		"src/**/[!.py",  // unterminated negated class
+		"a[",            // trailing open bracket
+	}
+	for _, p := range bad {
+		err := ValidateGlob(p)
+		if err == nil {
+			t.Errorf("ValidateGlob(%q) = nil, want an error", p)
+			continue
+		}
+		if p != "" && !strings.Contains(err.Error(), p) {
+			t.Errorf("ValidateGlob(%q) error = %q, want it to name the offending pattern", p, err)
+		}
+	}
+}
+
+// MatchGlob must not be able to hide a bad pattern behind a false. Every pattern that
+// reaches it has already passed ValidateGlob at adapter.Load time, so a malformed one
+// is a programming error and is reported as one.
+func TestMatchGlobDoesNotSwallowABadPattern(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("MatchGlob returned for a malformed pattern; a bad glob must never look like a non-match")
+		}
+		if !strings.Contains(fmt.Sprint(r), "tests/[a-*.py") {
+			t.Errorf("panic = %v, want it to name the offending pattern", r)
+		}
+	}()
+	MatchGlob("tests/[a-*.py", "tests/test_new.py")
 }

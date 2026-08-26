@@ -404,3 +404,41 @@ func TestSelectFreshRowsDoNotEscalate(t *testing.T) {
 func contains(haystack, needle string) bool {
 	return len(needle) > 0 && len(haystack) >= len(needle) && strings.Contains(haystack, needle)
 }
+
+// With no adapter, nothing can be classified as a test file. Saying "no test file
+// changed" then states a fact the selector never checked — and one that is false here.
+func TestSelectEmptyReasonDoesNotDenyATestFileItCouldNotClassify(t *testing.T) {
+	in := baseInputs()
+	in.Adapter = nil
+	in.Changes = []gitctx.Change{added("tests/test_new.py")}
+
+	got := Select(in)
+
+	if got.Tier != TierEmpty {
+		t.Fatalf("Tier = %v, want TierEmpty", got.Tier)
+	}
+	if strings.Contains(got.Reason, "no test file changed") {
+		t.Errorf("Reason = %q: a test file did change; classification was disabled, not negative", got.Reason)
+	}
+	if !strings.Contains(got.Reason, "adapter") {
+		t.Errorf("Reason = %q, want it to name the missing adapter as the cause", got.Reason)
+	}
+}
+
+// A deleted test file did change. It cannot be executed, which is a different fact.
+func TestSelectEmptyReasonNamesADeletedTestFile(t *testing.T) {
+	in := baseInputs()
+	in.Changes = []gitctx.Change{deleted("tests/test_orphan.py")}
+
+	got := Select(in)
+
+	if got.Tier != TierEmpty {
+		t.Fatalf("Tier = %v, want TierEmpty (reason %q)", got.Tier, got.Reason)
+	}
+	if strings.Contains(got.Reason, "no test file changed") {
+		t.Errorf("Reason = %q: tests/test_orphan.py changed - it was deleted", got.Reason)
+	}
+	if !strings.Contains(got.Reason, "tests/test_orphan.py") {
+		t.Errorf("Reason = %q, want it to name the deleted test file", got.Reason)
+	}
+}
