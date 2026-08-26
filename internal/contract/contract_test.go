@@ -325,6 +325,39 @@ func TestInterfaceContractRecordsTheAdapterLoaders(t *testing.T) {
 	}
 }
 
+// M2 Task 13 adds internal/initrepo to the contract. The planning sketch in the
+// Additions block named the enum `Action` and the record `Block`, with a `force` flag;
+// the shipped package inverts the two names and has no force, because `rtdd init` never
+// clobbers and there is therefore nothing to force. Both shapes in one document would
+// say the shipped one is wrong.
+func TestInterfaceContractRecordsInitrepo(t *testing.T) {
+	src := readRepoFile(t, "docs/plans/00-interfaces.md")
+
+	if !strings.Contains(src, "internal/initrepo/") {
+		t.Error("00-interfaces.md must list internal/initrepo/ in the package layout")
+	}
+	for _, want := range []string{
+		"func MergeManagedBlock(existing, block string) string",
+		"func EnsureGitAttributes(repoRoot string) (Action, error)",
+		"func EnsureConfig(repoRoot string) (Action, error)",
+		"func EnsureFrontEnd(repoRoot, rel, block string) (Action, error)",
+		"func Block() string",
+		"func Run(repoRoot string) ([]Action, error)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("00-interfaces.md must record %q", want)
+		}
+	}
+	for _, stale := range []string{
+		"func Install(repoRoot string, force bool) ([]Block, error)",
+		"type Action int",
+	} {
+		if strings.Contains(src, stale) {
+			t.Errorf("00-interfaces.md still carries the superseded initrepo signature %q", stale)
+		}
+	}
+}
+
 // M1b Task 4 adds ExpandTests to the contract, and narrows Expand to reject {tests}. The
 // doc is the interface of record: a signature that exists only in code is a drift the next
 // task would inherit, and here the drift is silent — a caller that reached Expand with a
