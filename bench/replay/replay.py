@@ -29,7 +29,7 @@ import os
 import pathlib
 import shutil
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from replay import rtddio
 from replay.cache import Cache
@@ -283,6 +283,40 @@ def _cached_coverage_truth(
     return frozenset((f, int(line)) for f, line in payload["covered"])
 
 
+def _cached_selection(
+    cache: Cache, key: str, build: Callable[[], sbase.Selection]
+) -> sbase.Selection:
+    """One strategy's answer for one commit, cached like every other expensive step.
+
+    Caching it is what makes `bench/results/` diffable: `select_ms` is a live
+    measurement, so a re-computed selection re-times itself and every record moves
+    on a re-run that changed nothing. It is also the honest thing to cache — the
+    answer is a function of the tree, the strategy and the config digest, all three
+    of which are in the key.
+    """
+
+    def build_dict() -> dict:
+        sel = build()
+        return {
+            "tests": list(sel.tests),
+            "escalated": sel.escalated,
+            "reason": sel.reason,
+            "select_ms": sel.select_ms,
+            "exec_args": list(sel.exec_args),
+            "stale_dropped": list(sel.stale_dropped),
+        }
+
+    payload = cache.json_or_build(key, build_dict)
+    return sbase.Selection(
+        tests=tuple(payload["tests"]),
+        escalated=bool(payload["escalated"]),
+        reason=payload["reason"],
+        select_ms=int(payload["select_ms"]),
+        exec_args=tuple(payload.get("exec_args", ())),
+        stale_dropped=tuple(payload.get("stale_dropped", ())),
+    )
+
+
 def _cached_collect(cache: Cache, key: str, work: pathlib.Path, python: str) -> tuple[str, ...]:
     payload = cache.json_or_build(key, lambda: {"tests": list(collect(work, python=python))})
     return tuple(payload["tests"])
@@ -421,7 +455,14 @@ def replay_repo(
                 selections: dict[str, sbase.Selection] = {}
                 for sid in order:
                     ctx = dataclasses.replace(ctx, peer_sizes=dict(peer_sizes))
-                    sel = sbase.validate_selection(sbase.get(sid).select(ctx), ctx)
+                    bound = ctx
+                    sel = _cached_selection(
+                        cache,
+                        cache.key(spec.id, point.commit, variant, "select", sid),
+                        lambda sid=sid, bound=bound: sbase.validate_selection(
+                            sbase.get(sid).select(bound), bound
+                        ),
+                    )
                     selections[sid] = sel
                     peer_sizes[sid] = len(sel.tests)
                     out.strategies.append(

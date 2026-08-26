@@ -46,8 +46,14 @@ class DriftPoint:
     selected: int
     total_tests: int
     tier: str
+    #: pytest would not collect this tree. A long uncommitted session passes
+    #: through intermediate states no commit ever had, and one of them will not
+    #: collect; the denominator is then unknown, not one.
+    collect_failed: bool = False
 
-    def ratio(self) -> float:
+    def ratio(self) -> float | None:
+        if self.collect_failed:
+            return None
         return 0.0 if self.total_tests == 0 else self.selected / self.total_tests
 
     def to_dict(self) -> dict:
@@ -57,6 +63,7 @@ class DriftPoint:
             "selected": self.selected,
             "total_tests": self.total_tests,
             "tier": self.tier,
+            "collect_failed": self.collect_failed,
             "selection_ratio": self.ratio(),
         }
 
@@ -118,8 +125,13 @@ def run_drift(
                 selected=len(result.tests),
                 # `rtdd` may name a test collection missed; the denominator can
                 # never be smaller than the numerator, or the ratio exceeds 1.
-                total_tests=max(total, len(result.tests)),
+                # A tree that collected *nothing* is a different case: the
+                # denominator is unknown, and falling back to the selection size
+                # would publish `1.000` — "RTDD ran everything" — for a cycle
+                # where nothing was counted at all.
+                total_tests=0 if total == 0 else max(total, len(result.tests)),
                 tier=result.tier,
+                collect_failed=total == 0,
             )
         )
     return DriftCurve(

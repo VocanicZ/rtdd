@@ -21,7 +21,7 @@ from replay import rtddio
 from replay.cache import Cache
 from replay.config import TRACKED_TOOLS, RunConfig, canonical_json, tool_versions
 from replay.corpus import CorpusError, load_corpus
-from replay.envsetup import EnvError, activate, provision, tool_versions_for
+from replay.envsetup import EnvError, activate, provision, tool_versions_for, with_source_path
 from replay.gitwork import add_worktree, clone_pinned, remove_worktree, replay_points
 from replay.hardware import CIWallClockRefused, Hardware, probe, require_wallclock
 from replay.replay import ReplayOptions, replay_repo, strategy_order
@@ -216,6 +216,12 @@ def cmd_session(args) -> int:
     work = WORK / "trees" / f"{spec.id}-drift"
     try:
         add_worktree(repo, points[0].parent, work)
+        # Same reason as in the replay: the editable install pins the clone, and a
+        # `.pth` entry sorts after `PYTHONPATH`, so without this the drift session
+        # runs the pin's source against an older tree's tests.
+        os.environ["PYTHONPATH"] = with_source_path(
+            os.environ, work, spec.source_globs
+        )["PYTHONPATH"]
         rtddio.seed(work, binary=args.rtdd_binary)
         curve = run_drift(
             repo, spec.id, work, points, python=str(env.python), binary=args.rtdd_binary
@@ -246,7 +252,9 @@ def cmd_session(args) -> int:
     for p in curve.points:
         print(
             f"cycle {p.cycle:3d}  changed {p.changed_files:4d}  "
-            f"selected {p.selected:5d}/{p.total_tests:5d}  ratio {p.ratio():.3f}  {p.tier}"
+            f"selected {p.selected:5d}/{p.total_tests:5d}  "
+            f"ratio {'n/a (did not collect)' if p.ratio() is None else format(p.ratio(), '.3f')}"
+            f"  {p.tier}"
         )
     return EXIT_OK
 

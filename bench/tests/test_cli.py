@@ -336,6 +336,46 @@ def test_replay_defaults_to_the_frozen_commit_count(
     assert stub_replay["spec_commits"] == 3
 
 
+def test_session_runs_the_drift_worktree_with_its_own_source_in_front(
+    bench, stub_provision, monkeypatch, tmp_path
+):
+    """The drift session needs the same import fix the replay has.
+
+    It seeds `rtdd` in a worktree at an older commit while the repo is installed
+    editable from the clone at the pin; without the worktree's source in front of
+    `PYTHONPATH` the suite imports the pin's flask against the older tree's tests,
+    which does not even collect.
+    """
+    _no_ci(monkeypatch)
+    monkeypatch.setattr(cli, "RESULTS", tmp_path / "results")
+    seen: dict = {}
+
+    def fake_clone(url, pin, dest):
+        dest.mkdir(parents=True, exist_ok=True)
+        return dest
+
+    class _Point:
+        parent = "p"
+
+    monkeypatch.setattr(cli, "clone_pinned", fake_clone)
+    monkeypatch.setattr(cli, "replay_points", lambda repo, pin, n: [_Point()])
+    monkeypatch.setattr(cli, "add_worktree", lambda repo, sha, work: None)
+    monkeypatch.setattr(cli, "remove_worktree", lambda repo, work: None)
+
+    def record_seed(work, binary="rtdd"):
+        seen["pythonpath"] = os.environ.get("PYTHONPATH", "")
+        seen["work"] = pathlib.Path(work)
+
+    monkeypatch.setattr(cli.rtddio, "seed", record_seed)
+
+    from replay.session import DriftCurve
+
+    monkeypatch.setattr(cli, "run_drift", lambda *a, **kw: DriftCurve("synth", "p", ()))
+    rc = cli.main(["--rtdd-binary", _fake_rtdd(bench), "session", "--repo", "synth", "--cycles", "2"])
+    assert rc == cli.EXIT_OK
+    assert seen["pythonpath"].split(os.pathsep)[0].startswith(str(seen["work"]))
+
+
 def test_session_does_not_overwrite_the_replay_config_that_produced_the_table(
     bench, stub_provision, monkeypatch, tmp_path
 ):

@@ -96,6 +96,7 @@ refuse and with which message, the deliberately failing fixtures that prove the
 non-procedural guarantee is load-bearing, and which plan tasks are out of scope because they
 are human-in-the-loop. `bench/swebench/tests/test_acceptance.py` is the executable form of
 the same page, and CI runs it.
+
 ## The Axis 2 replay benchmark (`bench/replay/`)
 
 `bench/` is its own uv project — separate from `bench/swebench/` — and replays real

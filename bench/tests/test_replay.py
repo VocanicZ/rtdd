@@ -633,3 +633,26 @@ def test_a_refused_rtdd_run_is_published_not_fatal(synth, cache_root, monkeypatc
     assert out.commits, "the replay must continue past a refused rtdd run"
     assert out.rtdd_run_errors
     assert out.rtdd_run_errors[0]["reason"] == "rtdd-run-refused"
+
+
+def test_a_second_replay_reproduces_the_records_byte_for_byte(synth, tmp_path, cache_root):
+    """A re-run at an identical config must produce identical records.
+
+    `bench/results/` is committed and reviewed as a diff, so a number that moves
+    without a cause is noise a reviewer has to rule out by hand. `select_ms` is
+    measured, so the selection itself has to come out of the cache on the second
+    pass rather than being recomputed and re-timed.
+    """
+    spec = _spec(synth, commits=2)
+    cfg = _cfg(strategies=("full", "path"), commits=2)
+    cache = Cache(cache_root, cfg.digest())
+    opts = ReplayOptions(
+        variants=("natural",),
+        strategy_ids=("full", "path"),
+        wallclock_sample=0,
+        wallclock_enabled=False,
+    )
+    kwargs = dict(repo=synth.path, spec=spec, cfg=cfg, cache=cache, hw=probe({}), opts=opts)
+    first = replay_repo(work_root=tmp_path / "w1", **kwargs)
+    second = replay_repo(work_root=tmp_path / "w2", **kwargs)
+    assert [r.to_dict() for r in first.strategies] == [r.to_dict() for r in second.strategies]
