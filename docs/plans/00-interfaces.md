@@ -43,6 +43,7 @@ internal/selector/   tiers + ranking
 internal/runner/     subprocess execution, argv chunking
 internal/uncovered/  line classification
 internal/doctor/     fan-out analysis
+internal/initrepo/   rtdd init: gitattributes, config, agent front-ends
 ```
 
 ---
@@ -419,6 +420,36 @@ type Hub struct {
 func Hubs(m *mapstore.Map) []Hub
 ```
 
+## internal/initrepo
+
+```go
+type Action struct {
+    Path string // repo-relative
+    Kind string // "created" | "updated" | "unchanged"
+}
+
+const (
+    BeginMarker = "<!-- BEGIN RTDD -->"
+    EndMarker   = "<!-- END RTDD -->"
+)
+
+// MergeManagedBlock returns existing with block installed between the markers.
+// Never clobbers: content outside the markers is preserved byte for byte. With no
+// markers present, block is appended after a blank line and the original comes first.
+func MergeManagedBlock(existing, block string) string
+
+func EnsureGitAttributes(repoRoot string) (Action, error) // adds ".rtdd/map.jsonl merge=union"
+func EnsureConfig(repoRoot string) (Action, error)        // never overwrites an existing config
+func EnsureFrontEnd(repoRoot, rel, block string) (Action, error)
+
+// Block returns the managed agent front-end text, marker lines included.
+func Block() string
+
+// Run installs .gitattributes, .rtdd/config.yaml, AGENTS.md, CLAUDE.md and
+// .cursor/rules/rtdd.mdc. Actions are returned in installation order.
+func Run(repoRoot string) ([]Action, error)
+```
+
 ## .rtdd/meta.json
 
 ```json
@@ -603,15 +634,11 @@ func Caveat() string
 type Scanner struct{ RepoRoot string; Python string }
 func (s *Scanner) Scan(target string, testFiles []string) ([]string, error)
 
-// internal/initrepo
-type Action int
-const (
-    Created Action = iota
-    Merged      // appended a delimited block to an existing AGENTS.md/CLAUDE.md
-    Unchanged
-)
-type Block struct{ Path string; Action Action }
-func Install(repoRoot string, force bool) ([]Block, error)
+// internal/initrepo — SUPERSEDED by the `## internal/initrepo` section above, which is
+// the shipped shape. The planning sketch that stood here named the enum `Action` and the record
+// `Block`; the implementation inverts that (`Action` is the record, `Block()` returns the
+// managed front-end text) and drops `force`, because nothing is ever clobbered and there
+// is therefore nothing to force.
 
 // internal/pytestfixture — TEST-ONLY helper, never imported by non-test code.
 // Shipped shape, see the internal/pytestfixture section above: the fixture's contents
