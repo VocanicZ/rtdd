@@ -239,3 +239,27 @@ func TestLocalCIEntrypointIsExecutableAndRunsTheSameChecks(t *testing.T) {
 		}
 	}
 }
+
+// M1b Task 1 adds two loaders to the contract. The doc is the interface of record, so a
+// signature that exists only in code is a drift the next task would inherit.
+func TestInterfaceContractRecordsTheAdapterLoaders(t *testing.T) {
+	src := readRepoFile(t, "docs/plans/00-interfaces.md")
+
+	for _, want := range []string{
+		"func LoadFS(fsys fs.FS, dir string) ([]*Adapter, error)",
+		"func Builtin() ([]*Adapter, error)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("00-interfaces.md must record %q", want)
+		}
+	}
+	// The superseded single-adapter forms must be gone, not merely outnumbered.
+	for _, stale := range []string{
+		"func LoadFS(fsys fs.FS, name string) (*Adapter, error)",
+		"func Builtin(name string) (*Adapter, error)",
+	} {
+		if strings.Contains(src, stale) {
+			t.Errorf("00-interfaces.md still carries the superseded signature %q", stale)
+		}
+	}
+}

@@ -163,6 +163,14 @@ type Adapter struct {
 func Load(path string) (*Adapter, error)
 func LoadAll(dir string) ([]*Adapter, error)
 
+// LoadFS reads every *.yaml under dir in fsys, sorted by adapter name.
+// LoadAll is LoadFS(os.DirFS(dir), ".").
+func LoadFS(fsys fs.FS, dir string) ([]*Adapter, error)
+
+// Builtin returns the adapters embedded in the binary from the root `adapters`
+// package (//go:embed *.yaml), so rtdd ships as a single static file.
+func Builtin() ([]*Adapter, error)
+
 // Detect returns the adapter whose Detect globs match a file in repoRoot.
 // Exactly one match required; zero or multiple is an error (polyglot is out of scope in v1).
 func Detect(repoRoot string, adapters []*Adapter) (*Adapter, error)
@@ -494,8 +502,10 @@ func RepoRoot(dir string) (string, error)
 func RawDiff(repoRoot, base string) (string, error)
 
 // internal/adapter
-func LoadFS(fsys fs.FS, name string) (*Adapter, error) // reads adapters/ embedded via go:embed
-func Builtin(name string) (*Adapter, error)            // "python" resolves without a filesystem
+// Both loaders return the whole set: detection picks one from it, and the same
+// validation runs over a host repo's adapters and the embedded ones.
+func LoadFS(fsys fs.FS, dir string) ([]*Adapter, error) // reads adapters/ embedded via go:embed
+func Builtin() ([]*Adapter, error)                      // "python" resolves without a filesystem
 // ExpandTests exists because Expand's map[string]string cannot carry test ids containing
 // spaces, brackets or "::" — argv elements must not be re-split by the shell.
 func ExpandTests(tmpl string, tests []string, vars map[string]string) ([]string, error)

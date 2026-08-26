@@ -1,8 +1,23 @@
+# The Python adapter.
+#
+# COVERAGE_CORE=ctrace is FORCED. Under sysmon coverage.py silently drops dynamic
+# contexts and emits only a CoverageWarning (no-sysmon-context) while exiting 0 —
+# measured at 1 context recorded out of 4 tests run. See spec §4 / audit A7.
+#
+# COVERAGE_FILE pins the data file so a host `[run] data_file = ...` cannot hide the
+# database from the runner. Measured: the environment variable wins.
+#
+# `--cov` is passed BARE, with no value. `--cov=<guess>` makes seed and subset disagree
+# on coverage scope, and `--cov=` (empty) makes pytest exit 1 and record nothing. Bare
+# --cov defers to the host repo's own [run] source / omit settings for both commands.
+# `--cov-report=` suppresses the terminal report: RTDD reads .coverage directly.
 name: python
 detect: ["pytest.ini", "pyproject.toml", "setup.cfg"]
-env: { COVERAGE_CORE: ctrace }
-seed: "pytest --cov --cov-context=test --report-log={log}"
-subset: "pytest {tests} --cov --cov-context=test --report-log={log}"
+env:
+  COVERAGE_CORE: ctrace
+  COVERAGE_FILE: .coverage
+seed: "pytest --cov --cov-context=test --cov-report= --report-log={log}"
+subset: "pytest {tests} --cov --cov-context=test --cov-report= --report-log={log}"
 list: "pytest --collect-only -q"
 coverage: sqlite
 report: pytest-reportlog
