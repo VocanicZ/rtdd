@@ -14,12 +14,14 @@ from prompts import (
     ARMS,
     BANNED_IMPERATIVES,
     BASE,
+    ContextBlockError,
     RTDD_CONTEXT,
     TDAD_CONTEXT,
     TDD_PROSE,
     build,
     context_block,
     control_for,
+    extract_context,
     lint_context,
 )
 
@@ -221,3 +223,35 @@ def test_a_smuggled_procedure_fails_the_lint_gate():
 def test_an_extra_sentence_in_the_rtdd_arm_breaks_byte_equality():
     tampered = build("rtdd") + "\nAlso, you should re-run the tests you touched."
     assert tampered == build("vanilla") + "\n" + context_block(RTDD_CONTEXT)
+
+
+# --- reading the block back out of an assembled prompt --------------------
+
+
+def test_extract_context_returns_the_block_of_every_context_arm():
+    for arm, expected in (
+        ("rtdd", RTDD_CONTEXT),
+        ("rtdd_tdd", RTDD_CONTEXT),
+        ("tdad", TDAD_CONTEXT),
+    ):
+        assert extract_context(build(arm)) == expected, arm
+
+
+def test_extract_context_returns_none_for_a_control_arm():
+    assert extract_context(build("vanilla")) is None
+    assert extract_context(build("tdd")) is None
+
+
+def test_extract_context_round_trips_context_block():
+    assert extract_context(context_block("some text")) == "some text"
+
+
+def test_two_blocks_are_an_error_rather_than_a_best_guess():
+    doubled = build("rtdd") + "\n" + context_block("a second block")
+    with pytest.raises(ContextBlockError):
+        extract_context(doubled)
+
+
+def test_a_stray_delimiter_is_an_error():
+    with pytest.raises(ContextBlockError):
+        extract_context(build("vanilla") + "\n</test-context>\n")

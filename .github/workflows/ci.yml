@@ -55,3 +55,10 @@ jobs:
       - name: arm-composition gate
         run: uv run pytest tests/test_prompts.py -q
         working-directory: bench/swebench
+
+      # The same guarantee, checked against the prompts the arm driver actually
+      # assembles — five arms over the whole frozen instance list, no model call
+      # and no network. ci-prereg.sh runs it too; this is the push gate.
+      - name: arm-driver dry run
+        run: uv run python run_arm.py --dry-run
+        working-directory: bench/swebench

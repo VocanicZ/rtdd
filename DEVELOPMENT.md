@@ -58,3 +58,23 @@ cd bench/swebench && uv sync && uv run pytest -q
 `bench/swebench/preflight.py` refuses to launch (exit 3) until a human writes it, signs the
 file, and the signing commit is reachable from the `prereg-m4` tag. The bench gate asserts
 that refusal while the file is unsigned, so it is green on an unsigned repo.
+
+`bench/swebench/run_arm.py` is the per-arm driver. It calls `preflight` before it spends a
+token, walks the frozen `instances.txt` in file order, writes one JSON record per instance
+under `bench/results/swebench/raw/<arm>/`, and is resumable: an instance that already has a
+record is skipped, so a crash costs the current instance only. `budget.py` holds the
+ceilings — estimated dollars and wall-clock hours — and the run writes
+`bench/results/swebench/cost/<arm>/cost.json` however it ends, with the assumed per-token
+prices beside the actual token counts.
+
+```bash
+cd bench/swebench
+uv run python run_arm.py --dry-run     # all five arms, whole list, no model, no network
+uv run python run_arm.py rtdd --max-usd 75
+```
+
+`--dry-run` is what CI runs. It assembles every arm's prompt for every instance through the
+same code path a real run uses and asserts the composition guarantee on those bytes — each
+context arm is its control plus exactly one `<test-context>` block, and the block carries no
+imperative — exiting non-zero if any arm violates it. It needs no signed pre-registration
+because it spends nothing.

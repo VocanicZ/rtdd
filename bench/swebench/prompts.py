@@ -195,6 +195,35 @@ def context_block(text: str) -> str:
     return f"{_OPEN}\n{text}\n{_CLOSE}\n"
 
 
+class ContextBlockError(ValueError):
+    """A prompt carries something other than zero or one well-formed context block."""
+
+
+def extract_context(prompt: str) -> str | None:
+    """Return the text inside ``prompt``'s one ``<test-context>`` block, or ``None``.
+
+    This reads an *assembled* prompt rather than a module constant, so the arm
+    driver's dry run can check the guarantee against the bytes an instance would
+    actually be given. Two blocks, or a stray delimiter, is a
+    :class:`ContextBlockError` rather than a best guess: a prompt whose shape is
+    ambiguous is exactly the prompt nobody should be publishing a rate from.
+    """
+    opens = prompt.count(_OPEN)
+    closes = prompt.count(_CLOSE)
+    if opens == 0 and closes == 0:
+        return None
+    if opens != 1 or closes != 1:
+        raise ContextBlockError(
+            f"expected zero or one <test-context> block, found {opens} open and {closes} close"
+        )
+    start = prompt.index(_OPEN) + len(_OPEN)
+    end = prompt.index(_CLOSE)
+    if end < start:
+        raise ContextBlockError("</test-context> precedes <test-context>")
+    inner = prompt[start:end]
+    return inner[1:-1] if inner.startswith("\n") and inner.endswith("\n") else inner
+
+
 def control_for(arm: str) -> str | None:
     """Return the arm ``arm`` must equal minus its block, or ``None`` if it is a control."""
     return _CONTROL[arm]
