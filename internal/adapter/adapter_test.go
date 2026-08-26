@@ -214,18 +214,38 @@ func TestFullEscalateBeatsTestGlobs(t *testing.T) {
 	}
 }
 
+// loadNoPanic calls Load and turns a panic into a test failure.
+//
+// paths.MatchGlob panics by design on a pattern ValidateGlob would reject: the engine has
+// exactly one place that is allowed to see a malformed glob, and it is load time. That
+// invariant only holds if Load rejects every globbed field, so a panic escaping here is
+// the failure being tested for, not a crash to be reported as one.
+func loadNoPanic(t *testing.T, p string) (a *Adapter, err error) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Load panicked instead of returning an error: %v", r)
+		}
+	}()
+	return Load(p)
+}
+
 // A typo'd glob must fail the load with a configuration error (exit 2) rather than
 // classify nothing and let `rtdd which` report "no test file changed".
+//
+// detect is in the table for the same reason the other four are: it is globbed against
+// every file in the repo by Detect, so a malformed pattern that survives Load reaches
+// paths.MatchGlob and crashes the process with a stack trace instead of exiting 2.
 func TestLoadRejectsAMalformedGlobInEveryGlobField(t *testing.T) {
 	const badGlob = `tests/[a-*.py`
-	for _, field := range []string{"test_globs", "source_globs", "opaque", "full_escalate"} {
+	for _, field := range []string{"detect", "test_globs", "source_globs", "opaque", "full_escalate"} {
 		t.Run(field, func(t *testing.T) {
 			p := filepath.Join(t.TempDir(), "a.yaml")
 			content := "name: python\n" + field + ": [\"" + badGlob + "\"]\n"
 			if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			_, err := Load(p)
+			_, err := loadNoPanic(t, p)
 			if err == nil {
 				t.Fatalf("Load accepted a malformed glob in %s; that is a configuration error", field)
 			}
@@ -435,4 +455,27 @@ func hasBareFlag(tmpl, flag string) bool {
 		}
 	}
 	return false
+}
+
+// Regression for #68: an adapter file with a malformed detect glob loaded with a nil
+// error, so the pattern was not caught until Detect globbed the repo with it —
+// detect.go -> glob.go -> paths.MatchGlob, which panics by design on a pattern
+// ValidateGlob rejects. A hand-written adapter must never crash rtdd; a bad detect glob
+// is a configuration error (exit 2) like every other bad glob.
+func TestLoadRejectsAMalformedDetectGlobRatherThanPanickingInDetect(t *testing.T) {
+	p := writeAdapter(t, t.TempDir(), "a.yaml", "name: python\ndetect: [\"[bad\"]\nseed: s\nsubset: \"{tests}\"\ncoverage: sqlite\nreport: pytest-reportlog\n")
+
+	a, err := loadNoPanic(t, p)
+	if err == nil {
+		t.Fatalf("Load accepted detect: [\"[bad\"]; a malformed glob is a configuration error (exit 2)")
+	}
+	if !strings.Contains(err.Error(), "detect") {
+		t.Errorf("error = %q, want it to name the offending field %q", err, "detect")
+	}
+	if !strings.Contains(err.Error(), "[bad") {
+		t.Errorf("error = %q, want it to name the offending pattern %q", err, "[bad")
+	}
+	if a != nil {
+		t.Fatalf("Load returned an adapter alongside an error; Detect would glob with the bad pattern")
+	}
 }
