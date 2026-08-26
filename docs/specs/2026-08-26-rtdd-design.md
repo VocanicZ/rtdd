@@ -326,18 +326,35 @@ is competitive.
 ### Axis 1 — agent regression rate (primary)
 
 **SWE-bench Verified**, matching TDAD's methodology so the numbers are directly comparable
-to published ones.
+to published ones. Sample size, seed, and model class are pre-registered before the run.
 
-| arm | regressions | source |
-|---|---|---|
-| vanilla | 6.08% | TDAD, published |
-| TDD procedural prose | 9.94% | TDAD, published |
-| TDAD static graph | 1.82% | TDAD, published |
-| **RTDD dynamic coverage** | **?** | this work |
+TDAD's published run: **n=100** SWE-bench Verified instances, Qwen3-Coder 30B (Q4_K_M).
+Reference implementation at [github.com/pepealonso95/TDAD](https://github.com/pepealonso95/TDAD)
+(Python, MIT, ships its own harness under `claudecode_n_codex_swebench/`), so every arm is
+**run locally on one harness** rather than cited across harnesses.
 
-This is the only benchmark that can answer §3's question, and it is far cheaper than v1's
-mutation harness. Reproduce at least the vanilla arm locally rather than citing it, so the
-comparison is on one harness.
+| arm | regressions | resolution | source |
+|---|---|---|---|
+| vanilla | 6.08% | 31% | TDAD, reproduced locally |
+| TDD procedural prose | 9.94% | 31% | TDAD, reproduced locally |
+| TDAD GraphRAG **+ TDD prose** | 1.82% | 29% | TDAD, reproduced locally |
+| **RTDD context only** | **?** | **?** | this work — the non-procedural claim |
+| **RTDD context + TDD prose** | **?** | **?** | this work — apples-to-apples with TDAD's arm |
+
+**Five arms, not four.** TDAD's winning configuration is graph *plus* procedural prose, so
+comparing it against a prose-free RTDD would be a confounded comparison in RTDD's own
+favour-losing direction. RTDD runs both: context-only, which is the design's actual claim
+(§3), and context-plus-prose, which is the only arm directly comparable to TDAD's.
+
+Note that TDAD's regression win came with a small resolution-rate cost (29% vs 31%).
+Resolution rate is therefore published alongside regression rate for every arm; a tool that
+prevents regressions by solving fewer problems has not won.
+
+The RTDD arms must be **structurally** non-procedural, not merely intended to be: the arm
+builder asserts `build("rtdd") == build("vanilla") + context_block` byte-for-byte, with an
+imperative-phrase lint on the block, both enforced in CI. TDAD measured procedural prose at
+worse-than-baseline, and an arm that smuggles prose in through the context block would
+silently reproduce that confound.
 
 ### Axis 2 — selection quality on real commits
 
