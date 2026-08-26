@@ -1,0 +1,4 @@
+{"t":"tests/test_auth.py::test_login","f":["src/auth.py","src/db.py"],"c":"SEEDSHA","d":412,"s":"pass"}
+{"t":"tests/test_auth.py::test_logout","f":["src/auth.py"],"c":"SEEDSHA","d":90,"s":"fail"}
+{"t":"tests/test_db.py::test_query","f":["src/db.py"],"c":"SEEDSHA","d":15,"s":"pass"}
+{"t":"tests/test_render.py::test_page","f":["src/render.py","templates/page.html"],"c":"SEEDSHA","d":230,"s":"pass"}

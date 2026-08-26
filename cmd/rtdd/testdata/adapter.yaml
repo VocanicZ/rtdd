@@ -1,0 +1,14 @@
+name: python
+detect: ["pyproject.toml"]
+env: { COVERAGE_CORE: ctrace }
+seed: "pytest --cov={src} --cov-context=test --report-log={log}"
+subset: "pytest {tests} --cov={src} --cov-context=test --report-log={log}"
+list: "pytest --collect-only -q"
+coverage: sqlite
+report: pytest-reportlog
+failfast_flag: "-x"
+test_globs: ["tests/**/*.py", "**/test_*.py"]
+source_globs: ["src/**/*.py"]
+exit_codes: { 4: bad-selector, 5: no-tests-collected }
+opaque: ["**/*.yaml", "**/*.html", "**/fixtures/**"]
+full_escalate: ["requirements.txt", "pyproject.toml", "**/conftest.py"]
