@@ -5,7 +5,9 @@
 // The fixture's line numbers and test ids are pinned by fixture_test.go, because
 // every coverage assertion in M1b depends on them.
 //
-// Test-only: nothing under cmd/ may import this package.
+// Test-only: nothing under cmd/ may import this package. It must also stay free of
+// `testing` on its dependency graph, which is why InitGit shells out to git inline
+// rather than importing internal/gitctx/gittest.
 package pytestfixture
 
 import (
@@ -13,8 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-
-	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
+	"strings"
 )
 
 // PyProject makes the directory a pytest rootdir, which is what makes coverage
@@ -119,11 +120,35 @@ func Materialize(dir string) error {
 // InitGit turns dir into a git repository with one commit containing the whole
 // fixture, so internal/gitctx can compute a changed set and a HEAD SHA.
 //
-// The shell-out itself lives in internal/gitctx/gittest: internal/gitctx is the
-// only part of the tree permitted to invoke git, and internal/contract enforces it.
+// The shell-out is inline, and deliberately so. internal/gitctx/gittest already wraps
+// git for tests, but it imports `testing`; importing it from here — a non-test file —
+// would put `testing` on the dependency graph of every package that materialises the
+// fixture. internal/gitctx stays the only *engine* package that invokes git;
+// internal/pytestfixture is the one test-support exception, recorded in
+// docs/plans/00-interfaces.md and guarded by internal/contract.
+//
+// The environment is pinned so the fixture's identity and dates never depend on the
+// developer's global git config.
 func InitGit(dir string) error {
-	if err := gittest.InitRepo(dir, "fixture"); err != nil {
-		return fmt.Errorf("pytestfixture: %w", err)
+	for _, args := range [][]string{
+		{"init", "-q", "-b", "main"},
+		{"config", "user.email", "rtdd@example.com"},
+		{"config", "user.name", "rtdd test"},
+		{"config", "commit.gpgsign", "false"},
+		{"add", "-A"},
+		{"commit", "-q", "-m", "fixture"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_CONFIG_NOSYSTEM=1",
+			"HOME="+dir,
+			"GIT_AUTHOR_DATE=2026-01-01T00:00:00Z",
+			"GIT_COMMITTER_DATE=2026-01-01T00:00:00Z",
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("pytestfixture: git %s: %w: %s", strings.Join(args, " "), err, out)
+		}
 	}
 	return nil
 }

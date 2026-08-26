@@ -175,16 +175,33 @@ func Builtin() ([]*Adapter, error)
 // Exactly one match required; zero or multiple is an error (polyglot is out of scope in v1).
 func Detect(repoRoot string, adapters []*Adapter) (*Adapter, error)
 
+// IsTestFile: matches TestGlobs AND is not a FullEscalate match. The FullEscalate term
+// is a deliberate narrowing of the predicate: a fixture module such as tests/conftest.py
+// matches a broad test glob like tests/**/*.py but collects no tests, and naming it as a
+// selector makes the runner exit 5 (no-tests-collected), which is fatal. A change to it
+// escalates to a full run through IsFullEscalate instead.
+// Side effect, and it is load-bearing: IsInstrumentable is "SourceGlobs AND not
+// IsTestFile AND not IsOpaque", and escalation is none of those three — so a conftest.py
+// that sits inside SourceGlobs (src/conftest.py under source_globs: ["src/**/*.py"]) is
+// IsInstrumentable == true, where the unqualified predicate would have made it a test
+// file and therefore not instrumentable.
 func (a *Adapter) IsTestFile(rel string) bool
 func (a *Adapter) IsOpaque(rel string) bool
 func (a *Adapter) IsFullEscalate(rel string) bool
 // IsInstrumentable: matches SourceGlobs AND is not a test file AND is not Opaque.
 func (a *Adapter) IsInstrumentable(rel string) bool
 
-// Expand substitutes {src} {out} {log} into a command template and returns argv.
+// Expand substitutes {out} and {log} into a command template and returns argv. {src} is
+// NOT in the set: the amendment below dropped it in favour of a bare --cov.
 // The template is tokenised on whitespace BEFORE substitution, so a substituted value
 // is never re-split. A template containing {tests} is an error here; an unrecognised
 // {placeholder} is an error, never a literal passed through to the runner.
+//
+// Expand has no closed variable set — it resolves whatever key it is handed — so nothing
+// in internal/adapter structurally prevents a host adapter reintroducing --cov={src}.
+// What keeps {src} out of expanded argv is the var map the caller supplies: runner.Run
+// passes only {out} and {log}, and an adapter naming {src} therefore fails Expand as an
+// unrecognised placeholder rather than silently narrowing coverage scope.
 func (a *Adapter) Expand(tmpl string, vars map[string]string) ([]string, error)
 
 // ExpandTests is Expand for a template containing {tests}. Each test id becomes its own
@@ -487,6 +504,22 @@ all, so both would vanish from the map. Corrected rule:
 phases present (setup+teardown) when there is not. The JSONL's `duration` is a float
 in seconds; `DurationMS` is milliseconds.
 
+### gittest — `internal/pytestfixture` shells out to git inline **[M]**
+
+Two M1a rules collide on one file. `internal/gitctx` is the only part of the tree
+permitted to invoke git; and nothing outside a `_test.go` file may import
+`internal/gitctx/gittest`. `internal/pytestfixture` is a **non-test** file that builds a
+real fixture repository, so it can satisfy only one of them — and importing `gittest` is
+the worse violation, because `gittest` imports `testing` and that puts the testing
+package on a non-test dependency graph (`go list -deps ./internal/pytestfixture`).
+
+`pytestfixture.InitGit` therefore shells out to git **inline**, as the plan's Task 11
+always specified, and does not import `gittest`. The shell-out rule is amended to name
+`internal/pytestfixture` alongside `internal/gitctx` — a two-site allowance, not an open
+one, and it is paid for by two guards in `internal/contract`: no non-`_test.go` file
+imports `gittest`, and `go list -deps` for `./internal/pytestfixture`, `./cmd/rtdd` and
+`./internal/adapter` contains no `testing`.
+
 ## Additions
 
 ```go
@@ -517,8 +550,11 @@ func RawDiff(repoRoot, base string) (string, error)
 func LoadFS(fsys fs.FS, dir string) ([]*Adapter, error) // reads adapters/ embedded via go:embed
 func Builtin() ([]*Adapter, error)                      // "python" resolves without a filesystem
 // ExpandTests exists because Expand's map[string]string cannot carry test ids containing
-// spaces, brackets or "::" — argv elements must not be re-split by the shell.
-func ExpandTests(tmpl string, tests []string, vars map[string]string) ([]string, error)
+// spaces, brackets or "::" — argv elements must not be re-split by the shell. It is a
+// METHOD on *Adapter and vars precedes tests, exactly as in the internal/adapter section
+// above; the package-level `ExpandTests(tmpl, tests, vars)` form this block first carried
+// never existed in code.
+func (a *Adapter) ExpandTests(tmpl string, vars map[string]string, tests []string) ([]string, error)
 
 // internal/coverage
 // Merge folds other into r: per-test file/line sets union, ImportTime unions.
@@ -684,7 +720,11 @@ Git is never mocked, so every git-dependent test needs a real `git init` in `t.T
 at the same time `internal/gitctx` is the only part of the tree permitted to invoke git.
 `gittest` reconciles the two: it lives under `internal/gitctx/`, and it is the single place
 outside that package's own tests where a test fixture repository is built. Nothing outside
-a `_test.go` file may import it.
+a `_test.go` file may import it — `gittest` imports `testing`, and a non-test importer puts
+`testing` on a production dependency graph. `internal/contract` enforces both halves: no
+non-`_test.go` file imports this package, and no package's `go list -deps` names `testing`.
+The one non-test fixture builder, `internal/pytestfixture.InitGit`, shells out to git
+inline instead; see the amendment above.
 
 ```go
 package gittest

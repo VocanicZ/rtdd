@@ -346,3 +346,127 @@ func TestInterfaceContractRecordsExpandTests(t *testing.T) {
 		t.Errorf("00-interfaces.md still carries the superseded Expand doc line %q", stale)
 	}
 }
+
+// signatureRe finds every declaration of name in a document, whether it stands as Go
+// source or inside a `//` comment. Both forms are read as contract by a human.
+func signatureRe(name string) *regexp.Regexp {
+	return regexp.MustCompile(`(?m)^[ \t]*(?://[ \t]*)?func\b[^\n]*\b` + name + `\(`)
+}
+
+// implSignature returns the one-line declaration of name from a Go source file, with the
+// trailing " {" removed, so it can be compared against the contract document verbatim.
+func implSignature(t *testing.T, rel, name string) string {
+	t.Helper()
+	m := signatureRe(name).FindStringIndex(readRepoFile(t, rel))
+	if m == nil {
+		t.Fatalf("%s declares no func %s", rel, name)
+	}
+	src := readRepoFile(t, rel)
+	line := src[m[0]:]
+	if i := strings.IndexByte(line, '\n'); i >= 0 {
+		line = line[:i]
+	}
+	return strings.TrimSuffix(strings.TrimSpace(line), " {")
+}
+
+// docSignatures returns every declaration of name found in the contract document, each
+// normalised to bare Go source: leading whitespace and any "// " comment marker removed.
+func docSignatures(t *testing.T, doc, name string) []string {
+	t.Helper()
+	var out []string
+	for _, m := range signatureRe(name).FindAllStringIndex(doc, -1) {
+		line := doc[m[0]:]
+		if i := strings.IndexByte(line, '\n'); i >= 0 {
+			line = line[:i]
+		}
+		line = strings.TrimSpace(line)
+		line = strings.TrimSpace(strings.TrimPrefix(line, "//"))
+		out = append(out, line)
+	}
+	return out
+}
+
+// The Amendments/Additions block declares itself as overriding everything above it, so a
+// signature that appears twice in the document with two different shapes does not merely
+// duplicate: it says the shipped implementation is wrong. Every declaration of a name must
+// agree with every other, and all of them must agree with the code.
+func TestInterfaceContractSignaturesDoNotContradictTheImplementation(t *testing.T) {
+	doc := readRepoFile(t, "docs/plans/00-interfaces.md")
+
+	for _, tc := range []struct{ rel, name string }{
+		{"internal/adapter/expand.go", "ExpandTests"},
+		{"internal/adapter/expand.go", "Expand"},
+	} {
+		want := implSignature(t, tc.rel, tc.name)
+		got := docSignatures(t, doc, tc.name)
+		if len(got) == 0 {
+			t.Errorf("00-interfaces.md declares %s nowhere; %s has %q", tc.name, tc.rel, want)
+			continue
+		}
+		for _, g := range got {
+			if g != want {
+				t.Errorf("00-interfaces.md declares %s as\n  %q\nbut %s implements\n  %q",
+					tc.name, g, tc.rel, want)
+			}
+		}
+	}
+}
+
+// The M1b amendment dropped {src} from Expand's variable set: a bare --cov honours the
+// host's own [run] source for both seed and subset, and an RTDD-guessed {src} makes the
+// two disagree on scope. The doc's own Expand entry must not still promise it.
+func TestInterfaceContractDropsSrcFromExpand(t *testing.T) {
+	doc := readRepoFile(t, "docs/plans/00-interfaces.md")
+
+	for _, stale := range []string{
+		"// Expand substitutes {src} {out} {log} into a command template and returns argv.",
+		"// Expand substitutes {tests} {src} {out} {log} into a command template and returns argv.",
+	} {
+		if strings.Contains(doc, stale) {
+			t.Errorf("00-interfaces.md still documents {src} for Expand: %q", stale)
+		}
+	}
+	// Expand resolves whatever key the caller passes — there is no closed variable set in
+	// internal/adapter to enforce the drop. The contract has to say where the enforcement
+	// actually lives, or a host adapter reintroduces --cov={src} unopposed.
+	if !strings.Contains(doc, "Expand has no closed variable set") {
+		t.Error("00-interfaces.md must record that Expand has no closed variable set")
+	}
+	if !strings.Contains(doc, "the var map the caller supplies") {
+		t.Error("00-interfaces.md must record that the caller's var map is what keeps {src} out of expanded argv")
+	}
+}
+
+// internal/adapter/classify.go narrows IsTestFile with a FullEscalate exclusion that the
+// plan never wrote down. The behaviour is right — naming conftest.py as a selector is a
+// fatal exit 5 — but an undocumented narrowing of a contract predicate is drift, and this
+// one has a side effect on IsInstrumentable.
+func TestInterfaceContractDocumentsTheFullEscalateExclusion(t *testing.T) {
+	doc := readRepoFile(t, "docs/plans/00-interfaces.md")
+
+	entry := precedingComment(t, doc, "func (a *Adapter) IsTestFile(rel string) bool")
+	for _, want := range []string{"FullEscalate", "IsInstrumentable"} {
+		if !strings.Contains(entry, want) {
+			t.Errorf("IsTestFile's contract entry must mention %q; its doc comment is:\n%s", want, entry)
+		}
+	}
+}
+
+// precedingComment returns the contiguous block of `//` lines immediately above decl in
+// doc. A qualification three paragraphs away is not a qualification of the entry.
+func precedingComment(t *testing.T, doc, decl string) string {
+	t.Helper()
+	i := strings.Index(doc, decl)
+	if i < 0 {
+		t.Fatalf("00-interfaces.md contains no %q", decl)
+	}
+	lines := strings.Split(doc[:i], "\n")
+	var block []string
+	for j := len(lines) - 2; j >= 0; j-- {
+		if !strings.HasPrefix(strings.TrimSpace(lines[j]), "//") {
+			break
+		}
+		block = append([]string{lines[j]}, block...)
+	}
+	return strings.Join(block, "\n")
+}

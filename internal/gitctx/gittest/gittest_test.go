@@ -8,8 +8,9 @@ import (
 	"testing"
 )
 
-// InitRepo is the *testing.T-free door into this package's shell-out, for callers
-// like internal/pytestfixture that build a repo outside a test body.
+// InitRepo is this package's *testing.T-free entry point: it returns an error instead
+// of failing the test binary. Nothing outside a _test.go file may reach it — see
+// internal/contract's TestOnlyTestFilesImportGittest.
 func TestInitRepoCommitsTheTree(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not on PATH")
