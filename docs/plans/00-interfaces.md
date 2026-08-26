@@ -341,7 +341,21 @@ type RunResult struct {
 // and merges the results. A chunk that exits with a mapped ExitCode (4=bad-selector,
 // 5=no-tests-collected) is a fatal error, not a test failure.
 func Run(a *adapter.Adapter, repoRoot string, tests []string, failFast bool) (*RunResult, error)
+
+// Seed runs the adapter's seed template ONCE over the whole suite, with no test ids
+// and no chunking. It reuses Run's execution path, so COVERAGE_CORE forcing and the
+// combined-stream sysmon scan apply identically. A seed is the only operation that
+// may shrink a map row, so every condition Run treats as fatal is fatal here too —
+// exit 5 included: seeding an empty suite must never write an empty map.
 func Seed(a *adapter.Adapter, repoRoot string) (*RunResult, error)
+
+// List returns every test id the adapter's list command reports, in collection
+// order. Needed for the T2 tier and for direct-tier discovery. An exit code
+// mapped to "no-tests-collected" yields an empty list and a nil error — an empty
+// suite is empty, not fatal; any other mapped code is a *FatalExitError. That is
+// the asymmetry with Run, where the same code means the ids RTDD produced selected
+// nothing. Collection order is preserved, never sorted.
+func List(a *adapter.Adapter, repoRoot string) ([]string, error)
 
 const MaxArgvBytes = 100_000 // conservative; Windows CMD is 8191 chars, Linux ARG_MAX is 2MB
 

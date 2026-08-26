@@ -193,3 +193,115 @@ func tail(b []byte, n int) string {
 	}
 	return "..." + string(b[len(b)-n:])
 }
+
+// Seed runs the adapter's full instrumented seed command once, over the whole
+// suite. It is the only operation that may shrink a map row, so a partial or
+// corrupted seed is worse than no seed: every condition Run treats as fatal is
+// fatal here too, exit 5 (an empty suite) included.
+//
+// chunks == nil is what makes it one invocation with no {tests} placeholder — a
+// seed template that names {tests} fails in Expand rather than running the suite
+// with the ids dropped.
+func Seed(a *adapter.Adapter, repoRoot string) (*RunResult, error) {
+	return execute(a, repoRoot, a.Seed, nil, false)
+}
+
+// emptySuiteLabel is the exit_codes label whose meaning differs between List and
+// Run. For List it is a legitimately empty suite; for a subset Run it means the
+// ids RTDD produced selected nothing, which is fatal.
+const emptySuiteLabel = "no-tests-collected"
+
+// List returns every test id the adapter's list command reports, in COLLECTION
+// ORDER — pytest runs the suite in that order, so sorting here would silently
+// reorder every run driven off the result.
+//
+// Measured `pytest --collect-only -q` output is one nodeid per line, terminated by
+// a blank line and a `N tests collected in Xs` summary. The blank line is the
+// terminator; the summary must never become a test id.
+//
+// It does not go through execute: there is no coverage store and no report log to
+// read, and — the asymmetry that matters — an exit mapped to "no-tests-collected"
+// is an empty suite here, not the fatal "the ids I produced selected nothing" it
+// means for a subset run.
+func List(a *adapter.Adapter, repoRoot string) ([]string, error) {
+	if a.List == "" {
+		return nil, fmt.Errorf("runner: adapter %s has no list command", a.Name)
+	}
+
+	tmpDir, err := os.MkdirTemp("", "rtdd-list-")
+	if err != nil {
+		return nil, fmt.Errorf("runner: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// {out} and {log} only, exactly as in execute. {src} is absent by the M1b
+	// amendment and this map is the enforcement. Real paths rather than empty
+	// strings: a list template naming {log} must not receive `--report-log=`.
+	vars := map[string]string{
+		"log": filepath.Join(tmpDir, "list-report.jsonl"),
+		"out": tmpDir,
+	}
+	argv, err := a.Expand(a.List, vars)
+	if err != nil {
+		return nil, err
+	}
+
+	var combined bytes.Buffer
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Dir = repoRoot
+	cmd.Env = mergeEnv(os.Environ(), a.Env)
+	cmd.Stdout = &combined
+	cmd.Stderr = &combined
+	runErr := cmd.Run()
+
+	code := 0
+	if runErr != nil {
+		var ee *exec.ExitError
+		if !errors.As(runErr, &ee) {
+			return nil, fmt.Errorf("runner: executing %s: %w", argv[0], runErr)
+		}
+		code = ee.ExitCode()
+	}
+
+	// Before the exit code, as in execute: the warning rides a run that exits 0.
+	if hasSysmonWarning(combined.Bytes()) {
+		return nil, ErrSysmonContext
+	}
+
+	if label, ok := a.ExitCodes[code]; ok {
+		if label == emptySuiteLabel {
+			return nil, nil // an empty suite is empty, not an error
+		}
+		return nil, &FatalExitError{Chunk: 0, Code: code, Label: label}
+	}
+	if code != 0 {
+		return nil, fmt.Errorf("runner: listing tests: %s exited %d\n%s",
+			argv[0], code, tail(combined.Bytes(), 4000))
+	}
+	return parseTestIDs(combined.String()), nil
+}
+
+// parseTestIDs reads collect-only output: one id per line up to the blank line
+// that precedes the summary.
+//
+// Leading blank lines are skipped rather than treated as the terminator — the
+// terminator is the blank line AFTER the ids, and a stray one before them would
+// otherwise turn a populated suite into an empty list. Lines without "::" are
+// dropped so a summary reached by any other route can never become a selector.
+func parseTestIDs(out string) []string {
+	var ids []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if strings.TrimSpace(line) == "" {
+			if len(ids) > 0 {
+				break
+			}
+			continue
+		}
+		if !strings.Contains(line, "::") {
+			continue
+		}
+		ids = append(ids, line)
+	}
+	return ids
+}
