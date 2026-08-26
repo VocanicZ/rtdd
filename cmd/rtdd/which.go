@@ -136,8 +136,9 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 func whichNotes(e *env, sel selector.Selection, allTests []string, fb *importFallbackScan) []string {
 	var out []string
 	if e.ad == nil {
-		out = append(out, fmt.Sprintf("no adapter (%s not found) - file classification is disabled: "+
-			"no changed file can be recognised as a test file, so the direct tier is empty", e.adPath))
+		out = append(out, fmt.Sprintf("no adapter (%s) - file classification is disabled: "+
+			"no changed file can be recognised as a test file, so the direct tier is empty",
+			e.noAdapterReason()))
 	}
 	if sel.Tier == selector.TierEmpty {
 		out = append(out, "an empty selection is not a pass. Nothing was checked.")

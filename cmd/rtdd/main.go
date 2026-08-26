@@ -73,11 +73,37 @@ type env struct {
 	adPath   string
 	m        *mapstore.Map
 	meta     mapstore.Meta
-	ad       *adapter.Adapter // nil when no adapter file is present
+	ad       *adapter.Adapter // nil only when no file was present AND detection resolved nothing
+	// adDetected records that ad came from detection rather than from adPath, so every
+	// message about the adapter names where it actually came from.
+	adDetected bool
+	// adErr is why detection resolved no adapter. It is the reason the missing-adapter
+	// warning states, so a repo with no recognisable toolchain still says so.
+	adErr error
+}
+
+// adapterSource names where the loaded adapter came from, for human output.
+func (e *env) adapterSource() string {
+	if e.adDetected {
+		return "detected"
+	}
+	return e.adPath
+}
+
+// noAdapterReason explains an absent adapter: either detection ran and found nothing, or
+// no detection was attempted because the configured file is what was missing.
+func (e *env) noAdapterReason() string {
+	if e.adErr != nil {
+		return e.adErr.Error()
+	}
+	return fmt.Sprintf("%s not found", e.adPath)
 }
 
 // loadEnv resolves the repo root and loads .rtdd/. The returned int is the process exit
 // code to use when err is non-nil.
+//
+// An explicit --adapter path is an OVERRIDE, not a hint: a path the caller named and that
+// does not exist is a configuration error, never a silent fall back to detection.
 func loadEnv(adapterPath string) (*env, int, error) {
 	wd, err := os.Getwd()
 	if err != nil {
@@ -88,6 +114,7 @@ func loadEnv(adapterPath string) (*env, int, error) {
 		return nil, 3, fmt.Errorf("not inside a git work tree, or git is unavailable: %w", err)
 	}
 
+	explicit := adapterPath != ""
 	e := &env{
 		root:     root,
 		mapPath:  mapPath(root),
@@ -110,9 +137,24 @@ func loadEnv(adapterPath string) (*env, int, error) {
 	if !filepath.IsAbs(abs) {
 		abs = filepath.Join(root, abs)
 	}
-	if _, statErr := os.Stat(abs); statErr == nil {
+	// Detection replaces the file default (docs/plans/00-interfaces.md:912): `rtdd init`
+	// writes no .rtdd/adapter.yaml, so on the documented setup path the file is absent and
+	// only detection can answer. Without this fallback these commands classified nothing
+	// while `rtdd run` and `rtdd seed`, which call detectAdapter directly, classified the
+	// same repo as python — the advisory command and the executing command disagreeing
+	// about one tree.
+	switch _, statErr := os.Stat(abs); {
+	case statErr == nil:
 		if e.ad, err = adapter.Load(abs); err != nil {
 			return nil, 2, err
+		}
+	case explicit:
+		return nil, 2, fmt.Errorf("--adapter %s: %w", adapterPath, statErr)
+	default:
+		if ad, derr := detectAdapter(root); derr != nil {
+			e.adErr = derr
+		} else {
+			e.ad, e.adDetected = ad, true
 		}
 	}
 	return e, 0, nil

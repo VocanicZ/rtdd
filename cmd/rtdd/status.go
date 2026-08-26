@@ -29,9 +29,9 @@ func cmdStatus(args []string, stdout, stderr io.Writer) int {
 
 	fmt.Fprintf(stdout, "repo:    %s\n", e.root)
 	if e.ad != nil {
-		fmt.Fprintf(stdout, "adapter: %s (%s)\n", e.ad.Name, e.adPath)
+		fmt.Fprintf(stdout, "adapter: %s (%s)\n", e.ad.Name, e.adapterSource())
 	} else {
-		fmt.Fprintf(stdout, "adapter: none (%s not found) - file classification is disabled\n", e.adPath)
+		fmt.Fprintf(stdout, "adapter: none (%s) - file classification is disabled\n", e.noAdapterReason())
 	}
 	fmt.Fprintf(stdout, "map:     .rtdd/map.jsonl - %d tests, %d files\n", e.m.Len(), len(e.m.FanOut()))
 
