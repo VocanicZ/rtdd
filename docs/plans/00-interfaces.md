@@ -552,8 +552,89 @@ rtdd map compact
 rtdd init
 ```
 
-`--json` emits a machine-readable object for agent consumption. Its schema is defined in
-plan M2, task "JSON output", and is the interface the agent front-ends depend on.
+`--json` emits a machine-readable object for agent consumption. It is the interface the
+agent front-ends depend on, so it is defined in full here. `cmd/rtdd/jsonout.go` builds it
+(`BuildOutput`/`Output`); `cmd/rtdd/jsonout_test.go` holds it to every rule below.
+
+### The schema, version 1
+
+```json
+{
+  "schema": 1,
+  "command": "run",
+  "base": "HEAD",
+  "adapter": "python",
+  "tier": "T0",
+  "reason": "3 map rows intersect the changed set",
+  "changed": [
+    {"path": "src/logic.py", "status": "modified", "instrumentable": true,
+     "lines": [{"start": 8, "end": 9}]},
+    {"path": "src/constants.py", "status": "modified", "instrumentable": true,
+     "lines": [{"start": 1, "end": 15}]}
+  ],
+  "selection": {
+    "count": 2,
+    "direct": ["tests/test_new.py"],
+    "tests": ["tests/test_new.py", "tests/test_it.py::test_logic"],
+    "import_fallback": {"src/constants.py": ["tests/test_it.py"]}
+  },
+  "run": {
+    "executed": true,
+    "passed": 2, "failed": 0, "skipped": 0, "errored": 0,
+    "failures": [],
+    "duration_ms": 1400
+  },
+  "uncovered": {
+    "available": true,
+    "files": [
+      {"path": "src/constants.py",
+       "ranges": [{"start": 1, "end": 15, "class": "import-time"}],
+       "uncovered_lines": 0},
+      {"path": "src/logic.py",
+       "ranges": [{"start": 8, "end": 8, "class": "import-time"},
+                  {"start": 9, "end": 9, "class": "uncovered"}],
+       "uncovered_lines": 1}
+    ],
+    "summary": {"files": 2, "covered_lines": 0, "uncovered_lines": 1,
+                "import_time_lines": 16}
+  },
+  "unmapped_files": ["src/constants.py"],
+  "exit_code": 0
+}
+```
+
+**Field contract.**
+
+| Field | Type | Meaning |
+|---|---|---|
+| `schema` | int | Always `1` for this version. Consumers MUST reject an unknown value rather than guess. |
+| `command` | string | `"run"` or `"which"`. |
+| `base` | string | The `--base` ref actually used. |
+| `adapter` | string | Detected adapter name. |
+| `tier` | string | `"empty"`, `"direct"`, `"T0"`, `"T1"`, `"T2"` — `selector.Tier.String()`. |
+| `reason` | string | Human-readable escalation cause; `""` when none. |
+| `changed[].path` | string | Repo-relative, slash-separated. |
+| `changed[].status` | string | `"added"`, `"modified"`, `"deleted"`, `"renamed"`, `"untracked"`. |
+| `changed[].instrumentable` | bool | Whether the adapter would instrument it. Only instrumentable files can appear in `uncovered.files`. |
+| `changed[].lines` | array | New-file line ranges, 1-indexed inclusive. Empty for `deleted`. |
+| `selection.count` | int | `len(selection.tests)`. |
+| `selection.direct` | array | Changed/new test files, always run first. Never null. |
+| `selection.tests` | array | Final ranked list, direct first. Never null. Empty is a legitimate outcome and is reported as `tier: "empty"`. |
+| `selection.import_fallback` | object | file → tests chosen by the static import scan. `{}` when the fallback did not fire. |
+| `run.executed` | bool | `false` for `which`, which runs nothing. |
+| `run.passed`/`failed`/`skipped`/`errored` | int | Outcome counts; all `0` when `executed` is `false`. |
+| `run.failures` | array of string | Failing test ids. Never null. |
+| `run.duration_ms` | int | Sum of executed test durations. |
+| `uncovered.available` | bool | `true` only when fresh post-run coverage exists. `which` always emits `false`. |
+| `uncovered.reason` | string | Present only when `available` is `false`; explains why. |
+| `uncovered.files` | array | Omitted when `available` is `false`. Sorted by `path`. |
+| `uncovered.files[].ranges[].class` | string | `"covered"`, `"uncovered"`, `"import-time"`. **`"import-time"` is never `"uncovered"`.** |
+| `uncovered.summary` | object | Totals over `files`. |
+| `unmapped_files` | array | Changed instrumentable files no map row covers — the import-fallback trigger set. Never null. |
+| `exit_code` | int | The process exit code. **`0` even when `uncovered.summary.uncovered_lines > 0`.** |
+
+**Invariant, and it is tested:** `exit_code` is `1` if and only if `run.failed + run.errored
+> 0`. A non-empty uncovered report never changes it.
 
 ---
 
