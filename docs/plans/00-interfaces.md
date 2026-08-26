@@ -746,7 +746,9 @@ func LoadWith(path string, older func(a, b string) string) (*Map, error)
 
 // internal/gitctx
 func RepoRoot(dir string) (string, error)
-// RawDiff returns `git diff --unified=0 <base>` output verbatim, for hunk parsing.
+// RawDiff returns `git diff --unified=0 -M <base>` output verbatim, for hunk parsing.
+// See the `## internal/gitctx` section above for the full entry: -M is not optional,
+// because a rename must report its NEW-side path or its changed lines attach to nothing.
 func RawDiff(repoRoot, base string) (string, error)
 
 // internal/adapter
@@ -774,12 +776,14 @@ type FatalExitError struct{ Chunk int; Code int; Label string }
 func (e *FatalExitError) Error() string
 func List(a *adapter.Adapter, repoRoot string) ([]string, error)
 
-// internal/uncovered
-func ParseHunks(diff string) map[string][]gitctx.LineRange
-// WithLines attaches parsed hunk ranges to changes lacking them.
-func WithLines(changes []gitctx.Change, diff string) []gitctx.Change
-type Summary struct{ Covered, Uncovered, ImportTime int }
-func Summarize(reports []FileReport) Summary
+// internal/uncovered — SUPERSEDED by the `## internal/uncovered` section above, which is
+// the shipped shape. The planning sketch that stood here gave WithLines no repoRoot and no
+// error, and summed the three classes as `Summary{Covered, Uncovered, ImportTime}`. Both
+// were wrong in ways that matter: WithLines must read an untracked file from disk (git diff
+// never lists one), which needs the repo root and can fail; and the shipped Summary counts
+// Files alongside CoveredLines/UncoveredLines/ImportTimeLines, because the --json summary
+// reports a file count the three line totals cannot reconstruct. ParseHunks, Classify,
+// Class.String, FileReport.UncoveredLines and Summarize are all recorded in that section.
 
 // internal/doctor — SUPERSEDED by the `## internal/doctor` section above, which is the
 // shipped shape. The planning sketch that stood here made the fan-out warning a `Caveat()`
