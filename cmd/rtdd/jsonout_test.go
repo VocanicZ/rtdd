@@ -87,7 +87,8 @@ func TestBuildOutputRunWithUncoveredReport(t *testing.T) {
 		t.Fatalf("json.Unmarshal: %v", err)
 	}
 	for _, k := range []string{"schema", "command", "base", "adapter", "tier", "reason",
-		"changed", "selection", "run", "uncovered", "unmapped_files", "exit_code"} {
+		"complete", "warnings", "changed", "selection", "run", "uncovered",
+		"unmapped_files", "exit_code"} {
 		if _, ok := round[k]; !ok {
 			t.Fatalf("marshalled object is missing required key %q: %s", k, b)
 		}
@@ -108,6 +109,7 @@ func TestBuildOutputNeverNullsSlices(t *testing.T) {
 		`"import_fallback":{}`,
 		`"failures":[]`,
 		`"unmapped_files":[]`,
+		`"warnings":[]`,
 	} {
 		if !strings.Contains(s, needle) {
 			t.Fatalf("output must never emit null for a collection; missing %s in %s", needle, s)
@@ -418,5 +420,81 @@ func TestBuildOutputNotExecutedHasZeroRunCounts(t *testing.T) {
 	}
 	if out.ExitCode != 0 {
 		t.Fatalf("exit_code = %d, want 0", out.ExitCode)
+	}
+}
+
+// `complete` carries the never-narrow-silently guarantee into the document. A T2 tier
+// whose suite was never enumerated is a PARTIAL list of the run, and a consumer that
+// reads `selection.tests` as "run these ids" under-runs the suite. The flag says so on
+// stdout, where a --json consumer actually reads.
+func TestBuildOutputCompleteIsFalseForAnUnenumeratedT2(t *testing.T) {
+	out := BuildOutput(OutputInput{
+		Command: "which", Base: "HEAD", Adapter: "python",
+		Sel: selector.Selection{Tier: selector.TierT2, Tests: []string{"tests/a.py::t"}},
+	})
+	if out.Complete {
+		t.Fatal("complete must be false for a T2 selection whose suite was never enumerated")
+	}
+}
+
+// A direct test in the list does not make it complete: the run is still the whole suite.
+func TestBuildOutputCompleteIsFalseForT2EvenWithADirectTest(t *testing.T) {
+	out := BuildOutput(OutputInput{
+		Command: "which", Base: "HEAD", Adapter: "python",
+		Sel: selector.Selection{
+			Tier:   selector.TierT2,
+			Direct: []string{"tests/test_new.py"},
+			Tests:  []string{"tests/test_new.py"},
+		},
+	})
+	if out.Complete {
+		t.Fatal("a T2 selection carrying a direct test is still a partial list; complete must be false")
+	}
+}
+
+// Enumerating the suite is what makes a T2 list whole, and `run` pays for it.
+func TestBuildOutputCompleteIsTrueForAnEnumeratedT2(t *testing.T) {
+	out := BuildOutput(OutputInput{
+		Command: "run", Base: "HEAD", Adapter: "python",
+		Sel:             selector.Selection{Tier: selector.TierT2, Tests: []string{"tests/a.py::t"}},
+		SuiteEnumerated: true,
+	})
+	if !out.Complete {
+		t.Fatal("an enumerated T2 selection IS the whole suite; complete must be true")
+	}
+}
+
+// Every other tier names its own tests exhaustively, so the list is complete by
+// construction — including the empty tier, whose emptiness is fully known.
+func TestBuildOutputCompleteIsTrueForEveryOtherTier(t *testing.T) {
+	for _, tier := range []selector.Tier{
+		selector.TierEmpty, selector.TierDirect, selector.TierT0, selector.TierT1,
+	} {
+		out := BuildOutput(OutputInput{
+			Command: "which", Base: "HEAD", Adapter: "python",
+			Sel: selector.Selection{Tier: tier},
+		})
+		if !out.Complete {
+			t.Errorf("tier %s names its tests exhaustively; complete must be true", tier)
+		}
+	}
+}
+
+// `warnings` is the other half of the guarantee: the caveats that say the selection is
+// narrower, or less authoritative, than it looks. They reach the document verbatim and in
+// the order the command produced them.
+func TestBuildOutputCarriesWarningsInOrder(t *testing.T) {
+	want := []string{"no adapter - file classification is disabled", "an empty selection is not a pass."}
+	out := BuildOutput(OutputInput{
+		Command: "which", Base: "HEAD", Adapter: "",
+		Warnings: want,
+	})
+	if len(out.Warnings) != len(want) {
+		t.Fatalf("warnings = %#v, want %#v", out.Warnings, want)
+	}
+	for i := range want {
+		if out.Warnings[i] != want[i] {
+			t.Fatalf("warnings[%d] = %q, want %q", i, out.Warnings[i], want[i])
+		}
 	}
 }

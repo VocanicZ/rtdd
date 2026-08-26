@@ -566,6 +566,8 @@ agent front-ends depend on, so it is defined in full here. `cmd/rtdd/jsonout.go`
   "adapter": "python",
   "tier": "T0",
   "reason": "3 map rows intersect the changed set",
+  "complete": true,
+  "warnings": [],
   "changed": [
     {"path": "src/logic.py", "status": "modified", "instrumentable": true,
      "lines": [{"start": 8, "end": 9}]},
@@ -613,6 +615,8 @@ agent front-ends depend on, so it is defined in full here. `cmd/rtdd/jsonout.go`
 | `adapter` | string | Detected adapter name. |
 | `tier` | string | `"empty"`, `"direct"`, `"T0"`, `"T1"`, `"T2"` — `selector.Tier.String()`. |
 | `reason` | string | Human-readable escalation cause; `""` when none. |
+| `complete` | bool | Whether `selection.tests` is the WHOLE run. `false` exactly when `tier` is `"T2"` and the suite was not enumerated — `rtdd which` never enumerates it, so `which` reports `false` on every T2. Direct tests present in the list do NOT make it complete. Every other tier names its tests exhaustively and reports `true`, the empty tier included. |
+| `warnings` | array of string | The caveats saying the selection is narrower, or less authoritative, than it looks — a missing adapter (file classification disabled), an empty selection, an unenumerated T2 suite, a failed import scan. Verbatim, in the order the command produced them. Never null; `[]` means there are none. The same sentences also go to stderr for a human, but a `--json` consumer normally discards stderr, so the document carries them too. |
 | `changed[].path` | string | Repo-relative, slash-separated. |
 | `changed[].status` | string | `"added"`, `"modified"`, `"deleted"`, `"renamed"`, `"untracked"`. |
 | `changed[].instrumentable` | bool | Whether the adapter would instrument it. Only instrumentable files can appear in `uncovered.files`. |
@@ -911,7 +915,9 @@ override. `rtdd which --json` output is **provisional in M1a**; plan M2 task "JS
 freezes the schema.
 
 `rtdd which` may never narrow the selection silently. Two fields carry that guarantee into
-the JSON, and the M2 schema freeze inherits both:
+the JSON, and the M2 schema freeze inherits both — see the `complete` and `warnings` rows of
+the v1 field contract above, which are these fields as frozen. `rtdd run` emits both as well,
+under the same rules:
 
 - `"complete"` — `false` when the tier is T2 and the suite was not enumerated, i.e. when
   `tests` is a partial list of the run. Direct tests present in the list do not make it

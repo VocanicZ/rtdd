@@ -537,10 +537,12 @@ func TestWhichNotesTheUnenumeratedSuiteEvenWhenADirectTestIsSelected(t *testing.
 }
 
 // T2 means the full suite and `which` does not enumerate it, so `selection.tests` is a
-// partial list. The v1 document says so through `tier: "T2"` — a consumer that reads T2 as
-// "run these ids" under-runs — and the caveat itself goes to stderr, where it cannot
-// corrupt the document a consumer pipes straight into a parser.
-func TestWhichJSONKeepsTheUnenumeratedT2CaveatOffStdout(t *testing.T) {
+// partial list. Under --json the document is the WHOLE of stdout and a consumer normally
+// discards stderr, so a stderr-only caveat is a caveat the agent front-end never sees:
+// the guarantee has to be IN the document, as `complete: false` plus the sentence in
+// `warnings`. The stderr line stays for the human reading the terminal, and stdout stays
+// a single parseable document — decodeOutput proves that on every call.
+func TestWhichJSONCarriesTheUnenumeratedT2CaveatInTheDocument(t *testing.T) {
 	dir := newTestRepo(t)
 	installRTDD(t, dir, headShort(t, dir), 0)
 	writeFile(t, dir, "requirements.txt", "pytest==9.0.3\n")
@@ -554,11 +556,61 @@ func TestWhichJSONKeepsTheUnenumeratedT2CaveatOffStdout(t *testing.T) {
 	if got.Tier != "T2" {
 		t.Fatalf("tier = %q, want T2 (reason: %s)", got.Tier, got.Reason)
 	}
-	if !strings.Contains(stderr, "not the whole run") {
-		t.Errorf("stderr must carry the unenumerated-suite caveat:\n%s", stderr)
+	if got.Complete {
+		t.Errorf("complete = true; `which` never enumerates the suite, so a T2 list is partial:\n%s", stdout)
 	}
-	if strings.Contains(stdout, "not the whole run") {
-		t.Errorf("--json stdout must be the document and nothing else:\n%s", stdout)
+	if !anyWarningContains(got.Warnings, "not the whole run") {
+		t.Errorf("warnings must carry the unenumerated-suite caveat, got %#v", got.Warnings)
+	}
+	if !strings.Contains(stderr, "not the whole run") {
+		t.Errorf("stderr must keep the caveat for humans:\n%s", stderr)
+	}
+}
+
+// A missing adapter disables file classification entirely, which narrows the selection
+// without narrowing anything a consumer can see. It is a `warnings` entry, not a stderr
+// aside — `adapter` being `""` is a symptom, not the explanation.
+func TestWhichJSONCarriesTheMissingAdapterWarningInTheDocument(t *testing.T) {
+	dir := newTestRepo(t)
+	installRTDD(t, dir, headShort(t, dir), 0)
+	if err := os.Remove(filepath.Join(dir, ".rtdd", "adapter.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, "tests/test_new.py", "def test_new():\n    pass\n")
+
+	code, stdout, stderr := rtdd(t, dir, "which", "--json")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	got := decodeOutput(t, stdout)
+	if !anyWarningContains(got.Warnings, "classification is disabled") {
+		t.Errorf("warnings must say file classification is disabled, got %#v", got.Warnings)
+	}
+	if !strings.Contains(stderr, "classification is disabled") {
+		t.Errorf("stderr must keep the warning for humans:\n%s", stderr)
+	}
+}
+
+// The fields are a guarantee, not decoration: a fully-enumerated tier reports itself
+// complete and carries no warnings, so `warnings` being non-empty always means something.
+func TestWhichJSONReportsACompleteSelectionWithNoWarnings(t *testing.T) {
+	dir := newTestRepo(t)
+	installRTDD(t, dir, headShort(t, dir), 0)
+	writeFile(t, dir, "src/auth.py", "def login():\n    return True\n")
+
+	code, stdout, stderr := rtdd(t, dir, "which", "--json")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	got := decodeOutput(t, stdout)
+	if got.Tier != "T0" {
+		t.Fatalf("tier = %q, want T0 (reason: %s)", got.Tier, got.Reason)
+	}
+	if !got.Complete {
+		t.Errorf("complete = false; a T0 selection names every test it will run:\n%s", stdout)
+	}
+	if len(got.Warnings) != 0 {
+		t.Errorf("warnings = %#v, want none for an unremarkable T0 selection", got.Warnings)
 	}
 }
 

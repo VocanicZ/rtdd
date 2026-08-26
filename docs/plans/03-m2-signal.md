@@ -2321,6 +2321,8 @@ into `00-interfaces.md`.
   "adapter": "python",
   "tier": "T0",
   "reason": "3 map rows intersect the changed set",
+  "complete": true,
+  "warnings": [],
   "changed": [
     {"path": "src/logic.py", "status": "modified", "instrumentable": true,
      "lines": [{"start": 8, "end": 9}]},
@@ -2368,6 +2370,8 @@ into `00-interfaces.md`.
 | `adapter` | string | Detected adapter name. |
 | `tier` | string | `"empty"`, `"direct"`, `"T0"`, `"T1"`, `"T2"` — `selector.Tier.String()`. |
 | `reason` | string | Human-readable escalation cause; `""` when none. |
+| `complete` | bool | Whether `selection.tests` is the WHOLE run. `false` exactly when `tier` is `"T2"` and the suite was not enumerated; `which` never enumerates it. |
+| `warnings` | array of string | Caveats saying the selection is narrower, or less authoritative, than it looks. Never null. Also printed for humans, but a `--json` consumer discards stderr, so the document carries them. |
 | `changed[].path` | string | Repo-relative, slash-separated. |
 | `changed[].status` | string | `"added"`, `"modified"`, `"deleted"`, `"renamed"`, `"untracked"`. |
 | `changed[].instrumentable` | bool | Whether the adapter would instrument it. Only instrumentable files can appear in `uncovered.files`. |

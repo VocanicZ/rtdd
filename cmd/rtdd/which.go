@@ -101,12 +101,15 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 	notes := whichNotes(e, sel, allTests, fb)
 
 	if *asJSON {
-		// Under --json the document is the WHOLE of stdout: a consumer pipes it straight
-		// into a parser. Notes and warnings go to stderr, where they cannot corrupt it.
+		// The notes go BOTH ways. Structured, they are `complete` and `warnings` inside
+		// the document, because under --json the document is the whole of stdout and a
+		// consumer that discards stderr would otherwise lose the guarantee entirely.
+		// As prose they stay on stderr, where a human sees them and where they cannot
+		// corrupt the single JSON document a parser is reading from stdout.
 		for _, n := range notes {
 			fmt.Fprintf(stderr, "rtdd which: %s\n", n)
 		}
-		return emitWhichJSON(stdout, stderr, e, *base, changes, sel, sig, fb.fired)
+		return emitWhichJSON(stdout, stderr, e, *base, changes, sel, sig, fb.fired, notes)
 	}
 
 	fmt.Fprintf(stdout, "base:     %s\n", *base)
@@ -148,8 +151,7 @@ func whichNotes(e *env, sel selector.Selection, allTests []string, fb *importFal
 			"so the %d test id(s) listed above are not the whole run.", len(sel.Tests)))
 	}
 	if err := fb.err(); err != nil {
-		out = append(out, fmt.Sprintf("the static import scan failed, so an import-time-only file "+
-			"may be under-selected: %v", err))
+		out = append(out, importScanNote(err))
 	}
 	return out
 }
@@ -237,7 +239,8 @@ func testFileOf(id string) string {
 // emitWhichJSON writes the frozen v1 document — the same schema `rtdd run --json` emits,
 // so a front-end binds once and reads both.
 func emitWhichJSON(stdout, stderr io.Writer, e *env, base string, changes []gitctx.Change,
-	sel selector.Selection, sig SignalOutput, importFallback map[string][]string) int {
+	sel selector.Selection, sig SignalOutput, importFallback map[string][]string,
+	warnings []string) int {
 	adapterName := ""
 	if e.ad != nil {
 		adapterName = e.ad.Name
@@ -251,8 +254,12 @@ func emitWhichJSON(stdout, stderr io.Writer, e *env, base string, changes []gitc
 		Instrumentable: sig.Instrumentable,
 		Executed:       false,
 		UncoveredOK:    false,
-		UnmappedFiles:  sig.UnmappedFiles,
-		ImportFallback: importFallback,
+		// which never enumerates the suite — that costs a collection run it does not
+		// pay — so a T2 selection here is always reported as incomplete.
+		SuiteEnumerated: false,
+		Warnings:        warnings,
+		UnmappedFiles:   sig.UnmappedFiles,
+		ImportFallback:  importFallback,
 	})
 
 	enc := json.NewEncoder(stdout)
