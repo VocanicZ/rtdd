@@ -509,3 +509,85 @@ func Materialize(t *testing.T, files map[string]string) string // returns a temp
 A task that needs a symbol not defined here MUST add it here **in the same commit** that
 uses it. Two packages with the same name and different shapes is the specific failure this
 file exists to prevent, and it is the failure mode that parallel agents produce by default.
+
+---
+
+## M1a amendments
+
+Added by [`01-m1a-core.md`](01-m1a-core.md). These are part of the contract.
+
+### internal/paths
+
+```go
+// MatchGlob reports whether rel matches a slash-separated glob pattern.
+// "*" and "?" match within one path segment; "**" matches zero or more whole segments.
+func MatchGlob(pattern, rel string) bool
+```
+
+### internal/mapstore
+
+```go
+// LoadWith is Load with an explicit commit-age comparator, used to resolve duplicate
+// `t` lines left by a union merge. Load(path) is LoadWith(path, nil); with a nil
+// comparator the first line's C wins — deterministic, but age-blind.
+func LoadWith(path string, older func(a, b string) string) (*Map, error)
+
+// Meta is .rtdd/meta.json.
+type Meta struct {
+    V        int    `json:"v"`
+    Adapter  string `json:"adapter"`
+    SeededAt string `json:"seeded_at"`
+    Cycles   int    `json:"cycles"`
+}
+
+func LoadMeta(path string) (Meta, error) // missing file returns the zero Meta and a nil error
+func SaveMeta(path string, m Meta) error
+```
+
+Compaction (`rtdd map compact`) is defined as `LoadWith` followed by `Save`: `LoadWith`
+resolves duplicates and `Save` writes exactly one line per `t`. There is no separate
+entry point.
+
+### internal/gitctx
+
+```go
+// RepoRoot returns the absolute, cleaned top level of the git work tree containing start.
+func RepoRoot(start string) (string, error)
+
+// String returns "added" | "modified" | "deleted" | "renamed" | "untracked".
+func (s Status) String() string
+```
+
+`Untracked` is reserved for callers that need the distinction. Per the `ChangedSet` doc
+comment, `ChangedSet` itself reports an untracked file as `Added` with the whole file as
+one `LineRange`.
+
+### internal/selector
+
+```go
+type Inputs struct {
+    Map        *mapstore.Map
+    Changes    []gitctx.Change
+    Adapter    *adapter.Adapter
+    Cfg        Config
+    AllTests   []string             // from adapter.List; needed for T2 and for direct-tier discovery
+    Distance   func(sha string) int // wraps gitctx.CommitDistance; -1 means unknown
+    Cycles     int                  // from meta.json, for DriftGuard
+    Merge      bool                 // ADDED: HEAD is a merge commit; escalates to T1 (spec §4)
+    ImportOnly func(rel string) []string // static-import fallback; see M2
+}
+```
+
+A zero `Config` (every field zero) is treated as `DefaultConfig()`.
+
+### CLI surface
+
+```
+rtdd status [--adapter <path>]
+rtdd which  [--base <ref>] [--json] [--adapter <path>]
+```
+
+`--adapter` defaults to `.rtdd/adapter.yaml`. It exists because `adapter.Detect` and
+`adapter.LoadAll` are M1b; detection replaces the default in M1b and the flag stays as an
+override. `rtdd which --json` output is **provisional in M1a**; plan M2 task "JSON output"
+freezes the schema.

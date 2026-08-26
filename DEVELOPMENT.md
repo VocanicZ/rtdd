@@ -16,8 +16,16 @@ Do not hand-review Go code in place of compiling it.
 
 ## Verify the build
 
+`scripts/ci-local.sh` is the authoritative CI gate. Run it before merging anything:
+
 ```bash
-go build ./... && go vet ./... && go test ./...
+scripts/ci-local.sh
+```
+
+It runs exactly what `.github/workflows/ci.yml` runs:
+
+```bash
+go build ./... && go vet ./... && gofmt -l . && go test ./... -count=1
 CGO_ENABLED=0 go build -o /tmp/rtdd ./cmd/rtdd   # must produce a STATIC binary
 file /tmp/rtdd | grep -q 'statically linked' || echo "FAIL: not static"
 ```
