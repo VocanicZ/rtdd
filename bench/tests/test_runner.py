@@ -379,3 +379,66 @@ def test_the_cacheprovider_is_disabled_by_default(synth):
     _checkout(synth.path, synth.sha(3))
     run_full(synth.path)
     assert not (synth.path / ".pytest_cache").exists()
+
+
+# --- exec_args: the parallel baseline's execution mode ----------------------
+
+
+def _argv_dump_python(tmp_path: pathlib.Path, dumped: pathlib.Path) -> str:
+    """A `python` that records the argv it was handed and exits 0.
+
+    The parallel baseline is defined entirely by the flags it adds, so the only
+    honest assertion is on the argv pytest actually receives.
+    """
+    recorder = tmp_path / "record_argv.py"
+    recorder.write_text(
+        "import json, sys\n" f"json.dump(sys.argv[1:], open({str(dumped)!r}, 'w'))\n",
+        encoding="utf-8",
+    )
+    shim = tmp_path / "dump-argv"
+    shim.write_text(f'#!/bin/sh\nexec python3 {recorder} "$@"\n', encoding="utf-8")
+    shim.chmod(shim.stat().st_mode | stat.S_IEXEC)
+    return str(shim)
+
+
+def test_a_subsets_exec_args_reach_the_pytest_invocation(synth, tmp_path):
+    dumped = tmp_path / "argv.json"
+    run_subset(
+        synth.path,
+        ["tests/test_alpha.py::test_add"],
+        python=_argv_dump_python(tmp_path, dumped),
+        exec_args=("-n", "auto"),
+    )
+    argv = json.loads(dumped.read_text(encoding="utf-8"))
+
+    assert argv[:2] == ["-m", "pytest"]
+    assert "-n" in argv and argv[argv.index("-n") + 1] == "auto"
+
+
+def test_a_subset_without_exec_args_stays_serial(synth, tmp_path):
+    dumped = tmp_path / "argv.json"
+    run_subset(
+        synth.path,
+        ["tests/test_alpha.py::test_add"],
+        python=_argv_dump_python(tmp_path, dumped),
+    )
+
+    assert "-n" not in json.loads(dumped.read_text(encoding="utf-8"))
+
+
+def test_a_full_runs_exec_args_reach_the_pytest_invocation(synth, tmp_path):
+    dumped = tmp_path / "argv.json"
+    run_full(synth.path, python=_argv_dump_python(tmp_path, dumped), exec_args=("-n", "auto"))
+    argv = json.loads(dumped.read_text(encoding="utf-8"))
+
+    assert "-n" in argv and argv[argv.index("-n") + 1] == "auto"
+
+
+def test_a_parallel_run_key_is_not_the_serial_one(cache_root):
+    cache = Cache(cache_root, "cfg")
+    coords = ("repo", "sha", "natural", "xdist")
+    tests = ("t.py::x", "t.py::y")
+    serial = run_key(cache, MODE_SUBSET, *coords, tests=tests)
+    parallel = run_key(cache, MODE_SUBSET, *coords, tests=tests, exec_args=("-n", "auto"))
+
+    assert serial != parallel

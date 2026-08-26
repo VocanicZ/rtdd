@@ -7,8 +7,9 @@ instrumented subset, that is the finding, and the results table has to show it
 rather than compare RTDD only against a serial full run.
 
 Because it runs everything, every cycle is an escalation by construction; the
-parallelism lives in `Selection.exec_args`, which the runner turns into `-n auto`
-so the comparison is like-for-like on the same machine.
+parallelism lives in `Selection.exec_args`, which `runner._pytest_argv` appends to
+the pytest invocation — both subset columns, instrumented and uninstrumented — so
+the comparison is like-for-like on the same machine.
 """
 
 from __future__ import annotations

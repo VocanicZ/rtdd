@@ -337,6 +337,14 @@ def render_markdown(summary: dict, cfg: RunConfig, hw: Hardware) -> str:
                 f"{row['mean_subset_instrumented_ms'] or 'n/a'} ms | "
                 f"{row['mean_subset_uninstrumented_ms']} ms | {row['isolation_violations']} |"
             )
+        lines.append("")
+        lines.append(
+            "A strategy that carries `Selection.exec_args` — `xdist` is the only one in the "
+            "shipped set — runs **both** subset columns with those flags (`pytest -n auto`); "
+            "per-test coverage contexts survive the parallel instrumented run, so that column "
+            "is not silently serial either. The `full uninstrumented` column is always the "
+            "serial full suite, which is what makes the two directly comparable."
+        )
     lines.append("")
     lines.append("## By variant")
     lines.append("")
