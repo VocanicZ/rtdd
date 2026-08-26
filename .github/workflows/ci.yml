@@ -1,0 +1,20 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: run tests (autodetect stack)
+        run: |
+          set -e
+          if   [ -f Cargo.toml ];   then cargo test --all;
+          elif [ -f go.mod ];       then go test ./...;
+          elif [ -f package.json ]; then npm ci && npm test --if-present;
+          elif [ -f gradlew ];      then ./gradlew test;
+          elif [ -f pom.xml ];      then mvn -B test;
+          elif [ -f pyproject.toml ] || ls tests/*.py >/dev/null 2>&1; then pip install -e . 2>/dev/null || true; pytest -q || [ $? -eq 5 ];
+          else echo "no test stack yet — passing"; fi
