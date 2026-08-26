@@ -146,3 +146,48 @@ func TestLoadSkipsBlankLines(t *testing.T) {
 		t.Errorf("Len() = %d, want 1", m.Len())
 	}
 }
+
+// Compaction (rtdd map compact) is LoadWith followed by Save: LoadWith resolves the
+// duplicate lines a union merge leaves behind, Save writes exactly one line per t.
+func TestCompactionRoundTrip(t *testing.T) {
+	src, err := os.ReadFile("testdata/dup.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(t.TempDir(), "map.jsonl")
+	if err := os.WriteFile(p, src, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m, err := LoadWith(p, olderLexical)
+	if err != nil {
+		t.Fatalf("LoadWith: %v", err)
+	}
+	if err := m.Save(p); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"t":"tests/test_auth.py::test_login","f":["src/auth.py","src/db.py","src/session.py"],"c":"aaa1111","d":88,"s":"fail"}
+{"t":"tests/test_db.py::test_query","f":["src/db.py"],"c":"bbb2222","d":15,"s":"pass"}
+`
+	if string(b) != want {
+		t.Errorf("compaction produced:\n%s\nwant:\n%s", string(b), want)
+	}
+
+	// Compaction is idempotent: a second round trip is a no-op.
+	m2, err := LoadWith(p, olderLexical)
+	if err != nil {
+		t.Fatalf("second LoadWith: %v", err)
+	}
+	if err := m2.Save(p); err != nil {
+		t.Fatalf("second Save: %v", err)
+	}
+	b2, _ := os.ReadFile(p)
+	if string(b2) != string(b) {
+		t.Errorf("compaction is not idempotent:\nfirst:\n%s\nsecond:\n%s", string(b), string(b2))
+	}
+}
