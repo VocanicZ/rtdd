@@ -175,8 +175,15 @@ one `LineRange`.
 
 ```go
 type Inputs struct {
-    // ...existing fields...
-    Merge bool // HEAD is a merge commit; escalates to T1 (spec §4: "Merge commits therefore escalate")
+    Map        *mapstore.Map
+    Changes    []gitctx.Change
+    Adapter    *adapter.Adapter
+    Cfg        Config
+    AllTests   []string             // from adapter.List; needed for T2 and for direct-tier discovery
+    Distance   func(sha string) int // wraps gitctx.CommitDistance; -1 means unknown
+    Cycles     int                  // from meta.json, for DriftGuard
+    Merge      bool                 // ADDED: HEAD is a merge commit; escalates to T1 (spec §4)
+    ImportOnly func(rel string) []string // static-import fallback; see M2
 }
 ```
 
@@ -2170,6 +2177,16 @@ func ChangedSet(repoRoot, base string) ([]Change, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Paths already recorded as the source of a rename must not be re-added as plain
+	// modifications: git status reports both halves of a rename, and the diff pass has
+	// already attached the old path to its Change via OldPath.
+	renameSources := map[string]struct{}{}
+	for _, c := range changes {
+		if c.OldPath != "" {
+			renameSources[c.OldPath] = struct{}{}
+		}
+	}
+
 	pf := splitZ(porcelain)
 	for i := 0; i < len(pf); {
 		rec := pf[i]
@@ -2181,10 +2198,13 @@ func ChangedSet(repoRoot, base string) ([]Change, error) {
 		p := rec[3:]
 		if x == 'R' || x == 'C' || y == 'R' || y == 'C' {
 			if i < len(pf) {
-				i++ // consume the origin-path field that follows a rename record
+				i++ // consume the origin-path field that accompanies a rename record
 			}
 		}
 		if _, seen := changes[p]; seen {
+			continue
+		}
+		if _, isSource := renameSources[p]; isSource {
 			continue
 		}
 		if x == '?' && y == '?' {
@@ -3326,3 +3346,1809 @@ cd /home/claude/rtdd
 git add internal/selector/rank.go internal/selector/rank_test.go
 git commit -m "M1a: selector.Rank with the four spec keys plus a deterministic tiebreak"
 ```
+
+---
+
+### Task 17: internal/selector — Select, direct tier first and explicit TierEmpty
+
+**Files:**
+- Create: `internal/selector/select.go`
+- Test: `internal/selector/select_test.go`
+
+**Interfaces:**
+- Consumes: `type Inputs`, `type Selection`, `type Config`, `func DefaultConfig() Config`, `func Rank(m *mapstore.Map, tests, changedFiles []string) []string`, `func (m *mapstore.Map) TestsCovering(files []string) []string`, `func (m *mapstore.Map) FanOut() map[string]int`, `func (m *mapstore.Map) Get(t string) (mapstore.Row, bool)`, `func (a *adapter.Adapter) IsTestFile(rel string) bool`, `func (a *adapter.Adapter) IsOpaque(rel string) bool`, `func (a *adapter.Adapter) IsFullEscalate(rel string) bool`.
+- Produces: `func Select(in Inputs) Selection`
+
+**Two hard cases this task exists for.**
+
+1. **The direct tier is computed FIRST, before any map lookup.** A test the agent just wrote
+   has no map row, so in v1 it was in no tier and step 3 of v1's own loop never executed it.
+   `Direct` is built straight from the changed set via `Adapter.IsTestFile`, and is
+   **prepended** to `Tests`.
+2. **`TierEmpty` is a distinct, explicitly reported outcome.** It is returned with a `Reason`
+   and never collapsed into a successful tier. `cmd` prints it as a warning and still exits 0
+   — it is a signal, not a failure.
+
+Order of evaluation: direct set → T2 escalations → T1 escalations → T0 → empty.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `internal/selector/select_test.go`:
+
+```go
+package selector
+
+import (
+	"reflect"
+	"testing"
+
+	"github.com/VocanicZ/rtdd/internal/adapter"
+	"github.com/VocanicZ/rtdd/internal/gitctx"
+	"github.com/VocanicZ/rtdd/internal/mapstore"
+)
+
+// fixtureAdapter mirrors adapters/python.yaml without touching the filesystem.
+func fixtureAdapter() *adapter.Adapter {
+	return &adapter.Adapter{
+		Name:         "python",
+		TestGlobs:    []string{"tests/**/*.py", "**/test_*.py"},
+		SourceGlobs:  []string{"src/**/*.py"},
+		Opaque:       []string{"**/*.yaml", "**/*.html", "**/fixtures/**"},
+		FullEscalate: []string{"requirements.txt", "pyproject.toml", "**/conftest.py"},
+	}
+}
+
+// fixtureSelectMap is the hand-written map that drives M1a.
+func fixtureSelectMap() *mapstore.Map {
+	return mapOf(
+		mapstore.Row{T: "tests/test_auth.py::test_login", F: []string{"src/auth.py", "src/db.py"}, C: "aaa1111", D: 412, S: "pass"},
+		mapstore.Row{T: "tests/test_auth.py::test_logout", F: []string{"src/auth.py"}, C: "aaa1111", D: 90, S: "fail"},
+		mapstore.Row{T: "tests/test_db.py::test_query", F: []string{"src/db.py"}, C: "aaa1111", D: 15, S: "pass"},
+		mapstore.Row{T: "tests/test_render.py::test_page", F: []string{"src/render.py", "templates/page.html"}, C: "aaa1111", D: 230, S: "pass"},
+	)
+}
+
+func mod(p string) gitctx.Change {
+	return gitctx.Change{Path: p, Status: gitctx.Modified, Lines: []gitctx.LineRange{{Start: 1, End: 1}}}
+}
+
+func added(p string) gitctx.Change {
+	return gitctx.Change{Path: p, Status: gitctx.Added, Lines: []gitctx.LineRange{{Start: 1, End: 3}}}
+}
+
+func deleted(p string) gitctx.Change {
+	return gitctx.Change{Path: p, Status: gitctx.Deleted}
+}
+
+// fresh reports every recorded commit as zero commits old.
+func fresh(string) int { return 0 }
+
+func baseInputs() Inputs {
+	return Inputs{
+		Map:      fixtureSelectMap(),
+		Adapter:  fixtureAdapter(),
+		Cfg:      DefaultConfig(),
+		Distance: fresh,
+	}
+}
+
+// The regression that made v1's contribution #2 unreachable: a test the agent just
+// wrote has no map row, so it belonged to no tier and never ran.
+func TestSelectPutsANewTestFileInTheDirectTierFirst(t *testing.T) {
+	in := baseInputs()
+	in.Changes = []gitctx.Change{added("tests/test_brand_new.py")}
+
+	got := Select(in)
+
+	if !reflect.DeepEqual(got.Direct, []string{"tests/test_brand_new.py"}) {
+		t.Fatalf("Direct = %#v, want the newly written test file", got.Direct)
+	}
+	if len(got.Tests) == 0 || got.Tests[0] != "tests/test_brand_new.py" {
+		t.Fatalf("Tests = %#v, want the direct test FIRST", got.Tests)
+	}
+	if got.Tier != TierDirect {
+		t.Errorf("Tier = %v, want TierDirect", got.Tier)
+	}
+	if got.Reason == "" {
+		t.Error("Reason is empty; every Selection must explain itself")
+	}
+}
+
+func TestSelectDirectTestsPrecedeMappedTests(t *testing.T) {
+	in := baseInputs()
+	in.Changes = []gitctx.Change{
+		added("tests/test_brand_new.py"),
+		mod("src/auth.py"),
+	}
+
+	got := Select(in)
+
+	want := []string{
+		"tests/test_brand_new.py",          // direct, first, despite having no map row
+		"tests/test_auth.py::test_logout",  // ratio 1.0, last-failed
+		"tests/test_auth.py::test_login",   // ratio 0.5
+	}
+	if !reflect.DeepEqual(got.Tests, want) {
+		t.Errorf("Tests = %#v, want %#v", got.Tests, want)
+	}
+	if got.Tier != TierT0 {
+		t.Errorf("Tier = %v, want TierT0", got.Tier)
+	}
+}
+
+func TestSelectAChangedTestFileIsDirectEvenWhenItHasAMapRow(t *testing.T) {
+	in := baseInputs()
+	in.Changes = []gitctx.Change{mod("tests/test_auth.py")}
+
+	got := Select(in)
+
+	if !reflect.DeepEqual(got.Direct, []string{"tests/test_auth.py"}) {
+		t.Errorf("Direct = %#v, want [tests/test_auth.py]", got.Direct)
+	}
+	if got.Tests[0] != "tests/test_auth.py" {
+		t.Errorf("Tests[0] = %q, want the changed test file", got.Tests[0])
+	}
+}
+
+func TestSelectADeletedTestFileIsNotRunDirectly(t *testing.T) {
+	in := baseInputs()
+	in.Changes = []gitctx.Change{deleted("tests/test_auth.py")}
+
+	got := Select(in)
+
+	if len(got.Direct) != 0 {
+		t.Errorf("Direct = %#v, want empty: a deleted test file cannot be executed", got.Direct)
+	}
+}
+
+func TestSelectT0(t *testing.T) {
+	tests := []struct {
+		name      string
+		changes   []gitctx.Change
+		wantTier  Tier
+		wantTests []string
+	}{
+		{
+			name:      "one source file selects its two tests, ranked",
+			changes:   []gitctx.Change{mod("src/auth.py")},
+			wantTier:  TierT0,
+			wantTests: []string{"tests/test_auth.py::test_logout", "tests/test_auth.py::test_login"},
+		},
+		{
+			name:      "two source files union their tests",
+			changes:   []gitctx.Change{mod("src/auth.py"), mod("src/db.py")},
+			wantTier:  TierT0,
+			wantTests: []string{"tests/test_auth.py::test_logout", "tests/test_db.py::test_query", "tests/test_auth.py::test_login"},
+		},
+		{
+			name:      "a deleted source file still selects the tests whose F contains it",
+			changes:   []gitctx.Change{deleted("src/render.py")},
+			wantTier:  TierT0,
+			wantTests: []string{"tests/test_render.py::test_page"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			in := baseInputs()
+			in.Changes = tc.changes
+			got := Select(in)
+			if got.Tier != tc.wantTier {
+				t.Errorf("Tier = %v (%s), want %v", got.Tier, got.Reason, tc.wantTier)
+			}
+			if !reflect.DeepEqual(got.Tests, tc.wantTests) {
+				t.Errorf("Tests = %#v, want %#v", got.Tests, tc.wantTests)
+			}
+		})
+	}
+}
+
+func TestSelectRenameSelectsViaTheOldPathToo(t *testing.T) {
+	in := baseInputs()
+	in.Changes = []gitctx.Change{{
+		Path:    "src/authentication.py",
+		OldPath: "src/auth.py",
+		Status:  gitctx.Renamed,
+		Lines:   []gitctx.LineRange{{Start: 1, End: 10}},
+	}}
+
+	got := Select(in)
+
+	want := []string{"tests/test_auth.py::test_logout", "tests/test_auth.py::test_login"}
+	if !reflect.DeepEqual(got.Tests, want) {
+		t.Errorf("Tests = %#v, want %#v (the OLD path must still select its tests)", got.Tests, want)
+	}
+}
+
+// TierEmpty is a distinct outcome with its own Reason. It must never be reported as a
+// tier that ran and passed.
+func TestSelectTierEmptyIsExplicit(t *testing.T) {
+	tests := []struct {
+		name    string
+		changes []gitctx.Change
+	}{
+		{"a source file no test covers", []gitctx.Change{mod("src/orphan.py")}},
+		{"nothing changed at all", nil},
+		{"a file outside every glob", []gitctx.Change{mod("README.md")}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			in := baseInputs()
+			in.Changes = tc.changes
+			got := Select(in)
+			if got.Tier != TierEmpty {
+				t.Fatalf("Tier = %v, want TierEmpty", got.Tier)
+			}
+			if len(got.Tests) != 0 {
+				t.Errorf("Tests = %#v, want empty", got.Tests)
+			}
+			if got.Reason == "" {
+				t.Error("TierEmpty with an empty Reason: an empty selection must say why")
+			}
+		})
+	}
+}
+
+func TestSelectToleratesNilMapAndNilAdapter(t *testing.T) {
+	got := Select(Inputs{Changes: []gitctx.Change{mod("src/auth.py")}, Cfg: DefaultConfig()})
+	if got.Tier != TierT2 {
+		t.Errorf("Tier = %v, want TierT2 (a nil/empty map is unseeded)", got.Tier)
+	}
+	if got.Reason == "" {
+		t.Error("Reason is empty")
+	}
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `go test ./internal/selector/... -run TestSelect -v`
+Expected: FAIL — `internal/selector/select_test.go:...: undefined: Select` (build failure, `[build failed]`).
+
+- [ ] **Step 3: Write minimal implementation**
+
+Create `internal/selector/select.go`:
+
+```go
+package selector
+
+import (
+	"fmt"
+	"path"
+	"sort"
+	"strings"
+
+	"github.com/VocanicZ/rtdd/internal/gitctx"
+	"github.com/VocanicZ/rtdd/internal/mapstore"
+)
+
+// Select computes the tier and the ranked test list.
+//
+// Order of evaluation, and it matters:
+//  1. the direct set, BEFORE any map lookup — a test the agent just wrote has no map row,
+//     and in v1 it was therefore in no tier and never ran;
+//  2. T2 escalations (unseeded map, full-escalate file, drift guard);
+//  3. T1 escalations (merge commit, opaque file, import-time-only file, stale row);
+//  4. T0;
+//  5. TierEmpty, reported explicitly with a Reason.
+func Select(in Inputs) Selection {
+	m := in.Map
+	if m == nil {
+		m = mapstore.New()
+	}
+	cfg := in.Cfg
+	if cfg == (Config{}) {
+		cfg = DefaultConfig()
+	}
+
+	changedFiles := make([]string, 0, len(in.Changes)*2)
+	for _, c := range in.Changes {
+		changedFiles = append(changedFiles, c.Path)
+		if c.OldPath != "" {
+			changedFiles = append(changedFiles, c.OldPath)
+		}
+	}
+	sort.Strings(changedFiles)
+	changedFiles = dedupe(changedFiles)
+
+	// (1) direct tier, first, with no map lookup at all.
+	direct := make([]string, 0, len(in.Changes))
+	for _, c := range in.Changes {
+		if c.Status == gitctx.Deleted {
+			continue // a deleted test file cannot be executed
+		}
+		if in.Adapter.IsTestFile(c.Path) {
+			direct = append(direct, c.Path)
+		}
+	}
+	sort.Strings(direct)
+	direct = dedupe(direct)
+
+	// (2) T2.
+	if reason, escalate := escalateFull(in, m, cfg); escalate {
+		return Selection{
+			Tier:   TierT2,
+			Direct: direct,
+			Tests:  mergeFirst(direct, in.AllTests),
+			Reason: reason,
+		}
+	}
+
+	t0 := m.TestsCovering(changedFiles)
+
+	// (3) T1.
+	if extra, reason := escalateT1(in, m, cfg, t0); reason != "" {
+		ranked := Rank(m, dedupe(append(append([]string{}, t0...), extra...)), changedFiles)
+		tests := mergeFirst(direct, ranked)
+		if len(tests) == 0 {
+			return Selection{
+				Tier:   TierEmpty,
+				Direct: direct,
+				Reason: reason + "; but nothing in the map covers the changed set",
+			}
+		}
+		return Selection{Tier: TierT1, Direct: direct, Tests: tests, Reason: reason}
+	}
+
+	// (4) T0, and (5) empty.
+	ranked := Rank(m, t0, changedFiles)
+	tests := mergeFirst(direct, ranked)
+	switch {
+	case len(tests) == 0:
+		return Selection{
+			Tier:   TierEmpty,
+			Direct: direct,
+			Reason: "no test in the map covers the changed set, and no test file changed",
+		}
+	case len(ranked) == 0:
+		return Selection{
+			Tier:   TierDirect,
+			Direct: direct,
+			Tests:  tests,
+			Reason: "changed test files only; no mapped test covers the changed set",
+		}
+	default:
+		return Selection{
+			Tier:   TierT0,
+			Direct: direct,
+			Tests:  tests,
+			Reason: "tests whose recorded coverage intersects the changed set",
+		}
+	}
+}
+
+func escalateFull(in Inputs, m *mapstore.Map, cfg Config) (string, bool) {
+	if m.Len() == 0 {
+		return "the map is unseeded, so no selection is trustworthy: run rtdd seed", true
+	}
+	for _, c := range in.Changes {
+		if in.Adapter.IsFullEscalate(c.Path) {
+			return "full-escalate file changed: " + c.Path, true
+		}
+	}
+	if cfg.DriftGuard > 0 && in.Cycles >= cfg.DriftGuard {
+		return fmt.Sprintf("drift guard reached: %d cycles since the last full run (limit %d)",
+			in.Cycles, cfg.DriftGuard), true
+	}
+	return "", false
+}
+
+// escalateT1 returns the tests T1 adds to T0, and the reason for the escalation.
+// An empty reason means no escalation.
+func escalateT1(in Inputs, m *mapstore.Map, cfg Config, t0 []string) (extra []string, reason string) {
+	if in.Merge {
+		reason = "HEAD is a merge commit: a union-merged map can be stale relative to the merged code"
+	}
+
+	for _, c := range in.Changes {
+		if !in.Adapter.IsOpaque(c.Path) {
+			continue
+		}
+		extra = append(extra, m.TestsCovering(filesUnder(m, path.Dir(c.Path)))...)
+		if reason == "" {
+			reason = "opaque file changed (coverage cannot see inside it): " + c.Path
+		}
+	}
+
+	if in.ImportOnly != nil {
+		for _, c := range in.Changes {
+			ids := in.ImportOnly(c.Path)
+			if len(ids) == 0 {
+				continue
+			}
+			extra = append(extra, ids...)
+			if reason == "" {
+				reason = "import-time-only file changed: " + c.Path
+			}
+		}
+	}
+
+	if in.Distance != nil && cfg.StaleCommits > 0 {
+		for _, id := range t0 {
+			r, ok := m.Get(id)
+			if !ok {
+				continue
+			}
+			d := in.Distance(r.C)
+			if d < 0 {
+				if reason == "" {
+					reason = fmt.Sprintf("row %s records commit %q, which is unreachable: "+
+						"age unknown, treated as stale", id, r.C)
+				}
+				break
+			}
+			if d > cfg.StaleCommits {
+				if reason == "" {
+					reason = fmt.Sprintf("row %s is %d commits stale (limit %d)", id, d, cfg.StaleCommits)
+				}
+				break
+			}
+		}
+	}
+
+	return dedupe(extra), reason
+}
+
+// filesUnder returns every file in the map that lives under dir.
+func filesUnder(m *mapstore.Map, dir string) []string {
+	out := []string{}
+	prefix := dir + "/"
+	for f := range m.FanOut() {
+		if dir == "." || strings.HasPrefix(f, prefix) {
+			out = append(out, f)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func dedupe(in []string) []string {
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if _, dup := seen[s]; dup {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	return out
+}
+
+// mergeFirst returns first, then every member of rest not already present.
+// This is what keeps the direct tier ahead of everything else.
+func mergeFirst(first, rest []string) []string {
+	out := make([]string, 0, len(first)+len(rest))
+	seen := make(map[string]struct{}, len(first)+len(rest))
+	for _, group := range [][]string{first, rest} {
+		for _, s := range group {
+			if _, dup := seen[s]; dup {
+				continue
+			}
+			seen[s] = struct{}{}
+			out = append(out, s)
+		}
+	}
+	return out
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `go test ./internal/selector/... -run TestSelect -v`
+Expected: PASS, all subtests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd /home/claude/rtdd
+git add internal/selector/select.go internal/selector/select_test.go
+git commit -m "M1a: selector.Select with the direct tier first and an explicit TierEmpty"
+```
+
+---
+
+### Task 18: internal/selector — T1 and T2 escalation cases
+
+**Files:**
+- Modify: none (proves Task 17's escalation paths)
+- Test: `internal/selector/select_test.go` (append)
+
+**Interfaces:**
+- Consumes: `func Select(in Inputs) Selection`, `type Inputs`, `type Config`, `func DefaultConfig() Config`.
+- Produces: nothing new.
+
+Every escalation must carry a non-empty `Reason`. A `-1` distance escalates exactly like an
+over-`StaleCommits` distance: unknown age is never treated as fresh.
+
+- [ ] **Step 1: Write the failing test**
+
+Append to `internal/selector/select_test.go`:
+
+```go
+func TestSelectEscalatesToT2(t *testing.T) {
+	tests := []struct {
+		name       string
+		mutate     func(*Inputs)
+		reasonHas  string
+	}{
+		{
+			name: "unseeded map",
+			mutate: func(in *Inputs) {
+				in.Map = mapstore.New()
+				in.Changes = []gitctx.Change{mod("src/auth.py")}
+			},
+			reasonHas: "unseeded",
+		},
+		{
+			name: "dependency manifest changed",
+			mutate: func(in *Inputs) {
+				in.Changes = []gitctx.Change{mod("src/auth.py"), mod("requirements.txt")}
+			},
+			reasonHas: "requirements.txt",
+		},
+		{
+			name: "test-harness config changed",
+			mutate: func(in *Inputs) {
+				in.Changes = []gitctx.Change{mod("tests/conftest.py")}
+			},
+			reasonHas: "conftest.py",
+		},
+		{
+			name: "drift guard reached",
+			mutate: func(in *Inputs) {
+				in.Changes = []gitctx.Change{mod("src/auth.py")}
+				in.Cycles = 100
+			},
+			reasonHas: "drift guard",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			in := baseInputs()
+			in.AllTests = []string{"tests/test_auth.py::test_login", "tests/test_zebra.py::test_z"}
+			tc.mutate(&in)
+			got := Select(in)
+			if got.Tier != TierT2 {
+				t.Fatalf("Tier = %v (%s), want TierT2", got.Tier, got.Reason)
+			}
+			if !contains(got.Reason, tc.reasonHas) {
+				t.Errorf("Reason = %q, want it to mention %q", got.Reason, tc.reasonHas)
+			}
+			if len(got.Tests) != len(in.AllTests) {
+				t.Errorf("Tests = %#v, want the full suite %#v", got.Tests, in.AllTests)
+			}
+		})
+	}
+}
+
+func TestSelectT2KeepsDirectTestsFirst(t *testing.T) {
+	in := baseInputs()
+	in.AllTests = []string{"tests/test_auth.py::test_login", "tests/test_db.py::test_query"}
+	in.Changes = []gitctx.Change{mod("requirements.txt"), added("tests/test_brand_new.py")}
+
+	got := Select(in)
+
+	if got.Tier != TierT2 {
+		t.Fatalf("Tier = %v, want TierT2", got.Tier)
+	}
+	if got.Tests[0] != "tests/test_brand_new.py" {
+		t.Errorf("Tests[0] = %q, want the direct test even at T2", got.Tests[0])
+	}
+}
+
+func TestSelectEscalatesToT1(t *testing.T) {
+	tests := []struct {
+		name      string
+		mutate    func(*Inputs)
+		reasonHas string
+		wantHas   string
+	}{
+		{
+			name: "opaque file selects its directory's tests",
+			mutate: func(in *Inputs) {
+				in.Changes = []gitctx.Change{mod("templates/page.html")}
+			},
+			reasonHas: "opaque",
+			wantHas:   "tests/test_render.py::test_page",
+		},
+		{
+			name: "HEAD is a merge commit",
+			mutate: func(in *Inputs) {
+				in.Changes = []gitctx.Change{mod("src/auth.py")}
+				in.Merge = true
+			},
+			reasonHas: "merge commit",
+			wantHas:   "tests/test_auth.py::test_logout",
+		},
+		{
+			name: "a row is staler than stale_commits",
+			mutate: func(in *Inputs) {
+				in.Changes = []gitctx.Change{mod("src/auth.py")}
+				in.Distance = func(string) int { return 51 }
+			},
+			reasonHas: "stale",
+			wantHas:   "tests/test_auth.py::test_logout",
+		},
+		{
+			name: "an unreachable commit is unknown, never fresh",
+			mutate: func(in *Inputs) {
+				in.Changes = []gitctx.Change{mod("src/auth.py")}
+				in.Distance = func(string) int { return -1 }
+			},
+			reasonHas: "unreachable",
+			wantHas:   "tests/test_auth.py::test_logout",
+		},
+		{
+			name: "import-time-only fallback contributes tests",
+			mutate: func(in *Inputs) {
+				in.Changes = []gitctx.Change{mod("src/constants.py")}
+				in.ImportOnly = func(rel string) []string {
+					if rel == "src/constants.py" {
+						return []string{"tests/test_db.py::test_query"}
+					}
+					return nil
+				}
+			},
+			reasonHas: "import-time-only",
+			wantHas:   "tests/test_db.py::test_query",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			in := baseInputs()
+			tc.mutate(&in)
+			got := Select(in)
+			if got.Tier != TierT1 {
+				t.Fatalf("Tier = %v (%s), want TierT1", got.Tier, got.Reason)
+			}
+			if !contains(got.Reason, tc.reasonHas) {
+				t.Errorf("Reason = %q, want it to mention %q", got.Reason, tc.reasonHas)
+			}
+			found := false
+			for _, id := range got.Tests {
+				if id == tc.wantHas {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("Tests = %#v, want it to contain %q", got.Tests, tc.wantHas)
+			}
+		})
+	}
+}
+
+func TestSelectT1WithNothingToSelectIsStillEmpty(t *testing.T) {
+	in := baseInputs()
+	in.Changes = []gitctx.Change{mod("config/unmapped.yaml")}
+
+	got := Select(in)
+
+	if got.Tier != TierEmpty {
+		t.Errorf("Tier = %v (%s), want TierEmpty: an escalation that selects nothing is still nothing",
+			got.Tier, got.Reason)
+	}
+	if got.Reason == "" {
+		t.Error("Reason is empty")
+	}
+}
+
+// A fresh row must NOT escalate, or every selection becomes T1.
+func TestSelectFreshRowsDoNotEscalate(t *testing.T) {
+	in := baseInputs()
+	in.Changes = []gitctx.Change{mod("src/auth.py")}
+	in.Distance = func(string) int { return 50 } // exactly at the limit, not over it
+
+	got := Select(in)
+
+	if got.Tier != TierT0 {
+		t.Errorf("Tier = %v (%s), want TierT0 at exactly stale_commits", got.Tier, got.Reason)
+	}
+}
+
+func contains(haystack, needle string) bool {
+	return len(needle) > 0 && len(haystack) >= len(needle) && strings.Contains(haystack, needle)
+}
+```
+
+Add `"strings"` to the imports of `select_test.go`.
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `go test ./internal/selector/... -run TestSelect -v`
+Expected: PASS if Task 17 is correct. If any subtest FAILS, the message names the gap, e.g.
+`Tier = T0 (tests whose recorded coverage intersects the changed set), want TierT1` for the
+merge-commit case. Fix `escalateT1`/`escalateFull`, not the test.
+
+- [ ] **Step 3: Write minimal implementation**
+
+No new production code. If Step 2 failed, the fix belongs in `internal/selector/select.go`.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `go test ./internal/... -v`
+Expected: PASS across paths, mapstore, gitctx, adapter, and selector.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd /home/claude/rtdd
+git add internal/selector/select_test.go
+git commit -m "M1a: cover every T1/T2 escalation, including unreachable-commit staleness"
+```
+
+---
+
+### Task 19: cmd/rtdd — dispatch, loadEnv, and `rtdd status`
+
+**Files:**
+- Create: `cmd/rtdd/main.go`, `cmd/rtdd/status.go`, `cmd/rtdd/testdata/map.jsonl`, `cmd/rtdd/testdata/adapter.yaml`
+- Test: `cmd/rtdd/main_test.go`
+
+**Interfaces:**
+- Consumes:
+  - `func gitctx.RepoRoot(start string) (string, error)`
+  - `func gitctx.HeadSHA(repoRoot string) (string, error)`
+  - `func gitctx.CommitDistance(repoRoot, sha string) (int, error)`
+  - `func gitctx.IsMergeCommit(repoRoot, sha string) (bool, error)`
+  - `func gitctx.Older(repoRoot string) func(a, b string) string`
+  - `func mapstore.LoadWith(path string, older func(a, b string) string) (*mapstore.Map, error)`
+  - `func mapstore.LoadMeta(path string) (mapstore.Meta, error)`
+  - `func (m *mapstore.Map) Len() int`, `func (m *mapstore.Map) FanOut() map[string]int`
+  - `func adapter.Load(path string) (*adapter.Adapter, error)`
+  - `func selector.DefaultConfig() selector.Config`
+- Produces (internal to `main`):
+  - `func run(args []string, stdout, stderr io.Writer) int`
+  - `type env struct { root, mapPath, metaPath, adPath string; m *mapstore.Map; meta mapstore.Meta; ad *adapter.Adapter }`
+  - `func loadEnv(adapterPath string) (*env, int, error)`
+  - `func cmdStatus(args []string, stdout, stderr io.Writer) int`
+
+`cmd/` is the only place that prints. `main` is a one-liner around `run` so every command is
+testable with in-memory writers and an asserted exit code.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `cmd/rtdd/testdata/map.jsonl` — the hand-written fixture map that drives M1a. The
+token `SEEDSHA` is rewritten to the test repo's real short SHA by the test helper.
+
+```
+{"t":"tests/test_auth.py::test_login","f":["src/auth.py","src/db.py"],"c":"SEEDSHA","d":412,"s":"pass"}
+{"t":"tests/test_auth.py::test_logout","f":["src/auth.py"],"c":"SEEDSHA","d":90,"s":"fail"}
+{"t":"tests/test_db.py::test_query","f":["src/db.py"],"c":"SEEDSHA","d":15,"s":"pass"}
+{"t":"tests/test_render.py::test_page","f":["src/render.py","templates/page.html"],"c":"SEEDSHA","d":230,"s":"pass"}
+```
+
+Create `cmd/rtdd/testdata/adapter.yaml`:
+
+```yaml
+name: python
+detect: ["pyproject.toml"]
+env: { COVERAGE_CORE: ctrace }
+seed: "pytest --cov={src} --cov-context=test --report-log={log}"
+subset: "pytest {tests} --cov={src} --cov-context=test --report-log={log}"
+list: "pytest --collect-only -q"
+coverage: sqlite
+report: pytest-reportlog
+failfast_flag: "-x"
+test_globs: ["tests/**/*.py", "**/test_*.py"]
+source_globs: ["src/**/*.py"]
+exit_codes: { 4: bad-selector, 5: no-tests-collected }
+opaque: ["**/*.yaml", "**/*.html", "**/fixtures/**"]
+full_escalate: ["requirements.txt", "pyproject.toml", "**/conftest.py"]
+```
+
+Create `cmd/rtdd/main_test.go`:
+
+```go
+package main
+
+import (
+	"bytes"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+)
+
+// newTestRepo builds a real git repository containing the source tree the fixture map
+// describes. Git is never mocked.
+func newTestRepo(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not on PATH")
+	}
+	dir := t.TempDir()
+	gitRun(t, dir, "init", "-q", "-b", "main")
+	gitRun(t, dir, "config", "user.email", "rtdd@example.com")
+	gitRun(t, dir, "config", "user.name", "rtdd test")
+	gitRun(t, dir, "config", "commit.gpgsign", "false")
+
+	writeFile(t, dir, "src/auth.py", "def login():\n    return 1\n")
+	writeFile(t, dir, "src/db.py", "def query():\n    return 2\n")
+	writeFile(t, dir, "src/render.py", "def page():\n    return 3\n")
+	writeFile(t, dir, "templates/page.html", "<p>hi</p>\n")
+	writeFile(t, dir, "tests/test_auth.py", "def test_login():\n    pass\n")
+	writeFile(t, dir, "tests/test_db.py", "def test_query():\n    pass\n")
+	writeFile(t, dir, "tests/test_render.py", "def test_page():\n    pass\n")
+	// The test repo ignores .rtdd/ so the fixture map and adapter never show up in the
+	// changed set and every assertion is about the code under test. A real host repo
+	// commits .rtdd/map.jsonl instead; either way it selects nothing.
+	writeFile(t, dir, ".gitignore", ".rtdd/\n")
+	gitRun(t, dir, "add", "-A")
+	gitRun(t, dir, "commit", "-q", "-m", "init")
+	return dir
+}
+
+func gitRun(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_CONFIG_NOSYSTEM=1",
+		"HOME="+dir,
+		"GIT_AUTHOR_DATE=2026-01-01T00:00:00Z",
+		"GIT_COMMITTER_DATE=2026-01-01T00:00:00Z",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return string(out)
+}
+
+func writeFile(t *testing.T, dir, rel, content string) {
+	t.Helper()
+	p := filepath.Join(dir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func headShort(t *testing.T, dir string) string {
+	t.Helper()
+	return strings.TrimSpace(gitRun(t, dir, "rev-parse", "--short", "HEAD"))
+}
+
+// installRTDD copies the fixture map, meta, and adapter into dir/.rtdd/, substituting
+// seedSHA for the SEEDSHA token in the map and the meta.
+func installRTDD(t *testing.T, dir, seedSHA string, cycles int) {
+	t.Helper()
+	raw, err := os.ReadFile("testdata/map.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, ".rtdd/map.jsonl", strings.ReplaceAll(string(raw), "SEEDSHA", seedSHA))
+
+	ad, err := os.ReadFile("testdata/adapter.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, ".rtdd/adapter.yaml", string(ad))
+
+	meta := `{"v":1,"adapter":"python","seeded_at":"` + seedSHA + `","cycles":` +
+		strconv.Itoa(cycles) + "}\n"
+	writeFile(t, dir, ".rtdd/meta.json", meta)
+}
+
+// rtdd runs the CLI with dir as the working directory.
+func rtdd(t *testing.T, dir string, args ...string) (code int, stdout, stderr string) {
+	t.Helper()
+	t.Chdir(dir)
+	var out, errBuf bytes.Buffer
+	code = run(args, &out, &errBuf)
+	return code, out.String(), errBuf.String()
+}
+
+func TestRunWithNoArgsIsAUsageError(t *testing.T) {
+	dir := newTestRepo(t)
+	code, _, stderr := rtdd(t, dir)
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr, "usage") {
+		t.Errorf("stderr = %q, want usage text", stderr)
+	}
+}
+
+func TestRunWithAnUnknownCommandIsAUsageError(t *testing.T) {
+	dir := newTestRepo(t)
+	code, _, stderr := rtdd(t, dir, "frobnicate")
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr, "frobnicate") {
+		t.Errorf("stderr = %q, want it to name the unknown command", stderr)
+	}
+}
+
+func TestStatusOnASeededRepo(t *testing.T) {
+	dir := newTestRepo(t)
+	sha := headShort(t, dir)
+	installRTDD(t, dir, sha, 7)
+
+	code, stdout, stderr := rtdd(t, dir, "status")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	for _, want := range []string{
+		"adapter: python",
+		"4 tests",
+		"4 files",
+		"cycles:  7 / 100",
+		sha,
+		"0 commits ago",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("status output is missing %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestStatusOnAnUnseededRepo(t *testing.T) {
+	dir := newTestRepo(t)
+
+	code, stdout, stderr := rtdd(t, dir, "status")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	if !strings.Contains(stdout, "UNSEEDED") {
+		t.Errorf("status must say UNSEEDED when the map is empty:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "adapter: none") {
+		t.Errorf("status must report a missing adapter explicitly:\n%s", stdout)
+	}
+}
+
+// An unreachable seed commit is reported as UNREACHABLE, never as fresh.
+func TestStatusReportsAnUnreachableSeedCommit(t *testing.T) {
+	dir := newTestRepo(t)
+	installRTDD(t, dir, "deadbee", 0)
+
+	code, stdout, _ := rtdd(t, dir, "status")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if !strings.Contains(stdout, "UNREACHABLE") {
+		t.Errorf("status must flag an unreachable seed commit:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "0 commits ago") {
+		t.Errorf("status reported an unreachable commit as fresh:\n%s", stdout)
+	}
+}
+
+func TestStatusOutsideAGitRepoExitsThree(t *testing.T) {
+	dir := t.TempDir()
+	code, _, stderr := rtdd(t, dir, "status")
+	if code != 3 {
+		t.Errorf("exit code = %d, want 3 (fatal environment error)", code)
+	}
+	if stderr == "" {
+		t.Error("stderr is empty; a fatal environment error must say what went wrong")
+	}
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `go test ./cmd/rtdd/... -v`
+Expected: FAIL — `cmd/rtdd/main_test.go:...: undefined: run` (build failure, `[build failed]`).
+
+- [ ] **Step 3: Write minimal implementation**
+
+Create `cmd/rtdd/main.go`:
+
+```go
+// Command rtdd reports which tests cover the code that just changed.
+// This package is the only place in the engine that prints.
+package main
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+
+	"github.com/VocanicZ/rtdd/internal/adapter"
+	"github.com/VocanicZ/rtdd/internal/gitctx"
+	"github.com/VocanicZ/rtdd/internal/mapstore"
+)
+
+const usage = `rtdd - relational test-driven development
+
+usage:
+  rtdd status [--adapter <path>]
+  rtdd which  [--base <ref>] [--json] [--adapter <path>]
+
+exit codes:
+  0  success - an empty selection is a signal, not a failure
+  1  a test failed
+  2  usage or configuration error
+  3  fatal environment error (git unavailable, unreadable coverage)
+`
+
+func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
+
+func run(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprint(stderr, usage)
+		return 2
+	}
+	switch args[0] {
+	case "status":
+		return cmdStatus(args[1:], stdout, stderr)
+	case "which":
+		return cmdWhich(args[1:], stdout, stderr)
+	case "-h", "--help", "help":
+		fmt.Fprint(stdout, usage)
+		return 0
+	default:
+		fmt.Fprintf(stderr, "rtdd: unknown command %q\n\n%s", args[0], usage)
+		return 2
+	}
+}
+
+type env struct {
+	root     string
+	mapPath  string
+	metaPath string
+	adPath   string
+	m        *mapstore.Map
+	meta     mapstore.Meta
+	ad       *adapter.Adapter // nil when no adapter file is present
+}
+
+// loadEnv resolves the repo root and loads .rtdd/. The returned int is the process exit
+// code to use when err is non-nil.
+func loadEnv(adapterPath string) (*env, int, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil, 3, err
+	}
+	root, err := gitctx.RepoRoot(wd)
+	if err != nil {
+		return nil, 3, fmt.Errorf("not inside a git work tree, or git is unavailable: %w", err)
+	}
+
+	e := &env{
+		root:     root,
+		mapPath:  filepath.Join(root, ".rtdd", "map.jsonl"),
+		metaPath: filepath.Join(root, ".rtdd", "meta.json"),
+		adPath:   adapterPath,
+	}
+	if e.adPath == "" {
+		e.adPath = filepath.Join(".rtdd", "adapter.yaml")
+	}
+
+	// Duplicate `t` lines left by a union merge are resolved with real commit ages.
+	if e.m, err = mapstore.LoadWith(e.mapPath, gitctx.Older(root)); err != nil {
+		return nil, 2, err
+	}
+	if e.meta, err = mapstore.LoadMeta(e.metaPath); err != nil {
+		return nil, 2, err
+	}
+
+	abs := e.adPath
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(root, abs)
+	}
+	if _, statErr := os.Stat(abs); statErr == nil {
+		if e.ad, err = adapter.Load(abs); err != nil {
+			return nil, 2, err
+		}
+	}
+	return e, 0, nil
+}
+```
+
+Create `cmd/rtdd/status.go`:
+
+```go
+package main
+
+import (
+	"flag"
+	"fmt"
+	"io"
+
+	"github.com/VocanicZ/rtdd/internal/gitctx"
+	"github.com/VocanicZ/rtdd/internal/selector"
+)
+
+func cmdStatus(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("status", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	adapterPath := fs.String("adapter", "", "path to the adapter YAML (default .rtdd/adapter.yaml)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	e, code, err := loadEnv(*adapterPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "rtdd status: %v\n", err)
+		return code
+	}
+
+	cfg := selector.DefaultConfig()
+
+	fmt.Fprintf(stdout, "repo:    %s\n", e.root)
+	if e.ad != nil {
+		fmt.Fprintf(stdout, "adapter: %s (%s)\n", e.ad.Name, e.adPath)
+	} else {
+		fmt.Fprintf(stdout, "adapter: none (%s not found) - file classification is disabled\n", e.adPath)
+	}
+	fmt.Fprintf(stdout, "map:     .rtdd/map.jsonl - %d tests, %d files\n", e.m.Len(), len(e.m.FanOut()))
+
+	switch {
+	case e.m.Len() == 0:
+		fmt.Fprintf(stdout, "seed:    UNSEEDED - every selection escalates to T2 (full suite)\n")
+	case e.meta.SeededAt == "":
+		fmt.Fprintf(stdout, "seed:    unknown - no .rtdd/meta.json\n")
+	default:
+		d, derr := gitctx.CommitDistance(e.root, e.meta.SeededAt)
+		switch {
+		case derr != nil:
+			fmt.Fprintf(stdout, "seed:    %s (age unknown: %v)\n", e.meta.SeededAt, derr)
+		case d < 0:
+			fmt.Fprintf(stdout, "seed:    %s (UNREACHABLE - rebased, squashed, or shallow clone; "+
+				"treated as stale, never as fresh)\n", e.meta.SeededAt)
+		default:
+			fmt.Fprintf(stdout, "seed:    %s (%d commits ago, stale_commits=%d)\n",
+				e.meta.SeededAt, d, cfg.StaleCommits)
+		}
+	}
+
+	fmt.Fprintf(stdout, "cycles:  %d / %d drift guard\n", e.meta.Cycles, cfg.DriftGuard)
+
+	if head, herr := gitctx.HeadSHA(e.root); herr == nil {
+		merge, _ := gitctx.IsMergeCommit(e.root, "HEAD")
+		if merge {
+			fmt.Fprintf(stdout, "head:    %s (merge commit - selections escalate to T1)\n", head)
+		} else {
+			fmt.Fprintf(stdout, "head:    %s\n", head)
+		}
+	} else {
+		fmt.Fprintf(stdout, "head:    none - the repository has no commits yet\n")
+	}
+	return 0
+}
+```
+
+Note: `cmdWhich` does not exist yet, so this will not compile until Task 20. Add a
+temporary stub at the bottom of `main.go` so Task 19's tests can run, and delete it in
+Task 20:
+
+```go
+// TEMPORARY: replaced by cmd/rtdd/which.go in Task 20.
+func cmdWhich(args []string, stdout, stderr io.Writer) int {
+	fmt.Fprintln(stderr, "rtdd which: not implemented yet")
+	return 2
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `go test ./cmd/rtdd/... -v`
+Expected: PASS, 6 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd /home/claude/rtdd
+git add cmd/rtdd
+git commit -m "M1a: rtdd status, command dispatch, and the hand-written fixture map"
+```
+
+---
+
+### Task 20: cmd/rtdd — `rtdd which` human output
+
+**Files:**
+- Create: `cmd/rtdd/which.go`
+- Modify: `cmd/rtdd/main.go` (delete the temporary `cmdWhich` stub)
+- Test: `cmd/rtdd/main_test.go` (append)
+
+**Interfaces:**
+- Consumes:
+  - `func loadEnv(adapterPath string) (*env, int, error)`
+  - `func gitctx.ChangedSet(repoRoot, base string) ([]gitctx.Change, error)`
+  - `func gitctx.CommitDistance(repoRoot, sha string) (int, error)`
+  - `func gitctx.IsMergeCommit(repoRoot, sha string) (bool, error)`
+  - `func gitctx.HeadSHA(repoRoot string) (string, error)`
+  - `func selector.Select(in selector.Inputs) selector.Selection`
+  - `func selector.DefaultConfig() selector.Config`
+  - `func (t selector.Tier) String() string`
+  - `func (s gitctx.Status) String() string`
+- Produces (internal to `main`): `func cmdWhich(args []string, stdout, stderr io.Writer) int`
+
+`rtdd which` runs nothing. It costs one map load and one git diff, and it is the primary
+agent integration point. It exits 0 even when the selection is empty — an empty selection is
+a signal, and the human output says so in as many words.
+
+- [ ] **Step 1: Write the failing test**
+
+Append to `cmd/rtdd/main_test.go`:
+
+```go
+// The regression that killed v1: a test file written but never `git add`ed is invisible
+// to `git diff`, so it was never selected and never run.
+func TestWhichSelectsAJustWrittenUntrackedTestFile(t *testing.T) {
+	dir := newTestRepo(t)
+	installRTDD(t, dir, headShort(t, dir), 0)
+	writeFile(t, dir, "tests/test_brand_new.py", "def test_new():\n    assert True\n")
+
+	code, stdout, stderr := rtdd(t, dir, "which")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	if !strings.Contains(stdout, "tests/test_brand_new.py") {
+		t.Fatalf("which did not select the just-written test file:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "direct:") {
+		t.Errorf("which must report the direct tier:\n%s", stdout)
+	}
+}
+
+func TestWhichRanksT0(t *testing.T) {
+	dir := newTestRepo(t)
+	installRTDD(t, dir, headShort(t, dir), 0)
+	writeFile(t, dir, "src/auth.py", "def login():\n    return 42\n")
+
+	code, stdout, stderr := rtdd(t, dir, "which")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	if !strings.Contains(stdout, "tier:     T0") {
+		t.Fatalf("want tier T0:\n%s", stdout)
+	}
+	logout := strings.Index(stdout, "tests/test_auth.py::test_logout")
+	login := strings.Index(stdout, "tests/test_auth.py::test_login\n")
+	if logout < 0 || login < 0 {
+		t.Fatalf("both auth tests must be selected:\n%s", stdout)
+	}
+	if logout > login {
+		t.Errorf("the last-failed, higher-ratio test must be listed first:\n%s", stdout)
+	}
+}
+
+// An empty selection is exit 0 AND an explicit warning. It must never read as a pass.
+func TestWhichEmptySelectionIsExitZeroAndSaysSo(t *testing.T) {
+	dir := newTestRepo(t)
+	installRTDD(t, dir, headShort(t, dir), 0)
+	writeFile(t, dir, "src/orphan_module.py", "def orphan():\n    return 0\n")
+
+	code, stdout, stderr := rtdd(t, dir, "which")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (an empty selection is a signal, not a failure); stderr: %s", code, stderr)
+	}
+	if !strings.Contains(stdout, "tier:     empty") {
+		t.Fatalf("want tier empty:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "not a pass") {
+		t.Errorf("an empty selection must be reported in words, not as silence:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "selected: 0") {
+		t.Errorf("want an explicit zero count:\n%s", stdout)
+	}
+}
+
+func TestWhichEscalatesOnAFullEscalateFile(t *testing.T) {
+	dir := newTestRepo(t)
+	installRTDD(t, dir, headShort(t, dir), 0)
+	writeFile(t, dir, "requirements.txt", "pytest==9.0.3\n")
+
+	code, stdout, _ := rtdd(t, dir, "which")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if !strings.Contains(stdout, "tier:     T2") {
+		t.Errorf("want tier T2:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "requirements.txt") {
+		t.Errorf("the reason must name the file that forced the escalation:\n%s", stdout)
+	}
+}
+
+func TestWhichEscalatesWhenTheSeedCommitIsUnreachable(t *testing.T) {
+	dir := newTestRepo(t)
+	installRTDD(t, dir, "deadbee", 0)
+	writeFile(t, dir, "src/auth.py", "def login():\n    return 42\n")
+
+	code, stdout, _ := rtdd(t, dir, "which")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if !strings.Contains(stdout, "tier:     T1") {
+		t.Errorf("an unreachable row commit is unknown age, which escalates:\n%s", stdout)
+	}
+}
+
+func TestWhichReportsDeletionsAndRespectsBase(t *testing.T) {
+	dir := newTestRepo(t)
+	base := headShort(t, dir)
+	installRTDD(t, dir, base, 0)
+
+	if err := os.Remove(filepath.Join(dir, "src", "render.py")); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, _ := rtdd(t, dir, "which", "--base", base)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if !strings.Contains(stdout, "deleted   src/render.py") {
+		t.Errorf("a deletion must be shown:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "tests/test_render.py::test_page") {
+		t.Errorf("a deleted path must still select the tests whose F contains it:\n%s", stdout)
+	}
+}
+
+func TestWhichRejectsAnUnknownFlag(t *testing.T) {
+	dir := newTestRepo(t)
+	installRTDD(t, dir, headShort(t, dir), 0)
+
+	code, _, stderr := rtdd(t, dir, "which", "--nope")
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2 (usage error)", code)
+	}
+	if stderr == "" {
+		t.Error("stderr is empty")
+	}
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `go test ./cmd/rtdd/... -run TestWhich -v`
+Expected: FAIL — every subtest fails with `exit code = 2, want 0` and stderr
+`rtdd which: not implemented yet`, from the Task 19 stub.
+
+- [ ] **Step 3: Write minimal implementation**
+
+Delete the temporary `cmdWhich` stub from `cmd/rtdd/main.go`, then create
+`cmd/rtdd/which.go`:
+
+```go
+package main
+
+import (
+	"flag"
+	"fmt"
+	"io"
+
+	"github.com/VocanicZ/rtdd/internal/gitctx"
+	"github.com/VocanicZ/rtdd/internal/selector"
+)
+
+func cmdWhich(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("which", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	base := fs.String("base", "HEAD", "base ref for the changed set")
+	asJSON := fs.Bool("json", false, "emit machine-readable JSON")
+	adapterPath := fs.String("adapter", "", "path to the adapter YAML (default .rtdd/adapter.yaml)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	e, code, err := loadEnv(*adapterPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "rtdd which: %v\n", err)
+		return code
+	}
+
+	changes, err := gitctx.ChangedSet(e.root, *base)
+	if err != nil {
+		fmt.Fprintf(stderr, "rtdd which: %v\n", err)
+		return 3
+	}
+
+	merge, _ := gitctx.IsMergeCommit(e.root, "HEAD")
+	distance := func(sha string) int {
+		d, derr := gitctx.CommitDistance(e.root, sha)
+		if derr != nil {
+			return -1 // unknown, never fresh
+		}
+		return d
+	}
+
+	sel := selector.Select(selector.Inputs{
+		Map:      e.m,
+		Changes:  changes,
+		Adapter:  e.ad,
+		Cfg:      selector.DefaultConfig(),
+		Cycles:   e.meta.Cycles,
+		Merge:    merge,
+		Distance: distance,
+	})
+
+	if *asJSON {
+		return emitWhichJSON(stdout, stderr, e, *base, changes, sel)
+	}
+
+	fmt.Fprintf(stdout, "base:     %s\n", *base)
+	fmt.Fprintf(stdout, "changed:  %d files\n", len(changes))
+	for _, c := range changes {
+		if c.OldPath != "" {
+			fmt.Fprintf(stdout, "  %-9s %s (from %s)\n", c.Status.String(), c.Path, c.OldPath)
+		} else {
+			fmt.Fprintf(stdout, "  %-9s %s\n", c.Status.String(), c.Path)
+		}
+	}
+	fmt.Fprintf(stdout, "tier:     %s - %s\n", sel.Tier.String(), sel.Reason)
+	fmt.Fprintf(stdout, "direct:   %d\n", len(sel.Direct))
+	for _, id := range sel.Direct {
+		fmt.Fprintf(stdout, "  %s\n", id)
+	}
+	fmt.Fprintf(stdout, "selected: %d\n", len(sel.Tests))
+	for _, id := range sel.Tests {
+		fmt.Fprintf(stdout, "  %s\n", id)
+	}
+	if sel.Tier == selector.TierEmpty {
+		fmt.Fprintf(stdout, "\nNOTE: an empty selection is not a pass. Nothing was checked.\n")
+	}
+	if sel.Tier == selector.TierT2 && len(sel.Tests) == 0 {
+		fmt.Fprintf(stdout, "\nNOTE: T2 means the full suite. rtdd does not enumerate it in M1a "+
+			"(adapter.List is M1b), so no test ids are listed.\n")
+	}
+	return 0
+}
+```
+
+`emitWhichJSON` is added in Task 21. Until then, add this placeholder at the bottom of
+`which.go` so the package compiles, and replace it in Task 21:
+
+```go
+// TEMPORARY: replaced by the real implementation in Task 21.
+func emitWhichJSON(stdout, stderr io.Writer, e *env, base string, changes []gitctx.Change, sel selector.Selection) int {
+	fmt.Fprintln(stderr, "rtdd which --json: not implemented yet")
+	return 2
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `go test ./cmd/rtdd/... -v`
+Expected: PASS, all `status` and `which` tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd /home/claude/rtdd
+git add cmd/rtdd/which.go cmd/rtdd/main.go cmd/rtdd/main_test.go
+git commit -m "M1a: rtdd which human output, direct tier first, empty selection reported"
+```
+
+---
+
+### Task 21: cmd/rtdd — `rtdd which --json`
+
+**Files:**
+- Modify: `cmd/rtdd/which.go` (replace the temporary `emitWhichJSON` placeholder)
+- Test: `cmd/rtdd/main_test.go` (append)
+
+**Interfaces:**
+- Consumes: `type env`, `type selector.Selection`, `type gitctx.Change`, `func (s gitctx.Status) String() string`, `func (t selector.Tier) String() string`, `func gitctx.HeadSHA(repoRoot string) (string, error)`.
+- Produces (internal to `main`):
+  - `type whichJSON struct { Base, Head, Tier, Reason string; Direct, Tests []string; Changed []jsonChange; MapTests int }`
+  - `type jsonChange struct { Path, OldPath, Status string; Lines []jsonLineRange }`
+  - `type jsonLineRange struct { Start, End int }`
+  - `func emitWhichJSON(stdout, stderr io.Writer, e *env, base string, changes []gitctx.Change, sel selector.Selection) int`
+
+This schema is **provisional in M1a**. Plan M2, task "JSON output", freezes it; the agent
+front-ends bind to the frozen version, not this one. Slices are always emitted as arrays,
+never `null`, so a consumer never has to special-case an absent key.
+
+- [ ] **Step 1: Write the failing test**
+
+Append to `cmd/rtdd/main_test.go`:
+
+```go
+type whichJSONForTest struct {
+	Base    string `json:"base"`
+	Head    string `json:"head"`
+	Tier    string `json:"tier"`
+	Reason  string `json:"reason"`
+	Direct  []string `json:"direct"`
+	Tests   []string `json:"tests"`
+	Changed []struct {
+		Path    string `json:"path"`
+		OldPath string `json:"old_path"`
+		Status  string `json:"status"`
+		Lines   []struct {
+			Start int `json:"start"`
+			End   int `json:"end"`
+		} `json:"lines"`
+	} `json:"changed"`
+	MapTests int `json:"map_tests"`
+}
+
+func decodeWhichJSON(t *testing.T, s string) whichJSONForTest {
+	t.Helper()
+	var out whichJSONForTest
+	if err := json.Unmarshal([]byte(s), &out); err != nil {
+		t.Fatalf("which --json emitted unparseable JSON: %v\n%s", err, s)
+	}
+	return out
+}
+
+func TestWhichJSON(t *testing.T) {
+	dir := newTestRepo(t)
+	sha := headShort(t, dir)
+	installRTDD(t, dir, sha, 3)
+	writeFile(t, dir, "src/auth.py", "def login():\n    return 42\n")
+	writeFile(t, dir, "tests/test_brand_new.py", "def test_new():\n    assert True\n")
+
+	code, stdout, stderr := rtdd(t, dir, "which", "--json")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	got := decodeWhichJSON(t, stdout)
+
+	if got.Tier != "T0" {
+		t.Errorf("tier = %q, want T0 (reason: %s)", got.Tier, got.Reason)
+	}
+	if got.Base != "HEAD" {
+		t.Errorf("base = %q, want HEAD", got.Base)
+	}
+	if got.Head != sha {
+		t.Errorf("head = %q, want %q", got.Head, sha)
+	}
+	if got.MapTests != 4 {
+		t.Errorf("map_tests = %d, want 4", got.MapTests)
+	}
+	if len(got.Direct) != 1 || got.Direct[0] != "tests/test_brand_new.py" {
+		t.Errorf("direct = %#v, want [tests/test_brand_new.py]", got.Direct)
+	}
+	want := []string{
+		"tests/test_brand_new.py",
+		"tests/test_auth.py::test_logout",
+		"tests/test_auth.py::test_login",
+	}
+	if !reflect.DeepEqual(got.Tests, want) {
+		t.Errorf("tests = %#v, want %#v", got.Tests, want)
+	}
+	if got.Reason == "" {
+		t.Error("reason is empty; every selection must explain itself")
+	}
+}
+
+func TestWhichJSONReportsChangedLineRanges(t *testing.T) {
+	dir := newTestRepo(t)
+	installRTDD(t, dir, headShort(t, dir), 0)
+	writeFile(t, dir, "src/auth.py", "def login():\n    return 42\n")
+
+	code, stdout, _ := rtdd(t, dir, "which", "--json")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	got := decodeWhichJSON(t, stdout)
+
+	if len(got.Changed) != 1 {
+		t.Fatalf("changed = %#v, want exactly one entry", got.Changed)
+	}
+	c := got.Changed[0]
+	if c.Path != "src/auth.py" || c.Status != "modified" {
+		t.Errorf("changed[0] = %+v, want src/auth.py modified", c)
+	}
+	if len(c.Lines) != 1 || c.Lines[0].Start != 2 || c.Lines[0].End != 2 {
+		t.Errorf("lines = %#v, want [{2 2}]", c.Lines)
+	}
+}
+
+// Every slice is an array, never null: an agent consumer must not have to special-case
+// an absent key.
+func TestWhichJSONEmptySelectionEmitsArraysNotNull(t *testing.T) {
+	dir := newTestRepo(t)
+	installRTDD(t, dir, headShort(t, dir), 0)
+	writeFile(t, dir, "src/orphan_module.py", "def orphan():\n    return 0\n")
+
+	code, stdout, _ := rtdd(t, dir, "which", "--json")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (an empty selection is a signal, not a failure)", code)
+	}
+	if strings.Contains(stdout, "null") {
+		t.Errorf("which --json emitted null:\n%s", stdout)
+	}
+	got := decodeWhichJSON(t, stdout)
+	if got.Tier != "empty" {
+		t.Errorf("tier = %q, want empty", got.Tier)
+	}
+	if len(got.Tests) != 0 {
+		t.Errorf("tests = %#v, want empty", got.Tests)
+	}
+}
+
+func TestWhichJSONReportsARename(t *testing.T) {
+	dir := newTestRepo(t)
+	installRTDD(t, dir, headShort(t, dir), 0)
+	if err := os.Rename(
+		filepath.Join(dir, "src", "render.py"),
+		filepath.Join(dir, "src", "renderer.py"),
+	); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, dir, "add", "-A")
+
+	code, stdout, _ := rtdd(t, dir, "which", "--json")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	got := decodeWhichJSON(t, stdout)
+
+	found := false
+	for _, c := range got.Changed {
+		if c.Path == "src/renderer.py" && c.OldPath == "src/render.py" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("changed = %#v, want a rename carrying old_path", got.Changed)
+	}
+	hit := false
+	for _, id := range got.Tests {
+		if id == "tests/test_render.py::test_page" {
+			hit = true
+		}
+	}
+	if !hit {
+		t.Errorf("tests = %#v, want the old path to still select its test", got.Tests)
+	}
+}
+```
+
+Add `"encoding/json"` and `"reflect"` to the imports of `main_test.go`.
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `go test ./cmd/rtdd/... -run TestWhichJSON -v`
+Expected: FAIL — every subtest fails with `exit code = 2, want 0` and stderr
+`rtdd which --json: not implemented yet`, from the Task 20 placeholder.
+
+- [ ] **Step 3: Write minimal implementation**
+
+Replace the temporary `emitWhichJSON` placeholder at the bottom of `cmd/rtdd/which.go`
+with:
+
+```go
+type jsonLineRange struct {
+	Start int `json:"start"`
+	End   int `json:"end"`
+}
+
+type jsonChange struct {
+	Path    string          `json:"path"`
+	OldPath string          `json:"old_path"`
+	Status  string          `json:"status"`
+	Lines   []jsonLineRange `json:"lines"`
+}
+
+// whichJSON is the machine-readable form of a selection. PROVISIONAL in M1a:
+// plan M2, task "JSON output", freezes this schema, and the agent front-ends bind to
+// the frozen version.
+type whichJSON struct {
+	Base     string       `json:"base"`
+	Head     string       `json:"head"`
+	Tier     string       `json:"tier"`
+	Reason   string       `json:"reason"`
+	Direct   []string     `json:"direct"`
+	Tests    []string     `json:"tests"`
+	Changed  []jsonChange `json:"changed"`
+	MapTests int          `json:"map_tests"`
+}
+
+func emitWhichJSON(stdout, stderr io.Writer, e *env, base string, changes []gitctx.Change, sel selector.Selection) int {
+	head, _ := gitctx.HeadSHA(e.root)
+	out := whichJSON{
+		Base:     base,
+		Head:     head,
+		Tier:     sel.Tier.String(),
+		Reason:   sel.Reason,
+		Direct:   nonNilStrings(sel.Direct),
+		Tests:    nonNilStrings(sel.Tests),
+		Changed:  make([]jsonChange, 0, len(changes)),
+		MapTests: e.m.Len(),
+	}
+	for _, c := range changes {
+		jc := jsonChange{
+			Path:    c.Path,
+			OldPath: c.OldPath,
+			Status:  c.Status.String(),
+			Lines:   make([]jsonLineRange, 0, len(c.Lines)),
+		}
+		for _, r := range c.Lines {
+			jc.Lines = append(jc.Lines, jsonLineRange{Start: r.Start, End: r.End})
+		}
+		out.Changed = append(out.Changed, jc)
+	}
+
+	enc := json.NewEncoder(stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(out); err != nil {
+		fmt.Fprintf(stderr, "rtdd which: %v\n", err)
+		return 2
+	}
+	return 0
+}
+
+// nonNilStrings guarantees a JSON array rather than null.
+func nonNilStrings(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
+}
+```
+
+Add `"encoding/json"` to the imports of `which.go`.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `go test ./... -v`
+Expected: PASS across every package.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd /home/claude/rtdd
+git add cmd/rtdd/which.go cmd/rtdd/main_test.go
+git commit -m "M1a: rtdd which --json (provisional schema, arrays never null)"
+```
+
+---
+
+## Definition of Done
+
+The milestone is complete when every box below is checked.
+
+**Build and hygiene**
+
+- [ ] `go build ./...` succeeds.
+- [ ] `go vet ./...` is clean.
+- [ ] `gofmt -l .` prints nothing.
+- [ ] `go test ./... -count=1` passes.
+- [ ] `go test ./... -race -count=1` passes.
+- [ ] `go list -m all` lists exactly two modules: `github.com/VocanicZ/rtdd` and `gopkg.in/yaml.v3`.
+- [ ] `go.mod` requires exactly one non-stdlib module: `gopkg.in/yaml.v3`.
+- [ ] No package under `internal/` prints to stdout or stderr: `grep -rn 'fmt.Print\|os.Stdout\|os.Stderr' internal/ --include='*.go' | grep -v _test.go` is empty.
+
+**Contract**
+
+- [ ] Every exported name in `internal/paths`, `internal/mapstore`, `internal/gitctx`, `internal/selector`, and the M1a half of `internal/adapter` matches `docs/plans/00-interfaces.md` exactly.
+- [ ] The only edit to `00-interfaces.md` is the "M1a amendments" section added in Task 1.
+- [ ] `internal/coverage`, `internal/report`, `internal/runner`, `internal/uncovered`, `internal/doctor` do not exist yet — M1a is adapter-free by design.
+
+**The hard cases from `docs/audits/2026-08-26-design-audit.md`**
+
+- [ ] `mapstore.Load` resolves duplicate `t` lines by set-union of `F` with the **older** commit winning for `C` (`TestLoadResolvesDuplicateTLinesLikeUnion`).
+- [ ] A malformed line is a **fatal error**, never a silent skip (`TestLoadIsFatalOnAMalformedLine`).
+- [ ] Two rows joined by a missing newline are detected and fatal (`TestLoadIsFatalOnTwoRowsJoinedByAMissingNewline`).
+- [ ] `Save` always emits a trailing newline (`TestSaveEmitsSortedLinesWithTrailingNewline`).
+- [ ] Compaction is `LoadWith` + `Save`, and it is idempotent (`TestCompactionRoundTrip`).
+- [ ] `F` unions and never replaces outside `Replace` (`TestUnion`, case "F is the set union, never a replacement").
+- [ ] `gitctx.ChangedSet` includes untracked files (`TestChangedSetIncludesUntrackedFiles`) — v1's flagship bug.
+- [ ] `ChangedSet` retains deletions (`TestChangedSetRetainsDeletions`) and carries `OldPath` for renames (`TestChangedSetHandlesRenames`).
+- [ ] `ChangedSet` returns per-hunk line ranges at `--unified=0` (`TestChangedSetLineRanges`).
+- [ ] `gitctx.CommitDistance` returns `-1` for an unreachable SHA (`TestCommitDistanceUnreachableIsMinusOne`) and callers escalate on it rather than treating it as fresh (`TestSelectEscalatesToT1`, case "an unreachable commit is unknown, never fresh"; `TestStatusReportsAnUnreachableSeedCommit`).
+- [ ] `selector.Select` puts changed and new test files in `Direct` **before any map lookup**, and `Direct` leads `Tests` (`TestSelectPutsANewTestFileInTheDirectTierFirst`, `TestSelectDirectTestsPrecedeMappedTests`, `TestSelectT2KeepsDirectTestsFirst`).
+- [ ] `TierEmpty` is a distinct outcome with a non-empty `Reason`, never collapsed into success (`TestSelectTierEmptyIsExplicit`, `TestWhichEmptySelectionIsExitZeroAndSaysSo`).
+- [ ] `Rank` orders by descending `|F ∩ changed|/|F|`, then `S=="fail"` first, then ascending `len(F)`, then ascending `D` — each key covered in isolation (`TestRank`).
+- [ ] Every git-dependent test uses a real `git init` in `t.TempDir()`; no git mock exists anywhere in the tree.
+
+**Behaviour**
+
+- [ ] `rtdd status` reports adapter, map size, seed freshness (including UNREACHABLE and UNSEEDED), cycles against the drift guard, and HEAD, and exits 0.
+- [ ] `rtdd status` outside a git work tree exits **3**.
+- [ ] `rtdd which` prints the changed set, the tier with its reason, the direct list, and the ranked selection, and exits **0** for every tier including `empty`.
+- [ ] `rtdd which --base <ref>` honours an explicit base.
+- [ ] `rtdd which --json` emits arrays rather than `null` for `direct`, `tests`, `changed`, and `lines`.
+- [ ] An unknown command or an unknown flag exits **2**.
+- [ ] Nothing in M1a ever exits **1** — no test is executed in this milestone.
+
+**Ready for M1b**
+
+- [ ] `adapters/python.yaml` parses through `adapter.Load` with `KnownFields(true)`, including `seed`, `subset`, `list`, and `exit_codes`, even though M1a executes none of them.
+- [ ] `selector.Inputs.AllTests` and `selector.Inputs.ImportOnly` are wired through `Select` and covered by tests, so M1b (`adapter.List`) and M2 (import-time fallback) only have to supply values.
