@@ -47,9 +47,14 @@ func run(dir string, args ...string) (string, error) {
 }
 
 // InitRepo initialises dir as a git repository with a deterministic identity and
-// commits everything already in it. It is the *testing.T-free door into this
-// package, for helpers such as internal/pytestfixture that build a real repo
-// outside a test body and must not re-invent the shell-out.
+// commits everything already in it. It takes no *testing.T so that a table-driven
+// test can assert on the error rather than fail the test binary.
+//
+// It is NOT a door out of the _test.go rule: this package imports `testing`, so a
+// non-test importer puts `testing` on a production dependency graph. The one non-test
+// fixture builder, internal/pytestfixture.InitGit, shells out to git inline instead
+// (00-interfaces.md, "gittest — internal/pytestfixture shells out to git inline"), and
+// internal/contract guards the rule.
 func InitRepo(dir, msg string) error {
 	for _, args := range [][]string{
 		{"init", "-q", "-b", "main"},

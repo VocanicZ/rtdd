@@ -78,3 +78,54 @@ func TestClassifyIsPureStringWork(t *testing.T) {
 		t.Error("IsTestFile must classify by glob, not by what happens to be on disk")
 	}
 }
+
+// TestShippedAdapterClassifiesConftest pins the side effect of IsTestFile's FullEscalate
+// exclusion against the adapter that actually ships. The exclusion keeps conftest.py out
+// of the selector set — naming it is a fatal exit 5 — but IsInstrumentable is SourceGlobs
+// AND not-test AND not-opaque, and escalation is none of those three. So a conftest.py
+// that sits inside SourceGlobs is instrumentable, where the unqualified predicate would
+// have made it a test file and therefore not instrumentable. Documented in
+// docs/plans/00-interfaces.md; pinned here so the narrowing cannot drift silently.
+func TestShippedAdapterClassifiesConftest(t *testing.T) {
+	ads, err := Builtin()
+	if err != nil {
+		t.Fatalf("Builtin: %v", err)
+	}
+	var a *Adapter
+	for _, cand := range ads {
+		if cand.Name == "python" {
+			a = cand
+		}
+	}
+	if a == nil {
+		t.Fatal("no builtin adapter named python")
+	}
+
+	cases := []struct {
+		rel                                    string
+		test, opaque, escalate, instrumentable bool
+	}{
+		// Inside source_globs: escalates, is not a selector, and stays instrumentable.
+		{"src/conftest.py", false, false, true, true},
+		// Outside source_globs: escalates, and falls out of instrumentable on that term.
+		{"tests/conftest.py", false, false, true, false},
+		{"conftest.py", false, false, true, false},
+		// The exclusion is exactly conftest-shaped; a real test module is unaffected.
+		{"tests/test_a.py", true, false, false, false},
+		{"src/logic.py", false, false, false, true},
+	}
+	for _, tc := range cases {
+		if got := a.IsTestFile(tc.rel); got != tc.test {
+			t.Errorf("IsTestFile(%q) = %v, want %v", tc.rel, got, tc.test)
+		}
+		if got := a.IsOpaque(tc.rel); got != tc.opaque {
+			t.Errorf("IsOpaque(%q) = %v, want %v", tc.rel, got, tc.opaque)
+		}
+		if got := a.IsFullEscalate(tc.rel); got != tc.escalate {
+			t.Errorf("IsFullEscalate(%q) = %v, want %v", tc.rel, got, tc.escalate)
+		}
+		if got := a.IsInstrumentable(tc.rel); got != tc.instrumentable {
+			t.Errorf("IsInstrumentable(%q) = %v, want %v", tc.rel, got, tc.instrumentable)
+		}
+	}
+}
