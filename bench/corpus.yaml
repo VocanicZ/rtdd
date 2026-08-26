@@ -1,0 +1,53 @@
+frozen_at: "2026-08-26"
+criteria:
+  - "Pure Python; no compiled extension on the import path (so coverage tracing is complete)."
+  - "pytest is the repo's own test runner, invoked with no non-default plugins required."
+  - "At least 400 collected tests, so selection ratio is not dominated by rounding."
+  - "Full suite completes in under 10 minutes uninstrumented on the disclosed hardware."
+  - "At least 200 commits in the last 12 months touching a source file, so replay has material."
+  - "Hermetic: no network, no database, no container required for a green run."
+  - "OSI-licensed and publicly clonable at a fixed commit."
+repos:
+  - id: httpie
+    url: https://github.com/httpie/cli.git
+    pin: 5b604c37c6c67e18e7c3e9aee6c88a8c22b98345
+    replay_commits: 200
+    python: "3.12"
+    install:
+      - "uv pip install -e ."
+      - "uv pip install -r requirements-dev.txt"
+    source_globs: ["httpie/**/*.py"]
+    test_globs: ["tests/**/*.py"]
+  - id: flask
+    url: https://github.com/pallets/flask.git
+    pin: d318b683471101618febed18996405ad26462110
+    replay_commits: 200
+    python: "3.12"
+    install:
+      - "uv pip install -e ."
+      - "uv pip install -r requirements/tests.txt"
+    source_globs: ["src/flask/**/*.py"]
+    test_globs: ["tests/**/*.py"]
+  - id: sqlfluff
+    url: https://github.com/sqlfluff/sqlfluff.git
+    pin: 6166dcc5059d7d74b8329c38dd49828f22da4b05
+    replay_commits: 200
+    python: "3.12"
+    install:
+      - "uv pip install -e ."
+      - "uv pip install -r requirements_dev.txt"
+    source_globs: ["src/sqlfluff/**/*.py"]
+    test_globs: ["test/**/*.py"]
+excluded:
+  - url: https://github.com/psf/requests.git
+    reason: "Test suite requires a live httpbin server; not hermetic."
+  - url: https://github.com/numpy/numpy.git
+    reason: "Compiled C extensions dominate the import path; coverage cannot attribute them."
+  - url: https://github.com/django/django.git
+    reason: "Runs under its own runtests.py harness, not plain pytest; adapter is out of v1 scope."
+  - url: https://github.com/pandas-dev/pandas.git
+    reason: "Full suite exceeds the 10-minute uninstrumented budget by more than an order of magnitude."
+  - url: https://github.com/encode/httpx.git
+    reason: "Under 400 collected tests at the pin; selection ratio would be rounding-dominated."
+  - url: https://github.com/scrapy/scrapy.git
+    reason: "Twisted reactor tests are order-dependent; the outcome-independence assumption is known-false here."
