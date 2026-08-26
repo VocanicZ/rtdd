@@ -238,3 +238,201 @@ func TestLoadRejectsAMalformedGlobInEveryGlobField(t *testing.T) {
 		})
 	}
 }
+
+// --- M1b Task 1: full contract — validation, LoadFS/LoadAll/Builtin ------------------
+
+const validYAML = `name: demo
+detect: ["pyproject.toml"]
+env:
+  COVERAGE_CORE: ctrace
+  COVERAGE_FILE: .coverage
+seed: "pytest --cov --cov-context=test --cov-report= --report-log={log}"
+subset: "pytest {tests} --cov --cov-context=test --cov-report= --report-log={log}"
+list: "pytest --collect-only -q"
+coverage: sqlite
+report: pytest-reportlog
+failfast_flag: "-x"
+test_globs: ["tests/**/*.py"]
+source_globs: ["src/**/*.py"]
+exit_codes:
+  4: bad-selector
+  5: no-tests-collected
+opaque: ["**/*.yaml"]
+full_escalate: ["**/conftest.py"]
+`
+
+func writeAdapter(t *testing.T, dir, name, body string) string {
+	t.Helper()
+	p := filepath.Join(dir, name)
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatalf("write %s: %v", p, err)
+	}
+	return p
+}
+
+// Each rejection carries its own message: an agent reading exit 2 must be told which
+// field is wrong, not merely that the adapter is invalid.
+func TestLoadRejectsEachInvalidFieldWithADistinctMessage(t *testing.T) {
+	base := "name: x\ndetect: [\"a\"]\nseed: s\nsubset: \"{tests}\"\ncoverage: sqlite\nreport: pytest-reportlog\n"
+	cases := []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{"no name", "detect: [\"a\"]\nseed: s\nsubset: \"{tests}\"\ncoverage: sqlite\nreport: pytest-reportlog\n", "name is required"},
+		{"no detect", "name: x\nseed: s\nsubset: \"{tests}\"\ncoverage: sqlite\nreport: pytest-reportlog\n", "detect is required"},
+		{"no seed", "name: x\ndetect: [\"a\"]\nsubset: \"{tests}\"\ncoverage: sqlite\nreport: pytest-reportlog\n", "seed is required"},
+		{"subset without {tests}", "name: x\ndetect: [\"a\"]\nseed: s\nsubset: \"pytest --cov\"\ncoverage: sqlite\nreport: pytest-reportlog\n", "{tests}"},
+		{"bad coverage", "name: x\ndetect: [\"a\"]\nseed: s\nsubset: \"{tests}\"\ncoverage: lcov\nreport: pytest-reportlog\n", "unsupported coverage"},
+		{"bad report", "name: x\ndetect: [\"a\"]\nseed: s\nsubset: \"{tests}\"\ncoverage: sqlite\nreport: junit\n", "unsupported report"},
+		{"malformed glob", base + "test_globs: [\"tests/[a-*.py\"]\n", "tests/[a-*.py"},
+	}
+	seen := map[string]string{}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := writeAdapter(t, t.TempDir(), "a.yaml", tc.yaml)
+			_, err := Load(p)
+			if err == nil {
+				t.Fatalf("Load accepted %s; a bad adapter is a configuration error (exit 2)", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %q, want it to contain %q", err, tc.want)
+			}
+			if prev, dup := seen[err.Error()]; dup {
+				t.Fatalf("error for %s is byte-identical to the one for %s: %q", tc.name, prev, err)
+			}
+			seen[err.Error()] = tc.name
+		})
+	}
+}
+
+// An empty subset is missing {tests} too, but it deserves the "required" message rather
+// than the placeholder one.
+func TestLoadRejectsAnEmptySubsetAsMissing(t *testing.T) {
+	p := writeAdapter(t, t.TempDir(), "a.yaml",
+		"name: x\ndetect: [\"a\"]\nseed: s\ncoverage: sqlite\nreport: pytest-reportlog\n")
+	_, err := Load(p)
+	if err == nil || !strings.Contains(err.Error(), "subset is required") {
+		t.Fatalf("Load error = %v, want %q", err, "subset is required")
+	}
+}
+
+func TestLoadAcceptsAValidAdapter(t *testing.T) {
+	p := writeAdapter(t, t.TempDir(), "demo.yaml", validYAML)
+	a, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if a.Name != "demo" || a.List == "" || a.Env["COVERAGE_FILE"] != ".coverage" {
+		t.Errorf("Load returned %#v, want the whole declaration parsed", a)
+	}
+}
+
+func TestLoadFSReadsADirectorySortedByName(t *testing.T) {
+	dir := t.TempDir()
+	writeAdapter(t, dir, "zeta.yaml", strings.Replace(validYAML, "name: demo", "name: zeta", 1))
+	writeAdapter(t, dir, "demo.yaml", validYAML)
+	writeAdapter(t, dir, "ignored.txt", "not yaml at all")
+
+	all, err := LoadFS(os.DirFS(dir), ".")
+	if err != nil {
+		t.Fatalf("LoadFS: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("len = %d, want 2 (non-.yaml entries are skipped)", len(all))
+	}
+	if all[0].Name != "demo" || all[1].Name != "zeta" {
+		t.Fatalf("names = [%s %s], want [demo zeta]", all[0].Name, all[1].Name)
+	}
+}
+
+func TestLoadFSPropagatesAnInvalidAdapter(t *testing.T) {
+	dir := t.TempDir()
+	writeAdapter(t, dir, "broken.yaml", "name: x\n")
+	if _, err := LoadFS(os.DirFS(dir), "."); err == nil {
+		t.Fatal("LoadFS accepted a directory containing an invalid adapter")
+	}
+}
+
+func TestLoadAllReadsADirectoryOnDisk(t *testing.T) {
+	dir := t.TempDir()
+	writeAdapter(t, dir, "demo.yaml", validYAML)
+	all, err := LoadAll(dir)
+	if err != nil {
+		t.Fatalf("LoadAll: %v", err)
+	}
+	if len(all) != 1 || all[0].Name != "demo" {
+		t.Fatalf("LoadAll = %#v, want one adapter named demo", all)
+	}
+}
+
+// Builtin reads through the embedded FS: the shipped binary carries its adapters and
+// needs no files on disk.
+func TestBuiltinShipsPythonWithoutTheFilesystem(t *testing.T) {
+	all, err := Builtin()
+	if err != nil {
+		t.Fatalf("Builtin: %v", err)
+	}
+	py := byName(all, "python")
+	if py == nil {
+		t.Fatalf("Builtin() has no adapter named python; got %d adapters", len(all))
+	}
+	// Audit A7: sysmon records ~1 context in 4 and still exits 0, so this is asserted
+	// rather than left to review.
+	if py.Env["COVERAGE_CORE"] != "ctrace" {
+		t.Errorf("Env[COVERAGE_CORE] = %q, want ctrace", py.Env["COVERAGE_CORE"])
+	}
+	// The env var beats a host `[run] data_file` setting, so the runner always knows
+	// which database to read.
+	if py.Env["COVERAGE_FILE"] != ".coverage" {
+		t.Errorf("Env[COVERAGE_FILE] = %q, want .coverage", py.Env["COVERAGE_FILE"])
+	}
+	if py.ExitCodes[4] != "bad-selector" || py.ExitCodes[5] != "no-tests-collected" {
+		t.Errorf("ExitCodes = %#v, want 4=bad-selector 5=no-tests-collected", py.ExitCodes)
+	}
+}
+
+func byName(all []*Adapter, name string) *Adapter {
+	for _, a := range all {
+		if a.Name == name {
+			return a
+		}
+	}
+	return nil
+}
+
+// Measured: `--cov=` with an empty value makes pytest exit 1 and record nothing, and any
+// guessed {src} makes seed and subset disagree on scope. Bare --cov defers to the host's
+// own [run] source/omit for both commands.
+func TestBuiltinPythonTemplatesUseBareCov(t *testing.T) {
+	all, err := Builtin()
+	if err != nil {
+		t.Fatalf("Builtin: %v", err)
+	}
+	py := byName(all, "python")
+	if py == nil {
+		t.Fatal("Builtin() has no adapter named python")
+	}
+	for _, tc := range []struct{ field, tmpl string }{{"seed", py.Seed}, {"subset", py.Subset}} {
+		if !hasBareFlag(tc.tmpl, "--cov") {
+			t.Errorf("%s = %q, want a bare --cov argument", tc.field, tc.tmpl)
+		}
+		if strings.Contains(tc.tmpl, "--cov=") {
+			t.Errorf("%s = %q, must never use --cov=<value>", tc.field, tc.tmpl)
+		}
+		if strings.Contains(tc.tmpl, "{src}") {
+			t.Errorf("%s = %q, still references {src}", tc.field, tc.tmpl)
+		}
+	}
+}
+
+// hasBareFlag reports whether flag appears in tmpl as its own whitespace-delimited
+// argument, so "--cov-report=" does not count as "--cov".
+func hasBareFlag(tmpl, flag string) bool {
+	for _, f := range strings.Fields(tmpl) {
+		if f == flag {
+			return true
+		}
+	}
+	return false
+}

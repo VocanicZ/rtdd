@@ -1,15 +1,20 @@
-// Package adapter declares what is genuinely declarative about a language toolchain.
-// Execution and parsing are implemented per language in M1b; M1a uses only the
-// glob-classification half.
+// Package adapter loads language adapter definitions, and classifies a host repo's
+// files against their globs. The YAML declares what is genuinely declarative about a
+// toolchain; execution and parsing stay in Go (spec §8, decision D8).
 package adapter
 
 import (
 	"bytes"
 	"fmt"
+	"io/fs"
 	"os"
+	"path"
+	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
+	rtddadapters "github.com/VocanicZ/rtdd/adapters"
 	"github.com/VocanicZ/rtdd/internal/paths"
 )
 
@@ -30,26 +35,94 @@ type Adapter struct {
 	FullEscalate []string          `yaml:"full_escalate"`
 }
 
-// Load reads one adapter declaration. Unknown fields are rejected so a typo in a host
-// repo's adapter is a configuration error (exit 2) rather than a silently ignored glob.
-func Load(path string) (*Adapter, error) {
-	b, err := os.ReadFile(path)
+// Load reads one adapter declaration from a file on disk.
+func Load(p string) (*Adapter, error) {
+	b, err := os.ReadFile(p)
 	if err != nil {
-		return nil, fmt.Errorf("adapter: read %s: %w", path, err)
+		return nil, fmt.Errorf("adapter: read %s: %w", p, err)
 	}
+	return parse(b, p)
+}
+
+// LoadFS reads every *.yaml directly under dir in fsys, sorted by adapter name. It is
+// the one reader: LoadAll and Builtin differ only in the fs.FS they hand it, so a host
+// repo's adapters and the embedded ones are validated by identical code.
+func LoadFS(fsys fs.FS, dir string) ([]*Adapter, error) {
+	entries, err := fs.ReadDir(fsys, dir)
+	if err != nil {
+		return nil, fmt.Errorf("adapter: read dir %s: %w", dir, err)
+	}
+	var out []*Adapter
+	for _, e := range entries {
+		if e.IsDir() || path.Ext(e.Name()) != ".yaml" {
+			continue
+		}
+		full := path.Join(dir, e.Name())
+		b, err := fs.ReadFile(fsys, full)
+		if err != nil {
+			return nil, fmt.Errorf("adapter: read %s: %w", full, err)
+		}
+		a, err := parse(b, full)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// LoadAll reads every *.yaml in the on-disk directory dir.
+func LoadAll(dir string) ([]*Adapter, error) { return LoadFS(os.DirFS(dir), ".") }
+
+// Builtin returns the adapters embedded in the binary, so rtdd resolves "python"
+// without any adapter file on disk.
+func Builtin() ([]*Adapter, error) { return LoadFS(rtddadapters.FS, ".") }
+
+// parse decodes one declaration. Unknown fields are rejected so a typo in a host repo's
+// adapter is a configuration error (exit 2) rather than a silently ignored glob.
+func parse(b []byte, src string) (*Adapter, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(b))
 	dec.KnownFields(true)
 	var a Adapter
 	if err := dec.Decode(&a); err != nil {
-		return nil, fmt.Errorf("adapter: %s: %w", path, err)
+		return nil, fmt.Errorf("adapter: %s: %w", src, err)
 	}
-	if a.Name == "" {
-		return nil, fmt.Errorf("adapter: %s: missing required field %q", path, "name")
-	}
-	if err := a.validateGlobs(); err != nil {
-		return nil, fmt.Errorf("adapter: %s: %w", path, err)
+	if err := a.validate(); err != nil {
+		return nil, fmt.Errorf("adapter: %s: %w", src, err)
 	}
 	return &a, nil
+}
+
+// validate gives every rejection its own message: an agent that reads exit 2 must be
+// told which field is wrong, not merely that the adapter is invalid.
+//
+// Globs are checked first. A malformed pattern is an unambiguous typo, and reporting it
+// ahead of a missing-field message keeps the offending pattern in the error even for a
+// partial adapter.
+func (a *Adapter) validate() error {
+	if err := a.validateGlobs(); err != nil {
+		return err
+	}
+	switch {
+	case a.Name == "":
+		return fmt.Errorf("name is required")
+	case len(a.Detect) == 0:
+		return fmt.Errorf("detect is required")
+	case a.Seed == "":
+		return fmt.Errorf("seed is required")
+	case a.Subset == "":
+		return fmt.Errorf("subset is required")
+	case !strings.Contains(a.Subset, "{tests}"):
+		// Without the placeholder the subset command runs the whole suite, so every
+		// selection would silently become a full run.
+		return fmt.Errorf("subset %q has no {tests} placeholder", a.Subset)
+	case a.Coverage != "sqlite":
+		return fmt.Errorf("unsupported coverage %q (only \"sqlite\" in v1)", a.Coverage)
+	case a.Report != "pytest-reportlog":
+		return fmt.Errorf("unsupported report %q (only \"pytest-reportlog\" in v1)", a.Report)
+	}
+	return nil
 }
 
 // validateGlobs rejects a malformed pattern in any field the classifier globs against.
