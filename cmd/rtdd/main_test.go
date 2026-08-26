@@ -609,3 +609,20 @@ func TestWhichReportsAMissingAdapter(t *testing.T) {
 		t.Errorf("reason = %q: a test file did change", got.Reason)
 	}
 }
+
+// The CLI fixture is the adapter every test in this package classifies and expands
+// against, so a measured rule that is wrong here gets copy-pasted forward. `--cov` is
+// bare: a guessed {src} makes seed and subset disagree on coverage scope, and PRD
+// criterion 5 says {src} appears in no shipped or fixture template.
+func TestCLIFixtureAdapterUsesBareCov(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("testdata", "adapter.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "{src}") {
+		t.Error("testdata/adapter.yaml still references {src}; --cov must be passed bare")
+	}
+	if !strings.Contains(string(b), "--cov ") {
+		t.Error("testdata/adapter.yaml does not pass --cov bare")
+	}
+}

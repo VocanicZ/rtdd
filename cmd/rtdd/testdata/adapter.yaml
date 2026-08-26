@@ -1,8 +1,8 @@
 name: python
 detect: ["pyproject.toml"]
 env: { COVERAGE_CORE: ctrace }
-seed: "pytest --cov={src} --cov-context=test --report-log={log}"
-subset: "pytest {tests} --cov={src} --cov-context=test --report-log={log}"
+seed: "pytest --cov --cov-context=test --report-log={log}"
+subset: "pytest {tests} --cov --cov-context=test --report-log={log}"
 list: "pytest --collect-only -q"
 coverage: sqlite
 report: pytest-reportlog

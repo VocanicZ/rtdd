@@ -33,8 +33,8 @@ func TestLoadParsesEveryField(t *testing.T) {
 	if a.ExitCodes[4] != "bad-selector" || a.ExitCodes[5] != "no-tests-collected" {
 		t.Errorf("ExitCodes = %#v, want 4=bad-selector 5=no-tests-collected", a.ExitCodes)
 	}
-	if len(a.Detect) != 3 || len(a.TestGlobs) != 2 || len(a.FullEscalate) != 3 {
-		t.Errorf("Detect/TestGlobs/FullEscalate lengths = %d/%d/%d, want 3/2/3",
+	if len(a.Detect) != 3 || len(a.TestGlobs) != 3 || len(a.FullEscalate) != 8 {
+		t.Errorf("Detect/TestGlobs/FullEscalate lengths = %d/%d/%d, want 3/3/8",
 			len(a.Detect), len(a.TestGlobs), len(a.FullEscalate))
 	}
 }
@@ -126,13 +126,25 @@ func TestClassification(t *testing.T) {
 		{"test under tests/", "tests/test_auth.py", true, false, false, false},
 		{"nested test under tests/", "tests/unit/api/test_auth.py", true, false, false, false},
 		{"test_ prefixed anywhere", "src/pkg/test_helpers.py", true, false, false, false},
+		{"_test suffixed anywhere", "pkg/helpers_test.py", true, false, false, false},
 		{"plain source", "src/auth.py", false, false, false, true},
 		{"nested source", "src/pkg/deep/auth.py", false, false, false, true},
-		{"source outside source_globs", "scripts/tool.py", false, false, false, false},
+		// source_globs is **/*.py, not src/**/*.py: a flat-layout repo keeps its package
+		// at the repo root, so scoping to src/ would classify it as nothing at all.
+		{"source outside src/", "scripts/tool.py", false, false, false, true},
 		{"template is opaque", "templates/page.html", false, true, false, false},
 		{"yaml is opaque", "config/settings.yaml", false, true, false, false},
 		{"fixtures directory is opaque", "tests/fixtures/data/users.json", false, true, false, false},
-		{"conftest escalates to full", "tests/conftest.py", false, false, true, false},
+		{"json outside fixtures is opaque", "data/seed.json", false, true, false, false},
+		// conftest.py escalates instead of being selectable, but it is still Python the
+		// coverage run attributes — IsInstrumentable is SourceGlobs AND not-test AND
+		// not-opaque, and escalation is none of those three.
+		{"conftest escalates to full", "tests/conftest.py", false, false, true, true},
+		{"setup.cfg escalates to full", "setup.cfg", false, false, true, false},
+		{"pytest.ini escalates to full", "pytest.ini", false, false, true, false},
+		{"tox.ini escalates to full", "tox.ini", false, false, true, false},
+		{"poetry.lock escalates to full", "poetry.lock", false, false, true, false},
+		{"uv.lock escalates to full", "uv.lock", false, false, true, false},
 		{"pyproject escalates to full", "pyproject.toml", false, false, true, false},
 		{"requirements escalates to full", "requirements.txt", false, false, true, false},
 	}
