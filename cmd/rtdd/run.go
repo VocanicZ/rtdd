@@ -113,12 +113,17 @@ func cmdRun(args []string) int {
 	// no other branch of Select. Paying it on every T0 run would put a collection
 	// on the critical path of the loop this tool exists to make fast.
 	sel := choose(nil)
+	// suiteEnumerated is what makes a T2 selection COMPLETE: `selection.tests` is then the
+	// whole suite rather than the map rows rtdd happened to know. It reaches the document
+	// as `complete`, so a consumer never has to guess whether the list is the run.
+	suiteEnumerated := false
 	if sel.Tier == selector.TierT2 {
 		all, listErr := runner.List(ad, root)
 		if listErr != nil {
 			return reportRunErr(listErr)
 		}
 		sel = choose(all)
+		suiteEnumerated = true
 	}
 
 	// Under --json the document is the WHOLE of stdout: a consumer pipes it straight
@@ -138,11 +143,16 @@ func cmdRun(args []string) int {
 	importFallback := fb.fired
 
 	// A failed scan DEGRADES selection; it never fails the command (internal/importscan:
-	// Scanner.Err). Saying so on stderr keeps --json's stdout a single document.
-	if err := fb.err(); err != nil {
-		fmt.Fprintf(os.Stderr, "rtdd run: the static import scan failed, so an import-time-only "+
-			"file may be under-selected: %v\n", err)
+	// Scanner.Err). It stays on stderr for a human — that keeps --json's stdout a single
+	// document — and reaches the document itself as a `warnings` entry, because a --json
+	// consumer normally discards stderr and would otherwise never learn the selection was
+	// narrowed.
+	scanErr := fb.err()
+	if scanErr != nil {
+		fmt.Fprintf(os.Stderr, "rtdd run: %s\n", importScanNote(scanErr))
 	}
+
+	warnings := runNotes(sel, scanErr)
 
 	if sel.Tier == selector.TierEmpty || len(sel.Tests) == 0 {
 		if *asJSON {
@@ -151,14 +161,16 @@ func cmdRun(args []string) int {
 			// than sent as an empty list a consumer would read as "nothing uncovered".
 			// `pre` is exactly that Cov-less signal, already computed for the fallback.
 			out := BuildOutput(OutputInput{
-				Command:        "run",
-				Base:           *base,
-				Adapter:        ad.Name,
-				Sel:            sel,
-				Changes:        changes,
-				Instrumentable: pre.Instrumentable,
-				UnmappedFiles:  pre.UnmappedFiles,
-				ImportFallback: importFallback,
+				Command:         "run",
+				Base:            *base,
+				Adapter:         ad.Name,
+				Sel:             sel,
+				Changes:         changes,
+				Instrumentable:  pre.Instrumentable,
+				UnmappedFiles:   pre.UnmappedFiles,
+				ImportFallback:  importFallback,
+				SuiteEnumerated: suiteEnumerated,
+				Warnings:        warnings,
 			})
 			if err := emitJSON(out); err != nil {
 				return 2
@@ -232,18 +244,20 @@ func cmdRun(args []string) int {
 
 	if *asJSON {
 		out := BuildOutput(OutputInput{
-			Command:        "run",
-			Base:           *base,
-			Adapter:        ad.Name,
-			Sel:            sel,
-			Changes:        changes,
-			Instrumentable: sig.Instrumentable,
-			Executed:       true,
-			Outcomes:       res.Outcomes,
-			Reports:        sig.Reports,
-			UncoveredOK:    true,
-			UnmappedFiles:  sig.UnmappedFiles,
-			ImportFallback: importFallback,
+			Command:         "run",
+			Base:            *base,
+			Adapter:         ad.Name,
+			Sel:             sel,
+			Changes:         changes,
+			Instrumentable:  sig.Instrumentable,
+			Executed:        true,
+			Outcomes:        res.Outcomes,
+			Reports:         sig.Reports,
+			UncoveredOK:     true,
+			UnmappedFiles:   sig.UnmappedFiles,
+			ImportFallback:  importFallback,
+			SuiteEnumerated: suiteEnumerated,
+			Warnings:        warnings,
 		})
 		out.ExitCode = code
 		if err := emitJSON(out); err != nil {
@@ -260,6 +274,31 @@ func cmdRun(args []string) int {
 		fmt.Fprint(os.Stdout, "\n"+s)
 	}
 	return finishCycle(root, mt, code)
+}
+
+// runNotes are the caveats that say this run is narrower, or less authoritative, than it
+// looks — the `run` counterpart of whichNotes. They reach the document as `warnings`.
+//
+// Under --json the "EMPTY SELECTION - nothing ran" line is never printed: the text branch
+// is skipped entirely. Without this warning the document an agent front-end reads is
+// indistinguishable from a green run of a real subset, which is precisely the silent
+// narrowing the contract forbids.
+func runNotes(sel selector.Selection, scanErr error) []string {
+	var out []string
+	if sel.Tier == selector.TierEmpty || len(sel.Tests) == 0 {
+		out = append(out, "an empty selection is not a pass. Nothing was checked.")
+	}
+	if scanErr != nil {
+		out = append(out, importScanNote(scanErr))
+	}
+	return out
+}
+
+// importScanNote is the one wording for a failed static import scan, shared by `run` and
+// `which` so the two commands never describe the same degradation differently.
+func importScanNote(err error) string {
+	return fmt.Sprintf("the static import scan failed, so an import-time-only file "+
+		"may be under-selected: %v", err)
 }
 
 // emitJSON writes the schema document to stdout, indented, as the whole of stdout.

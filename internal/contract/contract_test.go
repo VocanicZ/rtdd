@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -728,6 +729,10 @@ func TestInterfaceContractCarriesEveryM2Addition(t *testing.T) {
 		"### The schema, version 1",
 		`"schema": 1,`,
 		"| `schema` | int | Always `1` for this version.",
+		// The never-narrow-silently guarantee, carried in the document rather than on
+		// stderr a --json consumer discards.
+		"| `complete` | bool |",
+		"| `warnings` | array of string |",
 	} {
 		if !strings.Contains(src, want) {
 			t.Errorf("00-interfaces.md must record the M2 addition %q", want)
@@ -738,4 +743,118 @@ func TestInterfaceContractCarriesEveryM2Addition(t *testing.T) {
 			t.Errorf("00-interfaces.md must list %s in the package layout", pkg)
 		}
 	}
+}
+
+// TestJSONSchemaV1KeySetMatchesTheInterfaceContract is the drift guard between the frozen
+// --json schema and the document that specifies it.
+//
+// The two have already disagreed once: an amendment in 00-interfaces.md mandated
+// `complete` and `warnings`, the `Output` struct never grew them, and nothing failed
+// (issue #112). Prose and struct are checked against each other in BOTH directions here,
+// so a key added to one and not the other is a red test rather than a silent divergence.
+func TestJSONSchemaV1KeySetMatchesTheInterfaceContract(t *testing.T) {
+	doc := readRepoFile(t, "docs/plans/00-interfaces.md")
+	src := readRepoFile(t, "cmd/rtdd/jsonout.go")
+
+	inStruct := topLevelOutputKeys(t, src)
+	if len(inStruct) < 5 {
+		t.Fatalf("could not read the Output struct's json tags, got %v", inStruct)
+	}
+	inDoc := fieldContractTopLevelKeys(t, doc)
+	if len(inDoc) < 5 {
+		t.Fatalf("could not read the field contract table, got %v", inDoc)
+	}
+
+	sample := jsonSchemaSample(t, doc)
+	for _, k := range inStruct {
+		if !inDoc[k] {
+			t.Errorf("Output emits top-level key %q, but 00-interfaces.md's field contract "+
+				"does not document it — the schema and the contract have drifted apart", k)
+		}
+		if !strings.Contains(sample, `"`+k+`":`) {
+			t.Errorf("the schema v1 sample document must show top-level key %q", k)
+		}
+	}
+	for k := range inDoc {
+		if !slices.Contains(inStruct, k) {
+			t.Errorf("00-interfaces.md documents top-level key %q, but cmd/rtdd/jsonout.go's "+
+				"Output struct never emits it — the contract promises a field the code omits", k)
+		}
+	}
+}
+
+// topLevelOutputKeys reads the json tags of `type Output struct` in source order, which is
+// also the emitted key order.
+func topLevelOutputKeys(t *testing.T, src string) []string {
+	t.Helper()
+	body, ok := blockAfter(src, "type Output struct {")
+	if !ok {
+		t.Fatal("cmd/rtdd/jsonout.go no longer declares `type Output struct {`")
+	}
+	var out []string
+	for _, m := range regexp.MustCompile("`json:\"([a-z_]+)\"`").FindAllStringSubmatch(body, -1) {
+		out = append(out, m[1])
+	}
+	return out
+}
+
+// fieldContractRow matches one markdown table row whose first cell is a backticked field name.
+var fieldContractRow = regexp.MustCompile("(?m)^\\| `([^`]+)` \\|")
+
+// fieldContractTopLevelKeys reads the "Field contract." table and returns the TOP-LEVEL key
+// each row belongs to. A composite value is documented through its members rather than a row
+// of its own — `changed[].path`, `selection.count`, `run.passed`/`failed`/... — so the root
+// before the first `.` or `[` is what names the top-level key. A scalar row is its own root.
+func fieldContractTopLevelKeys(t *testing.T, doc string) map[string]bool {
+	t.Helper()
+	table, ok := between(doc, "**Field contract.**", "**Invariant, and it is tested:**")
+	if !ok {
+		t.Fatal("00-interfaces.md no longer contains the field contract table")
+	}
+	out := map[string]bool{}
+	for _, m := range fieldContractRow.FindAllStringSubmatch(table, -1) {
+		root := m[1]
+		if i := strings.IndexAny(root, ".["); i >= 0 {
+			root = root[:i]
+		}
+		out[root] = true
+	}
+	return out
+}
+
+// jsonSchemaSample is the fenced example document under "### The schema, version 1".
+func jsonSchemaSample(t *testing.T, doc string) string {
+	t.Helper()
+	sample, ok := between(doc, "### The schema, version 1", "**Field contract.**")
+	if !ok {
+		t.Fatal("00-interfaces.md no longer contains the schema v1 sample document")
+	}
+	return sample
+}
+
+// blockAfter returns the text from marker up to the first line that is exactly "}".
+func blockAfter(src, marker string) (string, bool) {
+	i := strings.Index(src, marker)
+	if i < 0 {
+		return "", false
+	}
+	rest := src[i+len(marker):]
+	end := strings.Index(rest, "\n}")
+	if end < 0 {
+		return "", false
+	}
+	return rest[:end], true
+}
+
+func between(src, start, end string) (string, bool) {
+	i := strings.Index(src, start)
+	if i < 0 {
+		return "", false
+	}
+	rest := src[i+len(start):]
+	j := strings.Index(rest, end)
+	if j < 0 {
+		return "", false
+	}
+	return rest[:j], true
 }

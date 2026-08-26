@@ -525,3 +525,64 @@ func TestRunWiresTheSharedImportFallbackHelper(t *testing.T) {
 		t.Error("run.go still passes a stub for selector.Inputs.ImportOnly")
 	}
 }
+
+// An empty selection is the narrowest possible run, and under --json the "this is not a
+// pass" line is not printed at all — the text branch is skipped. Without `warnings` the
+// document a front-end reads is indistinguishable from a green run of a real subset.
+func TestCmdRunJSONWarnsThatAnEmptySelectionIsNotAPass(t *testing.T) {
+	repo := realRepo(t)
+	chdir(t, repo)
+	if code := cmdSeed(nil); code != 1 {
+		t.Fatalf("cmdSeed = %d, want 1", code)
+	}
+
+	var code int
+	raw := captureStdout(t, func() { code = cmdRun([]string{"--json"}) })
+	if code != 0 {
+		t.Fatalf("cmdRun --json on an empty selection = %d, want 0\n%s", code, raw)
+	}
+
+	var got Output
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("--json stdout is not a single JSON document: %v\n%s", err, raw)
+	}
+	if got.Tier != "empty" {
+		t.Fatalf("tier = %q, want empty (reason: %s)", got.Tier, got.Reason)
+	}
+	if !anyWarningContains(got.Warnings, "not a pass") {
+		t.Errorf("warnings must say an empty selection is not a pass, got %#v", got.Warnings)
+	}
+	// The emptiness itself is fully known; nothing about it is partial.
+	if !got.Complete {
+		t.Errorf("complete = false; an empty selection is exhaustively known:\n%s", raw)
+	}
+}
+
+// A real subset run names every test it executed, so it is complete and unremarkable.
+func TestCmdRunJSONReportsACompleteSelectionWithNoWarnings(t *testing.T) {
+	repo := realRepo(t)
+	chdir(t, repo)
+	makeSuiteGreen(t, repo)
+
+	if code := cmdSeed(nil); code != 0 {
+		t.Fatalf("cmdSeed = %d, want 0 once the suite is green", code)
+	}
+	touchLogic(t, repo)
+
+	var code int
+	raw := captureStdout(t, func() { code = cmdRun([]string{"--json"}) })
+	if code != 0 {
+		t.Fatalf("cmdRun --json = %d, want 0.\n%s", code, raw)
+	}
+
+	var got Output
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("--json stdout is not a single JSON document: %v\n%s", err, raw)
+	}
+	if !got.Complete {
+		t.Errorf("complete = false; the executed subset is exactly selection.tests:\n%s", raw)
+	}
+	if len(got.Warnings) != 0 {
+		t.Errorf("warnings = %#v, want none for an unremarkable run", got.Warnings)
+	}
+}

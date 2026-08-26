@@ -45,6 +45,16 @@ func decodeOutput(t *testing.T, s string) Output {
 	return out
 }
 
+// anyWarningContains reports whether some warning carries the given sentence fragment.
+func anyWarningContains(warnings []string, want string) bool {
+	for _, w := range warnings {
+		if strings.Contains(w, want) {
+			return true
+		}
+	}
+	return false
+}
+
 // which runs nothing, so it has no fresh coverage. Emitting a stale line-level report
 // would reintroduce exactly the line-drift problem spec §4 removes: the honest answer is
 // `available: false` with a reason, and NO `files` key at all — an empty `files` array

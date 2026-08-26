@@ -104,6 +104,13 @@ func (u JSONUncovered) MarshalJSON() ([]byte, error) {
 
 // Output is the top-level --json document. Field order here is the emitted key order:
 // the schema is a struct, never a map, so two identical runs marshal to identical bytes.
+//
+// `complete` and `warnings` carry the never-narrow-silently guarantee into the document
+// itself. Under --json the document is the WHOLE of stdout and a consumer normally
+// discards stderr, so a caveat that lives only on stderr is a caveat the agent front-end
+// never sees — which is exactly the silent narrowing the contract forbids. The human
+// stderr/stdout notes stay; these two fields are the machine-readable half of the same
+// facts.
 type Output struct {
 	Schema        int           `json:"schema"`
 	Command       string        `json:"command"`
@@ -111,6 +118,8 @@ type Output struct {
 	Adapter       string        `json:"adapter"`
 	Tier          string        `json:"tier"`
 	Reason        string        `json:"reason"`
+	Complete      bool          `json:"complete"`
+	Warnings      []string      `json:"warnings"`
 	Changed       []JSONChange  `json:"changed"`
 	Selection     JSONSelection `json:"selection"`
 	Run           JSONRun       `json:"run"`
@@ -130,6 +139,13 @@ type OutputInput struct {
 	Instrumentable map[string]bool
 	Executed       bool
 	Outcomes       []report.Outcome
+	// SuiteEnumerated records that the full suite WAS listed. It is the one thing that
+	// can make a T2 selection complete, and only a command that pays for a collection
+	// run (`rtdd run`) may set it.
+	SuiteEnumerated bool
+	// Warnings are the caveats the command already reports to a human, verbatim and in
+	// the order it produced them.
+	Warnings       []string
 	Reports        []uncovered.FileReport
 	UncoveredOK    bool
 	UnmappedFiles  []string
@@ -152,6 +168,8 @@ func BuildOutput(in OutputInput) Output {
 		Selection: buildSelection(in),
 		Run:       buildRun(in),
 		Uncovered: buildUncovered(in),
+		Complete:  buildComplete(in),
+		Warnings:  nonNilStrings(in.Warnings),
 	}
 
 	out.UnmappedFiles = nonNilStrings(in.UnmappedFiles)
@@ -161,6 +179,17 @@ func BuildOutput(in OutputInput) Output {
 		out.ExitCode = 1
 	}
 	return out
+}
+
+// buildComplete answers "is selection.tests the whole run?".
+//
+// T2 means the full suite, and a command that did not enumerate it can only list the map
+// rows it happens to know — a PARTIAL list a consumer would otherwise read as the run.
+// Direct tests in that list do not make it complete. Every other tier names its tests
+// exhaustively, the empty tier included: its emptiness is fully known, and `warnings`
+// rather than `complete` is what says an empty selection is not a pass.
+func buildComplete(in OutputInput) bool {
+	return in.Sel.Tier != selector.TierT2 || in.SuiteEnumerated
 }
 
 // buildChanged preserves the changed set's own order — it is the diff's order, not noise.
