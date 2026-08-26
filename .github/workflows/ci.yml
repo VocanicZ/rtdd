@@ -56,6 +56,13 @@ jobs:
         run: uv run pytest tests/test_prompts.py -q
         working-directory: bench/swebench
 
+      # The acceptance gate for M4 Tasks 1-12: the shipped CLIs refusing, all five
+      # refusal cases, the deliberately failing fixtures, and one fixture pass from
+      # raw records to tables.md. ci-prereg.sh runs it too; this is the push gate.
+      - name: acceptance gate
+        run: uv run pytest tests/test_acceptance.py -q
+        working-directory: bench/swebench
+
       # The same guarantee, checked against the prompts the arm driver actually
       # assembles — five arms over the whole frozen instance list, no model call
       # and no network. ci-prereg.sh runs it too; this is the push gate.

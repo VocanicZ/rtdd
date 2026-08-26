@@ -78,3 +78,10 @@ same code path a real run uses and asserts the composition guarantee on those by
 context arm is its control plus exactly one `<test-context>` block, and the block carries no
 imperative — exiting non-zero if any arm violates it. It needs no signed pre-registration
 because it spends nothing.
+
+[docs/bench/swebench-harness.md](docs/bench/swebench-harness.md) is the reviewer's page for
+that harness: how to reproduce it locally with no model, network or Docker, what should
+refuse and with which message, the deliberately failing fixtures that prove the
+non-procedural guarantee is load-bearing, and which plan tasks are out of scope because they
+are human-in-the-loop. `bench/swebench/tests/test_acceptance.py` is the executable form of
+the same page, and CI runs it.
