@@ -125,16 +125,22 @@ func (a *Adapter) validate() error {
 	return nil
 }
 
-// validateGlobs rejects a malformed pattern in any field the classifier globs against.
+// validateGlobs rejects a malformed pattern in any field the engine globs against.
 // A typo'd glob would otherwise match nothing, so nothing would be classified as a test
 // file and the direct tier — the tier that must never depend on the map — would go empty
 // while `rtdd which` reported "no test file changed". That is a configuration error
 // (exit 2), and it is caught here, once, at load time.
+//
+// detect belongs in the table with the four classification fields even though it is not
+// globbed by the classifier: Detect matches it against every file in the repo with the
+// same matcher, and paths.MatchGlob panics by design on a pattern ValidateGlob rejects.
+// Load is the only place allowed to see a malformed glob, so it must see all five.
 func (a *Adapter) validateGlobs() error {
 	for _, f := range []struct {
 		field string
 		globs []string
 	}{
+		{"detect", a.Detect},
 		{"test_globs", a.TestGlobs},
 		{"source_globs", a.SourceGlobs},
 		{"opaque", a.Opaque},
