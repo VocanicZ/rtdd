@@ -489,7 +489,7 @@ rtdd seed
 rtdd which   [--base <ref>] [--json]
 rtdd run     [--base <ref>] [--fail-fast] [--json]
 rtdd verify
-rtdd doctor
+rtdd doctor  [--limit <n>]
 rtdd explain <file>
 rtdd map compact
 rtdd init
