@@ -33,8 +33,8 @@ func TestClassify(t *testing.T) {
 		// as a selector is exit 5 (no-tests-collected). It escalates to a full run.
 		// It stays instrumentable under this fixture's broad "**/*.py" source glob —
 		// IsInstrumentable is SourceGlobs AND not-test AND not-opaque, and escalation is
-		// none of the three. The shipped adapter scopes source to "src/**/*.py", so a
-		// conftest under tests/ falls out there on the SourceGlobs term instead.
+		// none of the three. The shipped adapter scopes source the same way, so it
+		// classifies a conftest under tests/ identically.
 		{"tests/unit/conftest.py", false, false, true, true},
 		{"README.md", false, false, false, false},
 	}
@@ -87,33 +87,83 @@ func TestClassifyIsPureStringWork(t *testing.T) {
 // have made it a test file and therefore not instrumentable. Documented in
 // docs/plans/00-interfaces.md; pinned here so the narrowing cannot drift silently.
 func TestShippedAdapterClassifiesConftest(t *testing.T) {
-	ads, err := Builtin()
-	if err != nil {
-		t.Fatalf("Builtin: %v", err)
-	}
-	var a *Adapter
-	for _, cand := range ads {
-		if cand.Name == "python" {
-			a = cand
-		}
-	}
-	if a == nil {
-		t.Fatal("no builtin adapter named python")
-	}
-
+	a := builtinPython(t)
 	cases := []struct {
 		rel                                    string
 		test, opaque, escalate, instrumentable bool
 	}{
-		// Inside source_globs: escalates, is not a selector, and stays instrumentable.
+		// source_globs is **/*.py, so every conftest.py is inside it: each escalates, is
+		// not a selector, and stays instrumentable.
 		{"src/conftest.py", false, false, true, true},
-		// Outside source_globs: escalates, and falls out of instrumentable on that term.
-		{"tests/conftest.py", false, false, true, false},
-		{"conftest.py", false, false, true, false},
+		{"tests/conftest.py", false, false, true, true},
+		{"conftest.py", false, false, true, true},
 		// The exclusion is exactly conftest-shaped; a real test module is unaffected.
 		{"tests/test_a.py", true, false, false, false},
 		{"src/logic.py", false, false, false, true},
 	}
+	checkClassification(t, a, cases)
+}
+
+// The hand-built table above proves the classifier and nothing about what the binary
+// actually ships. This case classifies through Builtin() — the embedded
+// adapters/python.yaml — so a glob dropped from the shipped file fails here. The direct
+// tier in internal/selector is built from IsTestFile alone, so a missing test glob is a
+// silent narrowing: editing a test selects nothing at all.
+func TestBuiltinPythonClassifiesTheShippedGlobs(t *testing.T) {
+	a := builtinPython(t)
+	cases := []struct {
+		rel                                    string
+		test, opaque, escalate, instrumentable bool
+	}{
+		// pytest's default python_files is "test_*.py *_test.py" — both spellings are
+		// tests, or a *_test.py repo gets an empty direct tier.
+		{"pkg/foo_test.py", true, false, false, false},
+		{"pkg/test_foo.py", true, false, false, false},
+		{"tests/helpers.py", true, false, false, false},
+		// Flat layout: the package sits at the repo root, not under src/. Scoping
+		// source_globs to src/** would classify this as nothing at all.
+		{"pkg/mod.py", false, false, false, true},
+		{"src/logic.py", false, false, false, true},
+		// setup.cfg and pytest.ini are detection markers: editing what configures the
+		// test runner must escalate to a full run.
+		{"setup.cfg", false, false, true, false},
+		{"pytest.ini", false, false, true, false},
+		{"tox.ini", false, false, true, false},
+		{"poetry.lock", false, false, true, false},
+		{"uv.lock", false, false, true, false},
+		{"pyproject.toml", false, false, true, false},
+		{"requirements.txt", false, false, true, false},
+		// A JSON data file outside fixtures/ still has to produce a signal.
+		{"data/x.json", false, true, false, false},
+		{"config/app.yml", false, true, false, false},
+		{"tpl/page.j2", false, true, false, false},
+		{"README.md", false, false, false, false},
+	}
+	checkClassification(t, a, cases)
+}
+
+// builtinPython returns the shipped python adapter, read through the embedded FS.
+func builtinPython(t *testing.T) *Adapter {
+	t.Helper()
+	all, err := Builtin()
+	if err != nil {
+		t.Fatalf("Builtin: %v", err)
+	}
+	for _, cand := range all {
+		if cand.Name == "python" {
+			return cand
+		}
+	}
+	t.Fatal("Builtin() has no adapter named python")
+	return nil
+}
+
+// checkClassification runs all four predicates over a table of expectations.
+func checkClassification(t *testing.T, a *Adapter, cases []struct {
+	rel                                    string
+	test, opaque, escalate, instrumentable bool
+}) {
+	t.Helper()
 	for _, tc := range cases {
 		if got := a.IsTestFile(tc.rel); got != tc.test {
 			t.Errorf("IsTestFile(%q) = %v, want %v", tc.rel, got, tc.test)

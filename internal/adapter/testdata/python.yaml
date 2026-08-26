@@ -22,8 +22,8 @@ list: "pytest --collect-only -q"
 coverage: sqlite
 report: pytest-reportlog
 failfast_flag: "-x"
-test_globs: ["tests/**/*.py", "**/test_*.py"]
-source_globs: ["src/**/*.py"]
+test_globs: ["tests/**/*.py", "**/test_*.py", "**/*_test.py"]
+source_globs: ["**/*.py"]
 exit_codes: { 4: bad-selector, 5: no-tests-collected }
-opaque: ["**/*.yaml", "**/*.yml", "**/*.sql", "**/*.html", "**/*.j2", "**/fixtures/**"]
-full_escalate: ["requirements.txt", "pyproject.toml", "**/conftest.py"]
+opaque: ["**/*.yaml", "**/*.yml", "**/*.sql", "**/*.html", "**/*.j2", "**/*.json", "**/fixtures/**"]
+full_escalate: ["requirements.txt", "pyproject.toml", "setup.cfg", "pytest.ini", "tox.ini", "poetry.lock", "uv.lock", "**/conftest.py"]
