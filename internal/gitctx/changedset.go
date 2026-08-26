@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -63,11 +64,24 @@ func ChangedSet(repoRoot, base string) ([]Change, error) {
 			}
 		}
 
-		diff, err := git(repoRoot, "diff", "--unified=0", "--no-color", "-M", base)
+		// The diff header path is the only key by which a hunk finds its file, so every
+		// git config that rewrites it is pinned off: quoting hides the path from the
+		// unquoted `--name-status -z` names, and the prefix settings rewrite `b/`.
+		diff, err := git(repoRoot,
+			"-c", "core.quotePath=false",
+			"-c", "diff.noprefix=false",
+			"-c", "diff.mnemonicPrefix=false",
+			"-c", "diff.srcPrefix=a/",
+			"-c", "diff.dstPrefix=b/",
+			"diff", "--unified=0", "--no-color", "-M", base)
 		if err != nil {
 			return nil, err
 		}
-		for p, ranges := range parseHunks(diff) {
+		hunks, err := parseHunks(strings.NewReader(diff))
+		if err != nil {
+			return nil, err
+		}
+		for p, ranges := range hunks {
 			if c, ok := changes[p]; ok {
 				c.Lines = append(c.Lines, ranges...)
 			}
@@ -187,31 +201,114 @@ func wholeFile(repoRoot, rel string) []LineRange {
 
 // parseHunks extracts NEW-file line ranges from a `git diff --unified=0` body,
 // keyed by the repo-relative path in the `+++ b/<path>` header.
-func parseHunks(diff string) map[string][]LineRange {
+//
+// A `+++ `, `--- ` or `diff --git ` prefix identifies a header only OUTSIDE a hunk
+// body. Inside one, an added line whose own text starts with `++ ` renders as `+++ ...`
+// and matching on the prefix alone repoints the parser at a bogus path, silently
+// dropping every later hunk in that file. Under `--unified=0` every body line begins
+// with `+`, `-` or `\`, so a line starting with `@@` is always a real hunk header and
+// is what ends the header section.
+func parseHunks(r io.Reader) (map[string][]LineRange, error) {
 	out := map[string][]LineRange{}
 	cur := ""
-	sc := bufio.NewScanner(strings.NewReader(diff))
+	inHunk := false
+	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	for sc.Scan() {
 		line := sc.Text()
 		switch {
-		case strings.HasPrefix(line, "+++ "):
+		case strings.HasPrefix(line, "diff --git "):
+			inHunk = false
+			cur = ""
+		case !inHunk && strings.HasPrefix(line, "+++ "):
 			p := strings.TrimPrefix(line, "+++ ")
 			if i := strings.IndexByte(p, '\t'); i >= 0 {
 				p = p[:i]
 			}
+			p = unquotePath(p)
 			if p == "/dev/null" {
 				cur = ""
 				continue
 			}
-			cur = strings.TrimPrefix(p, "b/")
-		case strings.HasPrefix(line, "@@") && cur != "":
-			if r, ok := parseHunkHeader(line); ok {
-				out[cur] = append(out[cur], r)
+			cur = stripDiffPrefix(p)
+		case strings.HasPrefix(line, "@@"):
+			inHunk = true
+			if cur == "" {
+				continue
+			}
+			if rng, ok := parseHunkHeader(line); ok {
+				out[cur] = append(out[cur], rng)
 			}
 		}
 	}
-	return out
+	if err := sc.Err(); err != nil {
+		// The rest of the diff was never read. Returning what was parsed so far would
+		// report every unseen file as unchanged.
+		return nil, fmt.Errorf("gitctx: reading git diff: %w", err)
+	}
+	return out, nil
+}
+
+// stripDiffPrefix removes the one-directory destination prefix git puts on a diff header
+// path. It is `b/` by default, one of `i/ w/ c/ o/` under diff.mnemonicPrefix, absent
+// under diff.noprefix, and arbitrary under diff.dstPrefix. Repo-relative paths that
+// genuinely begin with such a segment are indistinguishable, so gitctx pins the config
+// that produces `b/` and this is the belt to that braces.
+func stripDiffPrefix(p string) string {
+	if i := strings.IndexByte(p, '/'); i == 1 {
+		return p[2:]
+	}
+	return p
+}
+
+// unquotePath decodes git's C-style quoting. `--name-status -z` and `status -z` never
+// quote, so a quoted diff-header path matches no known file and its ranges are dropped
+// while the file itself is still reported — a change with no changed lines. gitctx pins
+// core.quotePath=false, but git still quotes a path containing a quote, a backslash or a
+// control character regardless of that setting.
+func unquotePath(p string) string {
+	if len(p) < 2 || p[0] != '"' || p[len(p)-1] != '"' {
+		return p
+	}
+	body := p[1 : len(p)-1]
+	var b strings.Builder
+	b.Grow(len(body))
+	for i := 0; i < len(body); i++ {
+		c := body[i]
+		if c != '\\' || i+1 >= len(body) {
+			b.WriteByte(c)
+			continue
+		}
+		i++
+		switch e := body[i]; e {
+		case 'a':
+			b.WriteByte(0x07)
+		case 'b':
+			b.WriteByte(0x08)
+		case 'f':
+			b.WriteByte(0x0c)
+		case 'n':
+			b.WriteByte('\n')
+		case 'r':
+			b.WriteByte('\r')
+		case 't':
+			b.WriteByte('\t')
+		case 'v':
+			b.WriteByte(0x0b)
+		case '\\', '"':
+			b.WriteByte(e)
+		default:
+			if e >= '0' && e <= '7' && i+2 < len(body) {
+				if v, err := strconv.ParseUint(body[i:i+3], 8, 8); err == nil {
+					b.WriteByte(byte(v))
+					i += 2
+					continue
+				}
+			}
+			b.WriteByte(e)
+		}
+	}
+	return b.String()
 }
 
 // parseHunkHeader parses "@@ -a,b +c,d @@ ..." and returns the NEW-side range.
