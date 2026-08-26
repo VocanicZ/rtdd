@@ -22,6 +22,7 @@ usage:
   rtdd status [--adapter <path>]
   rtdd which  [--base <ref>] [--json] [--adapter <path>]
   rtdd explain <file>
+  rtdd doctor [--limit <n>]
 
 exit codes:
   0  success - an empty selection is a signal, not a failure
@@ -52,6 +53,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdWhich(args[1:], stdout, stderr)
 	case "explain":
 		return cmdExplain(args[1:], stdout, stderr)
+	case "doctor":
+		return cmdDoctor(args[1:], stdout, stderr)
 	case "-h", "--help", "help":
 		fmt.Fprint(stdout, usage)
 		return 0
