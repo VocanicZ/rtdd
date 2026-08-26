@@ -464,6 +464,10 @@ func TestInterfaceContractSignaturesDoNotContradictTheImplementation(t *testing.
 	for _, tc := range []struct{ rel, name string }{
 		{"internal/adapter/expand.go", "ExpandTests"},
 		{"internal/adapter/expand.go", "Expand"},
+		{"internal/uncovered/hunk.go", "WithLines"},
+		{"internal/uncovered/hunk.go", "ParseHunks"},
+		{"internal/uncovered/classify.go", "Summarize"},
+		{"internal/gitctx/rawdiff.go", "RawDiff"},
 	} {
 		want := implSignature(t, tc.rel, tc.name)
 		got := docSignatures(t, doc, tc.name)
@@ -589,6 +593,7 @@ func TestInterfaceContractStructFieldsDoNotContradictTheImplementation(t *testin
 
 	for _, tc := range []struct{ rel, name string }{
 		{"internal/runner/errors.go", "FatalExitError"},
+		{"internal/uncovered/classify.go", "Summary"},
 	} {
 		impl := structFieldSets(t, readRepoFile(t, tc.rel), tc.name)
 		if len(impl) != 1 {
@@ -689,6 +694,48 @@ func TestDoctorCaveatNamesTheOncePerProcessMechanisms(t *testing.T) {
 	} {
 		if !strings.Contains(doctor.Caveat, want) {
 			t.Errorf("doctor.Caveat must name %q (spec §9)", want)
+		}
+	}
+}
+
+// M2's Definition of Done names every contract addition the milestone makes. This is the
+// roll-up guard for it: one test that fails if any of them stopped being recorded, so a
+// later edit to 00-interfaces.md cannot quietly drop half the milestone's interface.
+// Per-symbol shape guards live in the tests above; this one guards presence.
+func TestInterfaceContractCarriesEveryM2Addition(t *testing.T) {
+	src := readRepoFile(t, "docs/plans/00-interfaces.md")
+
+	for _, want := range []string{
+		// internal/uncovered — hunk parsing, the authoritative line source, the classes.
+		"func ParseHunks(diff string) map[string][]gitctx.LineRange",
+		"func WithLines(repoRoot string, changes []gitctx.Change, rawDiff string) ([]gitctx.Change, error)",
+		`func (c Class) String() string // "covered" | "uncovered" | "import-time"`,
+		"func Summarize(reports []FileReport) Summary",
+		"func Classify(changes []gitctx.Change, cov *coverage.Result) []FileReport",
+		"func (r FileReport) UncoveredLines() int",
+		// internal/gitctx — the one raw diff every changed line derives from.
+		"func RawDiff(repoRoot, base string) (string, error)",
+		// internal/importscan — the static fallback for import-time-only files.
+		"func Scan(repoRoot string, targets, tests []string) (map[string][]string, error)",
+		"func NewScanner(repoRoot string, tests []string) *Scanner",
+		"func (s *Scanner) TestsImporting(rel string) []string",
+		"func (s *Scanner) Err() error",
+		// internal/doctor — the mandatory spec §9 caveat, an immutable const.
+		"const Caveat = ",
+		// internal/initrepo — merge into existing front-ends, never clobber.
+		"func Run(repoRoot string) ([]Action, error)",
+		// The --json schema v1: the contract the agent front-ends bind to.
+		"### The schema, version 1",
+		`"schema": 1,`,
+		"| `schema` | int | Always `1` for this version.",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("00-interfaces.md must record the M2 addition %q", want)
+		}
+	}
+	for _, pkg := range []string{"internal/uncovered/", "internal/importscan/", "internal/doctor/", "internal/initrepo/"} {
+		if !strings.Contains(src, pkg) {
+			t.Errorf("00-interfaces.md must list %s in the package layout", pkg)
 		}
 	}
 }
