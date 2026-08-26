@@ -289,8 +289,8 @@ are implemented per language.
 name: python
 detect: ["pytest.ini", "pyproject.toml", "setup.cfg"]
 env:    { COVERAGE_CORE: ctrace }
-seed:   "pytest --cov={src} --cov-context=test --report-log={log}"
-subset: "pytest {tests} --cov={src} --cov-context=test --report-log={log}"
+seed:   "pytest --cov --cov-context=test --report-log={log}"
+subset: "pytest {tests} --cov --cov-context=test --report-log={log}"
 coverage: sqlite            # read .coverage directly
 report:   pytest-reportlog  # source of `s` and `d`
 test_globs: ["tests/**/*.py", "**/test_*.py"]

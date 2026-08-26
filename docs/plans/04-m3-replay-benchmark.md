@@ -2944,17 +2944,111 @@ calling `prepare` in a worktree where `runner.run_full` is invoked without the f
 `cacheprovider: bool = False` to `run_full`/`_invoke`/`_pytest_argv` and set it here:
 
 ```python
-# bench/replay/runner.py — amend _pytest_argv and the two entry points
-def _pytest_argv(instrumented, source_globs, log, xdist, cacheprovider=False):
+# bench/replay/runner.py — replace _pytest_argv, _invoke, run_full and run_subset with these
+def _pytest_argv(
+    instrumented: bool,
+    source_globs: Sequence[str],
+    log: pathlib.Path,
+    xdist: bool,
+    cacheprovider: bool = False,
+) -> list[str]:
     argv = ["-q", "--no-header", f"--report-log={log}"]
     if not cacheprovider:
         argv += ["-p", "no:cacheprovider"]
-    ...
+    if xdist:
+        argv += ["-n", "auto"]
+    if instrumented:
+        for src in source_globs or (".",):
+            argv.append(f"--cov={src}")
+        argv += ["--cov-context=test", "--cov-report=", "--cov-branch"]
+    return argv
+
+
+def _invoke(
+    work: pathlib.Path,
+    python: str,
+    tests: Sequence[str],
+    instrumented: bool,
+    source_globs: Sequence[str],
+    xdist: bool,
+    cacheprovider: bool = False,
+) -> RunResult:
+    outcomes: list[Outcome] = []
+    exit_code = 0
+    wall_ms = 0
+    batches = chunk(list(tests)) if tests else [[]]
+    for batch in batches:
+        with tempfile.TemporaryDirectory() as td:
+            log = pathlib.Path(td) / "report.jsonl"
+            argv = [
+                python,
+                "-m",
+                "pytest",
+                *_pytest_argv(instrumented, source_globs, log, xdist, cacheprovider),
+                *batch,
+            ]
+            start = time.perf_counter()
+            proc = subprocess.run(
+                argv, cwd=work, capture_output=True, text=True, env=_env(instrumented)
+            )
+            wall_ms += int(round((time.perf_counter() - start) * 1000))
+            if instrumented and "no-sysmon-context" in (proc.stderr + proc.stdout):
+                raise SysmonContextError(
+                    "coverage.py emitted no-sysmon-context: dynamic contexts were dropped. "
+                    "Any map built from this run is ~90% empty (audit A7)."
+                )
+            if proc.returncode in (4, 5):
+                raise RuntimeError(
+                    f"pytest exit {proc.returncode} (bad selector / no tests collected) in {work}: "
+                    f"{proc.stdout[-2000:]}"
+                )
+            if log.exists():
+                outcomes.extend(parse_report_log(log))
+            exit_code = exit_code or proc.returncode
+    uniq = {o.test: o for o in outcomes}
+    ordered = tuple(uniq[t] for t in sorted(uniq))
+    return RunResult(
+        outcomes=ordered,
+        exit_code=exit_code,
+        wall_ms=wall_ms,
+        collected=tuple(o.test for o in ordered),
+    )
+
+
+def run_full(
+    work: pathlib.Path,
+    python: str = sys.executable,
+    instrumented: bool = False,
+    source_globs: Sequence[str] = (),
+    xdist: bool = False,
+    cacheprovider: bool = False,
+) -> RunResult:
+    return _invoke(work, python, (), instrumented, source_globs, xdist, cacheprovider)
+
+
+def run_subset(
+    work: pathlib.Path,
+    tests: Sequence[str],
+    python: str = sys.executable,
+    instrumented: bool = False,
+    source_globs: Sequence[str] = (),
+    cacheprovider: bool = False,
+) -> RunResult:
+    if not tests:
+        return RunResult(outcomes=(), exit_code=0, wall_ms=0, collected=())
+    return _invoke(work, python, tests, instrumented, source_globs, False, cacheprovider)
 ```
 
-with `cacheprovider` threaded through `_invoke`, `run_full` and `run_subset` as a keyword
-argument defaulting to `False`, and `LastFailed.prepare` calling
-`run_full(ctx.work, python=ctx.python, cacheprovider=True)`.
+and `LastFailed.prepare` becomes:
+
+```python
+# bench/replay/strategies/lastfailed.py — replace the prepare method body
+    def prepare(self, ctx: CommitContext) -> None:
+        """Populate .pytest_cache by running the full suite in the clean parent tree.
+        The harness calls this before materialising the child commit; the orchestrator
+        caches the resulting .pytest_cache directory by (repo, parent)."""
+        run_full(ctx.work, python=ctx.python, cacheprovider=True)
+```
 
 - [ ] **14.4 Add the runner amendment and a test for it.**
 
@@ -4866,3 +4960,738 @@ def replay_repo(
 - [ ] **23.5 Commit.** `git add bench/replay/replay.py bench/tests/test_replay.py && git commit -m "bench: replay orchestrator for the natural and probe variants"`
 
 ---
+
+## Task 24 — Results emission: diffable and committed
+
+**Layout** (one directory per repo; `bench/results/` is committed, `bench/cache/` is not):
+
+```
+bench/results/<repo_id>/
+  commits.jsonl     one sorted JSON line per record — a re-run with the same config produces a byte-identical file
+  summary.json      metrics, sorted keys, newline-terminated
+  summary.md        the published per-repo table
+  config.json       the RunConfig and Hardware that produced the other three
+  drift.json        the cycles-since-commit curve (Task 22)
+bench/results/aggregate.md   duration-weighted cross-repo table, explicitly labelled
+```
+
+Diffability is a hard requirement: `commits.jsonl` sorts by `(repo_id, commit, variant, kind,
+strategy)` and uses compact separators with sorted keys, so a re-run changes only the lines
+whose numbers changed and a reviewer can see exactly which commits moved.
+
+**Files:** `bench/replay/report.py`, `bench/tests/test_report.py`
+
+**Interfaces:**
+
+```python
+# bench/replay/report.py
+def write_results(
+    out_dir: pathlib.Path, output: ReplayOutput, cfg: RunConfig, hw: Hardware,
+    strategy_ids: Sequence[str], drift: DriftCurve | None = None,
+) -> dict: ...
+def build_summary(output: ReplayOutput, strategy_ids: Sequence[str], hw: Hardware) -> dict: ...
+def render_markdown(summary: dict, cfg: RunConfig, hw: Hardware) -> str: ...
+def render_aggregate(summaries: Sequence[dict]) -> str: ...
+def fmt(r: dict | None) -> str: ...              # Ratio dict -> "0.93 (14/15)" or "n/a"
+def wallclock_table(output: ReplayOutput, hw: Hardware) -> dict: ...
+def verdict_line(summary: dict) -> str: ...      # the pre-registered rtdd-vs-path comparison
+```
+
+- [ ] **24.1 Failing tests.**
+
+```python
+# bench/tests/test_report.py
+import json
+
+from replay.config import RunConfig
+from replay.hardware import Hardware
+from replay.records import CommitRecord, StrategyRecord, UncoveredRecord, WallClockRecord
+from replay.replay import ReplayOutput
+from replay.report import build_summary, fmt, render_markdown, verdict_line, write_results
+
+HW = Hardware("Ryzen 9 7950X", 32, 65536000, "Linux-6.8", "3.12.4", None)
+CFG = RunConfig("cd", "rtdd 0.3.0", (("pytest", "8.3.3"),), ("rtdd", "path"), ("natural",), 3, 0, 1)
+
+ALL = ("a", "b", "c", "d")
+DUR = {"a": 100, "b": 100, "c": 100, "d": 700}
+
+
+def _out():
+    o = ReplayOutput()
+    o.commits = [
+        CommitRecord("synth", "c1", "c0", "natural", ALL, DUR, ("a",), (), ("src/a.py",)),
+        CommitRecord("synth", "c2", "c1", "natural", ALL, DUR, ("a", "b"), (), ("src/b.py",)),
+        CommitRecord("synth", "c3", "c2", "natural", ALL, DUR, (), (), ("src/c.py",)),
+    ]
+    o.strategies = [
+        StrategyRecord("synth", "c1", "natural", "rtdd", ("a",), False, "T0", 2),
+        StrategyRecord("synth", "c2", "natural", "rtdd", ("a", "b"), False, "T0", 2),
+        StrategyRecord("synth", "c3", "natural", "rtdd", ("c",), False, "T0", 2),
+        StrategyRecord("synth", "c1", "natural", "path", ("a",), False, "sib", 1),
+        StrategyRecord("synth", "c2", "natural", "path", (), False, "none", 1),
+        StrategyRecord("synth", "c3", "natural", "path", ("c",), False, "sib", 1),
+    ]
+    o.uncovered = [
+        UncoveredRecord("synth", "c1", "natural", (("src/a.py", 3),), 1, 1),
+        UncoveredRecord("synth", "c2", "natural", (), 0, 0),
+        UncoveredRecord("synth", "c3", "natural", (("src/c.py", 9),), 0, 1),
+    ]
+    o.wallclocks = [
+        WallClockRecord("synth", "c1", "natural", "rtdd", HW.fingerprint(), 4000, 900, 420, False)
+    ]
+    return o
+
+
+def test_fmt():
+    assert fmt({"num": 14, "den": 15, "value": 14 / 15}) == "0.933 (14/15)"
+    assert fmt({"num": 0, "den": 0, "value": None}) == "n/a (0/0)"
+
+
+def test_summary_has_a_row_per_strategy_and_breaks_out_the_single_killer_stratum():
+    s = build_summary(_out(), ("rtdd", "path"), HW)
+    assert set(s["strategies"]) == {"rtdd", "path"}
+    assert s["strategies"]["rtdd"]["strata"]["1"]["change_level_recall"]["value"] == 1.0
+    assert s["strategies"]["path"]["strata"]["2-5"]["change_level_recall"]["value"] == 0.0
+    assert s["false_signal"]["fired"] == 2
+    assert s["false_signal"]["change_false_signal_rate"]["num"] == 1
+
+
+def test_verdict_line_states_the_pre_registered_criterion():
+    s = build_summary(_out(), ("rtdd", "path"), HW)
+    line = verdict_line(s)
+    assert "path heuristic" in line
+    assert "rtdd" in line
+
+
+def test_markdown_embeds_the_config_and_the_hardware():
+    s = build_summary(_out(), ("rtdd", "path"), HW)
+    md = render_markdown(s, CFG, HW)
+    assert "Ryzen 9 7950X" in md
+    assert "rtdd 0.3.0" in md
+    assert "| rtdd |" in md
+    assert "|F_full| == 1" in md
+
+
+def test_write_results_is_byte_stable_across_reruns(tmp_path):
+    o = _out()
+    d = tmp_path / "synth"
+    write_results(d, o, CFG, HW, ("rtdd", "path"))
+    first = (d / "commits.jsonl").read_bytes()
+    write_results(d, o, CFG, HW, ("rtdd", "path"))
+    assert (d / "commits.jsonl").read_bytes() == first
+    assert json.loads((d / "config.json").read_text())["hardware"]["cpu_model"] == "Ryzen 9 7950X"
+    assert (d / "summary.md").read_text().startswith("# ")
+```
+
+- [ ] **24.2 Run and watch it fail.** `cd bench && uv run pytest tests/test_report.py -q` → `ModuleNotFoundError: No module named 'replay.report'`.
+
+- [ ] **24.3 Implement.**
+
+```python
+# bench/replay/report.py
+from __future__ import annotations
+
+import pathlib
+from collections.abc import Sequence
+
+from replay import falsesignal, metrics
+from replay.config import RunConfig, canonical_json
+from replay.hardware import Hardware
+from replay.records import to_jsonl_lines
+from replay.session import DriftCurve
+
+
+def fmt(r: dict | None) -> str:
+    if r is None:
+        return "n/a"
+    v = r.get("value")
+    num, den = r.get("num", 0), r.get("den", 0)
+    if v is None:
+        return f"n/a ({num:g}/{den:g})"
+    return f"{v:.3f} ({num:g}/{den:g})"
+
+
+def wallclock_table(output, hw: Hardware) -> dict:
+    if not hw.wallclock_allowed():
+        return {"suppressed": True, "reason": f"CI detected via {hw.ci}", "rows": {}}
+    rows: dict[str, dict] = {}
+    for w in output.wallclocks:
+        row = rows.setdefault(
+            w.strategy,
+            {"n": 0, "full_uninstrumented_ms": 0, "subset_instrumented_ms": 0,
+             "subset_uninstrumented_ms": 0, "isolation_violations": 0},
+        )
+        row["n"] += 1
+        row["full_uninstrumented_ms"] += w.full_uninstrumented_ms or 0
+        row["subset_instrumented_ms"] += w.subset_instrumented_ms or 0
+        row["subset_uninstrumented_ms"] += w.subset_uninstrumented_ms or 0
+        row["isolation_violations"] += 1 if w.isolation_violation else 0
+    for row in rows.values():
+        n = max(row["n"], 1)
+        row["mean_full_uninstrumented_ms"] = round(row["full_uninstrumented_ms"] / n)
+        row["mean_subset_instrumented_ms"] = round(row["subset_instrumented_ms"] / n)
+        row["mean_subset_uninstrumented_ms"] = round(row["subset_uninstrumented_ms"] / n)
+    return {"suppressed": False, "reason": "", "rows": rows}
+
+
+def build_summary(output, strategy_ids: Sequence[str], hw: Hardware) -> dict:
+    repo_id = metrics.assert_single_repo([*output.commits, *output.strategies])
+    per_variant: dict[str, dict] = {}
+    for variant in sorted({c.variant for c in output.commits}):
+        commits = [c for c in output.commits if c.variant == variant]
+        sels = [s for s in output.strategies if s.variant == variant]
+        per_variant[variant] = {
+            sid: metrics.summarise(commits, sels, sid) for sid in strategy_ids
+        }
+    flat = {
+        sid: metrics.summarise(output.commits, output.strategies, sid) for sid in strategy_ids
+    }
+    return {
+        "repo_id": repo_id,
+        "n_commits": len(output.commits),
+        "skipped": output.skipped,
+        "strategies": flat,
+        "by_variant": per_variant,
+        "false_signal": falsesignal.summarise(output.uncovered, len(output.commits)),
+        "wallclock": wallclock_table(output, hw),
+    }
+
+
+def verdict_line(summary: dict) -> str:
+    r = summary["strategies"].get("rtdd")
+    p = summary["strategies"].get("path")
+    if not r or not p:
+        return "verdict: not computable (rtdd or path heuristic missing from this run)"
+    rr = r["change_level_recall"]["value"]
+    pr = p["change_level_recall"]["value"]
+    rd = r["selected_duration_fraction"]["value"]
+    pd = p["selected_duration_fraction"]["value"]
+    if rr is None or pr is None:
+        return "verdict: not computable (no detecting commits)"
+    beats = rr > pr and (rd is None or pd is None or rd <= pd)
+    tail = (
+        "rtdd beats the naive path heuristic"
+        if beats
+        else "rtdd does NOT clearly beat the naive path heuristic — per the pre-registered "
+        "criterion in docs/plans/04-m3-replay-benchmark.md the map is not justified and this "
+        "must be stated in the README"
+    )
+    return (
+        f"verdict: change-level recall rtdd={rr:.3f} vs path heuristic={pr:.3f}; "
+        f"selected-duration fraction rtdd={rd if rd is None else f'{rd:.3f}'} vs "
+        f"path={pd if pd is None else f'{pd:.3f}'} — {tail}"
+    )
+
+
+def render_markdown(summary: dict, cfg: RunConfig, hw: Hardware) -> str:
+    lines: list[str] = []
+    lines.append(f"# Axis 2 — real-commit replay: `{summary['repo_id']}`")
+    lines.append("")
+    lines.append(f"**Hardware:** {hw.cpu_model}, {hw.cpu_count} cores, "
+                 f"{hw.mem_total_kb // 1024} MiB, {hw.platform}, Python {hw.python_version}")
+    lines.append(f"**Binary:** {cfg.rtdd_version} · **corpus digest:** `{cfg.corpus_digest[:12]}` "
+                 f"· **config digest:** `{cfg.digest()[:12]}`")
+    lines.append(f"**Tools:** " + ", ".join(f"{k} {v}" for k, v in cfg.tool_versions))
+    lines.append(f"**Replayed commits:** {summary['n_commits']} "
+                 f"(skipped: {len(summary['skipped'])}) · shipped defaults only, no tuning flags")
+    lines.append("")
+    lines.append(verdict_line(summary))
+    lines.append("")
+    lines.append("## Per-strategy, all strata pooled within this repo")
+    lines.append("")
+    lines.append("| strategy | cycles | detecting | change recall | test recall (micro) "
+                 "| test recall (macro) | selection ratio | selected duration | escalation |")
+    lines.append("|---|---|---|---|---|---|---|---|---|")
+    for sid, s in summary["strategies"].items():
+        lines.append(
+            f"| {sid} | {s['cycles']} | {s['detecting_commits']} | "
+            f"{fmt(s['change_level_recall'])} | {fmt(s['test_level_recall_micro'])} | "
+            f"{fmt(s['test_level_recall_macro'])} | {fmt(s['selection_ratio'])} | "
+            f"{fmt(s['selected_duration_fraction'])} | {fmt(s['escalation_rate'])} |"
+        )
+    lines.append("")
+    lines.append("## Stratified by |F_full| — the `|F_full| == 1` stratum is where selection "
+                 "safety is genuinely under test")
+    lines.append("")
+    lines.append("| strategy | stratum | n | change recall | test recall (micro) |")
+    lines.append("|---|---|---|---|---|")
+    for sid, s in summary["strategies"].items():
+        for stratum, v in s["strata"].items():
+            lines.append(
+                f"| {sid} | {stratum} | {v['n']} | {fmt(v['change_level_recall'])} | "
+                f"{fmt(v['test_level_recall_micro'])} |"
+            )
+    lines.append("")
+    lines.append("## Uncovered-report false signal")
+    fs = summary["false_signal"]
+    lines.append("")
+    lines.append(f"- fired on {fs['fired']} of {fs['cycles']} cycles ({fmt(fs['fire_rate'])})")
+    lines.append(f"- change-level false-signal rate: {fmt(fs['change_false_signal_rate'])}")
+    lines.append(f"- line-level false-signal rate: {fmt(fs['line_false_signal_rate'])}")
+    lines.append("")
+    lines.append("## Wall-clock")
+    wc = summary["wallclock"]
+    lines.append("")
+    if wc["suppressed"]:
+        lines.append(f"Suppressed: {wc['reason']}. Spec §10 permits wall-clock only from "
+                     f"disclosed hardware, never from CI runners.")
+    else:
+        lines.append("| strategy | n | full uninstrumented | subset instrumented "
+                     "| subset uninstrumented | isolation violations |")
+        lines.append("|---|---|---|---|---|---|")
+        for sid, row in sorted(wc["rows"].items()):
+            lines.append(
+                f"| {sid} | {row['n']} | {row['mean_full_uninstrumented_ms']} ms | "
+                f"{row['mean_subset_instrumented_ms'] or 'n/a'} ms | "
+                f"{row['mean_subset_uninstrumented_ms']} ms | {row['isolation_violations']} |"
+            )
+    lines.append("")
+    lines.append("## By variant")
+    lines.append("")
+    lines.append("`probe` seeds every map-based strategy at the child commit and is therefore an "
+                 "**upper bound** on their selection quality; it is never pooled with `natural`.")
+    lines.append("")
+    lines.append("| variant | strategy | cycles | change recall | test recall (micro) |")
+    lines.append("|---|---|---|---|---|")
+    for variant, table in summary["by_variant"].items():
+        for sid, s in table.items():
+            lines.append(
+                f"| {variant} | {sid} | {s['cycles']} | {fmt(s['change_level_recall'])} | "
+                f"{fmt(s['test_level_recall_micro'])} |"
+            )
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def render_aggregate(summaries: Sequence[dict]) -> str:
+    lines = ["# Axis 2 — duration-weighted aggregate", "",
+             "Per spec §10 recall is **never pooled** across repos. The rows below weight each "
+             "repo by its total suite duration and exist only to give a single ordering; the "
+             "per-repo tables are the result.", "",
+             "| strategy | duration-weighted selected fraction | repos |", "|---|---|---|"]
+    strategies = sorted({sid for s in summaries for sid in s["strategies"]})
+    for sid in strategies:
+        num = sum(s["strategies"][sid]["selected_duration_fraction"]["num"] for s in summaries if sid in s["strategies"])
+        den = sum(s["strategies"][sid]["selected_duration_fraction"]["den"] for s in summaries if sid in s["strategies"])
+        val = "n/a" if den == 0 else f"{num / den:.3f}"
+        lines.append(f"| {sid} | {val} | {sum(1 for s in summaries if sid in s['strategies'])} |")
+    return "\n".join(lines) + "\n"
+
+
+def write_results(
+    out_dir: pathlib.Path,
+    output,
+    cfg: RunConfig,
+    hw: Hardware,
+    strategy_ids: Sequence[str],
+    drift: DriftCurve | None = None,
+) -> dict:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    records = [*output.commits, *output.strategies, *output.wallclocks, *output.uncovered]
+    (out_dir / "commits.jsonl").write_text("".join(to_jsonl_lines(records)), encoding="utf-8")
+    summary = build_summary(output, strategy_ids, hw)
+    (out_dir / "summary.json").write_text(canonical_json(summary), encoding="utf-8")
+    (out_dir / "summary.md").write_text(render_markdown(summary, cfg, hw), encoding="utf-8")
+    (out_dir / "config.json").write_text(
+        canonical_json({"config": cfg.to_dict(), "hardware": hw.to_dict()}), encoding="utf-8"
+    )
+    if drift is not None:
+        (out_dir / "drift.json").write_text(canonical_json(drift.to_dict()), encoding="utf-8")
+    return summary
+```
+
+- [ ] **24.4 Run and pass.** `cd bench && uv run pytest tests/test_report.py -q` → 5 passed.
+
+- [ ] **24.5 Commit.** `git add bench/replay/report.py bench/tests/test_report.py && git commit -m "bench: diffable results format and per-repo table"`
+
+---
+
+## Task 25 — CLI and the entry-point guards
+
+Every guard in Global Constraints is enforced here, once, at the entry point — not left to
+the caller's discipline.
+
+**Files:** `bench/replay/cli.py`, `bench/tests/test_cli.py`
+
+**Interfaces:**
+
+```python
+# bench/replay/cli.py
+def build_parser() -> argparse.ArgumentParser: ...
+def cmd_doctor(args) -> int: ...
+def cmd_replay(args) -> int: ...
+def cmd_session(args) -> int: ...
+def cmd_report(args) -> int: ...
+def main(argv: Sequence[str] | None = None) -> int: ...
+```
+
+Commands:
+
+```
+uv run python -m replay.cli doctor
+uv run python -m replay.cli replay --repo <id> [--variants natural,probe] [--no-wallclock]
+uv run python -m replay.cli session --repo <id> [--cycles 25]
+uv run python -m replay.cli report          # regenerates aggregate.md from committed summaries
+```
+
+- [ ] **25.1 Failing tests.**
+
+```python
+# bench/tests/test_cli.py
+import pytest
+
+from replay.cli import main
+
+
+def test_replay_refuses_a_repo_outside_the_frozen_corpus(capsys):
+    rc = main(["replay", "--repo", "not-in-the-corpus"])
+    assert rc == 2
+    assert "not in the frozen corpus" in capsys.readouterr().err
+
+
+def test_replay_refuses_wall_clock_on_ci(monkeypatch, capsys):
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    rc = main(["replay", "--repo", "not-in-the-corpus"])
+    assert rc == 2  # corpus guard fires first; the CI guard is asserted below
+
+
+def test_doctor_reports_ci_and_the_corpus_digest(monkeypatch, capsys):
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    rc = main(["doctor"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "wall-clock: SUPPRESSED" in out
+    assert "corpus digest" in out
+    assert "strategies:" in out
+
+
+def test_doctor_lists_all_seven_baselines_plus_rtdd(capsys):
+    main(["doctor"])
+    out = capsys.readouterr().out
+    for sid in ("rtdd", "testmon", "path", "lf", "importgraph", "xdist", "random", "full"):
+        assert sid in out
+```
+
+- [ ] **25.2 Run and watch it fail.** `cd bench && uv run pytest tests/test_cli.py -q` → `ModuleNotFoundError: No module named 'replay.cli'`.
+
+- [ ] **25.3 Implement.**
+
+```python
+# bench/replay/cli.py
+from __future__ import annotations
+
+import argparse
+import pathlib
+import sys
+from collections.abc import Sequence
+
+from replay import rtddio
+from replay.cache import Cache
+from replay.config import RunConfig, tool_versions
+from replay.corpus import CorpusError, load_corpus
+from replay.gitwork import add_worktree, clone_pinned, remove_worktree, replay_points
+from replay.hardware import probe
+from replay.replay import ReplayOptions, replay_repo, strategy_order
+from replay.report import render_aggregate, write_results
+from replay.session import run_drift
+from replay.strategies import base as sbase
+from replay.strategies import (  # noqa: F401  side-effect registration
+    full as _full,
+    importgraph as _ig,
+    lastfailed as _lf,
+    pathheuristic as _ph,
+    randomratio as _rr,
+    rtdd as _rtdd,
+    testmon as _tm,
+    xdist as _xd,
+)
+
+BENCH = pathlib.Path(__file__).resolve().parents[1]
+CORPUS = BENCH / "corpus.yaml"
+LOCK = BENCH / "corpus.lock"
+WORK = BENCH / "work"
+CACHE = BENCH / "cache"
+RESULTS = BENCH / "results"
+
+DEFAULT_STRATEGIES = ("rtdd", "testmon", "path", "lf", "importgraph", "xdist", "random", "full")
+
+
+def _corpus():
+    return load_corpus(CORPUS, LOCK)
+
+
+def _config(corpus_digest: str, args, strategies: Sequence[str], replay_commits: int) -> RunConfig:
+    try:
+        version = rtddio.rtdd_version(args.rtdd_binary)
+    except Exception:
+        version = "absent"
+    return RunConfig(
+        corpus_digest=corpus_digest,
+        rtdd_version=version,
+        tool_versions=tool_versions(),
+        strategies=tuple(sorted(strategies)),
+        variants=tuple(args.variants.split(",")) if getattr(args, "variants", None) else ("natural",),
+        replay_commits=replay_commits,
+        wallclock_sample=getattr(args, "wallclock_sample", 0),
+        random_seed=getattr(args, "seed", 1),
+    )
+
+
+def cmd_doctor(args) -> int:
+    hw = probe()
+    try:
+        corpus = _corpus()
+        digest, ids, excluded = corpus.digest, corpus.ids(), len(corpus.excluded)
+    except CorpusError as exc:
+        print(f"corpus: ERROR — {exc}", file=sys.stderr)
+        digest, ids, excluded = "unavailable", (), 0
+    print(f"hardware: {hw.cpu_model}, {hw.cpu_count} cores, {hw.mem_total_kb // 1024} MiB")
+    print(f"platform: {hw.platform} · Python {hw.python_version}")
+    print(f"wall-clock: {'SUPPRESSED (CI: ' + hw.ci + ')' if hw.ci else 'permitted'}")
+    print(f"corpus digest: {digest}")
+    print(f"corpus repos: {', '.join(ids) or '(none)'} · excluded entries: {excluded}")
+    print(f"strategies: {', '.join(strategy_order(DEFAULT_STRATEGIES))}")
+    try:
+        print(f"rtdd binary: {rtddio.rtdd_version(args.rtdd_binary)}")
+    except Exception as exc:
+        print(f"rtdd binary: MISSING ({exc})")
+    for name, ver in tool_versions():
+        print(f"tool: {name} {ver}")
+    return 0
+
+
+def cmd_replay(args) -> int:
+    hw = probe()
+    corpus = _corpus()
+    try:
+        spec = corpus.require(args.repo)
+    except CorpusError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    wallclock_enabled = hw.wallclock_allowed() and not args.no_wallclock
+    if not hw.wallclock_allowed() and not args.no_wallclock:
+        print(
+            f"wall-clock disabled: CI detected via {hw.ci}. Other metrics still computed.",
+            file=sys.stderr,
+        )
+    strategies = tuple(args.strategies.split(",")) if args.strategies else DEFAULT_STRATEGIES
+    cfg = _config(corpus.digest, args, strategies, spec.replay_commits)
+    repo = clone_pinned(spec.url, spec.pin, WORK / "repos" / spec.id)
+    output = replay_repo(
+        repo=repo,
+        spec=spec,
+        cfg=cfg,
+        cache=Cache(CACHE, cfg.digest()),
+        hw=hw,
+        work_root=WORK / "trees",
+        opts=ReplayOptions(
+            variants=cfg.variants,
+            strategy_ids=strategies,
+            wallclock_sample=args.wallclock_sample,
+            wallclock_enabled=wallclock_enabled,
+            rtdd_binary=args.rtdd_binary,
+        ),
+    )
+    summary = write_results(RESULTS / spec.id, output, cfg, hw, strategy_order(strategies))
+    print(f"wrote {RESULTS / spec.id} — {summary['n_commits']} commits, "
+          f"{len(output.skipped)} skipped")
+    return 0
+
+
+def cmd_session(args) -> int:
+    hw = probe()
+    corpus = _corpus()
+    try:
+        spec = corpus.require(args.repo)
+    except CorpusError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    repo = clone_pinned(spec.url, spec.pin, WORK / "repos" / spec.id)
+    points = replay_points(repo, spec.pin, args.cycles)
+    work = WORK / "trees" / f"{spec.id}-drift"
+    try:
+        add_worktree(repo, points[0].parent, work)
+        rtddio.seed(work, binary=args.rtdd_binary)
+        curve = run_drift(repo, spec.id, work, points, python=sys.executable,
+                          binary=args.rtdd_binary)
+    finally:
+        remove_worktree(repo, work)
+    cfg = _config(corpus.digest, args, DEFAULT_STRATEGIES, args.cycles)
+    out_dir = RESULTS / spec.id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    from replay.config import canonical_json
+
+    (out_dir / "drift.json").write_text(canonical_json(curve.to_dict()), encoding="utf-8")
+    (out_dir / "config.json").write_text(
+        canonical_json({"config": cfg.to_dict(), "hardware": hw.to_dict()}), encoding="utf-8"
+    )
+    for p in curve.points:
+        print(f"cycle {p.cycle:3d}  changed {p.changed_files:4d}  "
+              f"selected {p.selected:5d}/{p.total_tests:5d}  ratio {p.ratio():.3f}  {p.tier}")
+    return 0
+
+
+def cmd_report(args) -> int:
+    import json
+
+    summaries = []
+    for d in sorted(RESULTS.iterdir()) if RESULTS.exists() else []:
+        f = d / "summary.json"
+        if f.exists():
+            summaries.append(json.loads(f.read_text(encoding="utf-8")))
+    if not summaries:
+        print("no per-repo summaries found; run `replay` first", file=sys.stderr)
+        return 2
+    (RESULTS / "aggregate.md").write_text(render_aggregate(summaries), encoding="utf-8")
+    print(f"wrote {RESULTS / 'aggregate.md'} from {len(summaries)} repos")
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="replay", description="RTDD Axis 2 replay benchmark")
+    p.add_argument("--rtdd-binary", default="rtdd")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    d = sub.add_parser("doctor")
+    d.set_defaults(func=cmd_doctor)
+
+    r = sub.add_parser("replay")
+    r.add_argument("--repo", required=True)
+    r.add_argument("--variants", default="natural,probe")
+    r.add_argument("--strategies", default="")
+    r.add_argument("--wallclock-sample", type=int, default=20, dest="wallclock_sample")
+    r.add_argument("--no-wallclock", action="store_true")
+    r.add_argument("--seed", type=int, default=1)
+    r.set_defaults(func=cmd_replay)
+
+    s = sub.add_parser("session")
+    s.add_argument("--repo", required=True)
+    s.add_argument("--cycles", type=int, default=25)
+    s.add_argument("--seed", type=int, default=1)
+    s.set_defaults(func=cmd_session)
+
+    rep = sub.add_parser("report")
+    rep.set_defaults(func=cmd_report)
+    return p
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        return int(args.func(args))
+    except CorpusError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+```
+
+- [ ] **25.4 Run and pass.** `cd bench && uv run pytest tests/test_cli.py -q` → 4 passed.
+
+- [ ] **25.5 Run the whole harness suite.** `cd bench && uv run pytest -q` → all green.
+
+- [ ] **25.6 Commit.** `git add bench/replay/cli.py bench/tests/test_cli.py && git commit -m "bench: CLI with corpus, CI and config guards at the entry point"`
+
+---
+
+## Task 26 — Produce the first real per-repo results table
+
+This is the task that turns the harness into a result. Nothing here is optional: M3 gates
+publication, and a harness with no table is not a gate.
+
+**Files:** `bench/corpus.yaml` (pins resolved), `bench/results/<repo_id>/*`, `bench/results/aggregate.md`
+
+- [ ] **26.1 Resolve the corpus pins and re-freeze.** For each repo in `corpus.yaml`, run
+  `git ls-remote <url> HEAD`, replace `REPLACE_WITH_SHA_AT_FREEZE_TIME` with the SHA, then
+  `uv run python -c "import pathlib; from replay.corpus import freeze; print(freeze(pathlib.Path('corpus.yaml'), pathlib.Path('corpus.lock')))"`.
+  Confirm `uv run pytest tests/test_corpus.py -q` passes, which now checks every pin is 40 chars.
+
+- [ ] **26.2 Confirm the environment is publishable.**
+
+```bash
+cd bench && uv run python -m replay.cli doctor
+```
+
+Required output before proceeding: `wall-clock: permitted` (not CI), an `rtdd binary:`
+line with a real version, and all eight strategies listed. If wall-clock says SUPPRESSED,
+move to a machine you can name — spec §10 forbids publishing wall-clock from a runner.
+
+- [ ] **26.3 Smoke the smallest repo with a short replay.**
+
+```bash
+cd bench && uv run python -m replay.cli replay --repo httpie --variants natural \
+  --strategies rtdd,path,full --wallclock-sample 3
+```
+
+Inspect `bench/results/httpie/summary.md`. Sanity gates before a full run: `full` shows
+change-level recall `1.000`, selection ratio `1.000` and escalation `1.000`; `rtdd`'s
+selection ratio is below `1.000` on at least some commits; `skipped` is a small minority.
+If `full` is not exactly 1.0 on recall, ground truth is wrong — stop and fix it, because
+every other number is derived from it.
+
+- [ ] **26.4 Run the full replay for every corpus repo, all strategies, both variants.**
+
+```bash
+cd bench
+for repo in $(uv run python -c "
+import pathlib
+from replay.corpus import load_corpus
+print(' '.join(load_corpus(pathlib.Path('corpus.yaml'), pathlib.Path('corpus.lock')).ids()))
+"); do
+  uv run python -m replay.cli replay --repo "$repo"
+done
+```
+
+- [ ] **26.5 Run the cycles-since-commit drift experiment for each repo.**
+
+```bash
+cd bench && uv run python -m replay.cli session --repo httpie --cycles 25
+```
+
+Repeat per repo. Each writes `bench/results/<repo>/drift.json`.
+
+- [ ] **26.6 Generate the aggregate.**
+
+```bash
+cd bench && uv run python -m replay.cli report
+```
+
+- [ ] **26.7 Read the verdict line in every `summary.md` and act on it.** If it says
+  *rtdd does NOT clearly beat the naive path heuristic*, the pre-registered criterion has
+  fired: record that outcome in `docs/audits/` and in the README rather than re-running with
+  different settings until the number improves. Re-running the benchmark with a changed
+  config produces a new config digest and a new set of cached results; the old table stays
+  in git history either way.
+
+- [ ] **26.8 Verify the results are byte-stable.** Re-run one repo with the identical
+  command and confirm `git diff --stat bench/results/<repo>/` is empty — a cached, identical
+  config must reproduce the same bytes. If it is not empty, something un-keyed leaked into
+  the results and must be found before publication.
+
+- [ ] **26.9 Commit the results.**
+
+```bash
+git add bench/corpus.yaml bench/corpus.lock bench/results
+git commit -m "bench: Axis 2 real-commit replay results for the frozen corpus"
+```
+
+---
+
+## Definition of Done
+
+- [ ] `bench/` is a standalone uv project with a committed `uv.lock`, importable as `replay`, referenced by no Go file and by no `go.mod`.
+- [ ] **All seven baselines implemented and registered**: pytest-testmon, naive path heuristic, `pytest --lf`, static import graph, `pytest -n auto`, random at equal selection ratio, full suite — plus RTDD itself. `tests/test_registry_complete.py` proves it.
+- [ ] **Every required metric computed**: change-level recall requiring `F_sel ∩ F_full ≠ ∅`; test-level recall micro and macro; both stratified by `|F_full|` with the `|F_full| == 1` stratum broken out and printed first; selection ratio; selected-duration fraction; three-column wall-clock (full uninstrumented / subset instrumented / subset uninstrumented); false-signal rate at line and change level; escalation rate as its own published number; selection ratio as a function of cycles-since-commit.
+- [ ] **Corpus pre-registered and frozen**: `bench/corpus.yaml` carries mechanical selection criteria, a non-empty attempted-and-excluded table with a reason per entry, and full 40-character pins; `bench/corpus.lock` pins its digest; the harness refuses to load a mutated corpus and refuses a repo not in the frozen list.
+- [ ] **Never pooled across repos**: `metrics.assert_single_repo` raises `PoolingError`, and the only cross-repo table is explicitly duration-weighted and labelled as such.
+- [ ] **Shipped defaults only**: the RTDD strategy passes no flags beyond `seed`, `which --base HEAD --json` and `run --base HEAD --json`, and the full effective config is printed into every `summary.md` and stored in every `config.json`.
+- [ ] **Every cycle counted, including escalations**: the escalation column is populated for every strategy, `full` and `xdist` report `1.000`, and `--lf` with an empty cache is scored as an escalation rather than dropped.
+- [ ] **Wall-clock only from disclosed hardware**: the hardware fingerprint appears in every results table; `require_wallclock` raises `CIWallClockRefused` under any of twelve CI environment variables; the wall-clock section renders as `Suppressed` rather than emitting numbers.
+- [ ] **No result without its config**: every cache key is salted with the config digest, and `write_results` always emits `config.json` alongside `summary.json`.
+- [ ] **The harness is itself tested**: every `replay/` module has a test module; recall, strata, duration fraction and false-signal are verified against the hand-computed fixture in Task 20; strategy behaviour and ground-truth construction are verified against the synthetic git repo in Task 4 whose commit history and per-commit test outcomes are written into this plan.
+- [ ] **Ground truth is cached** by `(repo_id, commit, variant, strategy, config_digest)`, and `test_replay.py::test_a_second_replay_is_served_from_cache` proves a re-run adds no cache misses.
+- [ ] **`bench/results/` is diffable and committed**: sorted `commits.jsonl`, sorted-key `summary.json`, `summary.md`, `config.json`, `drift.json` per repo, plus `aggregate.md`; a re-run at an identical config is byte-identical.
+- [ ] **A results table exists for at least one real corpus repo**, with the `full` control at change-level recall `1.000` and the pre-registered rtdd-vs-path-heuristic verdict line rendered and read.
+- [ ] Audit finding A8 stays dead: no mutation harness, no `|F_sel| > 0` detection rule, no baseline-free comparison anywhere in `bench/`.

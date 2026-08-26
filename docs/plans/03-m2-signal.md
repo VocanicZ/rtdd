@@ -2277,10 +2277,12 @@ ok  	github.com/VocanicZ/rtdd/internal/doctor	0.004s
 `## internal/doctor`, insert above the `type Hub struct` declaration:
 
 ```go
-// Caveat is the limitation rtdd doctor MUST print alongside its table (spec §9):
-// anything executed once per process gets a fan-out of 1, so the most coupled file
-// can appear as the cleanest.
-const Caveat = "CAVEAT: anything executed once per process ..."
+// Caveat is the limitation rtdd doctor MUST print alongside its table (spec §9).
+const Caveat = "CAVEAT: anything executed once per process — @lru_cache results, " +
+	"module singletons, DI container wiring, session-scoped fixtures — runs during " +
+	"whichever test happened to go first and therefore gets a fan-out of 1. The most " +
+	"coupled file in the repo can appear here as the cleanest. Fan-out is a diagnostic " +
+	"only; RTDD never escalates selection on it."
 ```
 
 and append below `func Hubs`:
@@ -4941,3 +4943,338 @@ the RTDD markers is preserved byte for byte, and re-running is idempotent."
 ```
 
 ---
+
+## Task 14 — Acceptance: the four M2 guarantees, end to end on real coverage
+
+This task proves the milestone against a real pytest run, not against hand-written
+coverage structs. It builds the fixture from §F1, runs pytest with
+`COVERAGE_CORE=ctrace --cov-context=test`, reads the resulting `.coverage` through
+`coverage.ReadSQLite`, and asserts each guarantee.
+
+**Files:** `cmd/rtdd/acceptance_test.go`
+
+**Interfaces:**
+
+*Consumes* (M1b, unchanged):
+```go
+func ReadSQLite(dbPath, repoRoot string) (*Result, error)
+```
+
+### Steps
+
+- [ ] **14.1 — Write the failing test.** Create `cmd/rtdd/acceptance_test.go`:
+
+```go
+package main
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/VocanicZ/rtdd/internal/coverage"
+	"github.com/VocanicZ/rtdd/internal/gitctx"
+	"github.com/VocanicZ/rtdd/internal/mapstore"
+	"github.com/VocanicZ/rtdd/internal/report"
+	"github.com/VocanicZ/rtdd/internal/uncovered"
+)
+
+// buildPyFixture materialises the §F1 project and runs pytest under coverage with
+// dynamic contexts. It returns the repo root and the parsed coverage result.
+//
+// Measured on 2026-08-26 (Python 3.13.5, coverage.py 7.15.4, pytest 9.0.3) the run
+// produces exactly:
+//
+//	src/__init__.py   ctx=''                                  lines=[0]
+//	src/constants.py  ctx=''                                  lines=[1,2,4,7,8,9,12,13,14,15]
+//	src/logic.py      ctx=''                                  lines=[1,4,8]
+//	src/logic.py      ctx='tests/test_it.py::test_logic|run'  lines=[5]
+func buildPyFixture(t *testing.T) (string, *coverage.Result) {
+	t.Helper()
+	py, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not on PATH")
+	}
+	if err := exec.Command(py, "-c", "import pytest, coverage, pytest_cov").Run(); err != nil {
+		t.Skip("pytest / coverage / pytest-cov not importable")
+	}
+
+	root := t.TempDir()
+	files := map[string]string{
+		"src/__init__.py":   "",
+		"tests/__init__.py": "",
+		"pyproject.toml":    "[tool.pytest.ini_options]\npythonpath = [\".\"]\n",
+		"src/constants.py": "from dataclasses import dataclass\nfrom enum import Enum\n\n" +
+			"MAX_RETRIES = 3\n\n\n" +
+			"class Colour(Enum):\n    RED = \"red\"\n    GREEN = \"green\"\n\n\n" +
+			"@dataclass\nclass Limits:\n    soft: int = 10\n    hard: int = 20\n",
+		"src/logic.py": "from src.constants import MAX_RETRIES\n\n\n" +
+			"def retries_left(used):\n    return MAX_RETRIES - used\n\n\n" +
+			"def unused_helper(x):\n    return x * 2\n",
+		"tests/test_it.py": "from src.constants import MAX_RETRIES, Colour, Limits\n" +
+			"from src.logic import retries_left\n\n\n" +
+			"def test_constants():\n    assert MAX_RETRIES == 3\n" +
+			"    assert Colour.RED.value == \"red\"\n    assert Limits().soft == 10\n\n\n" +
+			"def test_logic():\n    assert retries_left(1) == 2\n",
+	}
+	for rel, content := range files {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cmd := exec.Command(py, "-m", "pytest", "--cov=src", "--cov-context=test", "-q")
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "COVERAGE_CORE=ctrace")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("pytest failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "2 passed") {
+		t.Fatalf("expected 2 passed, got:\n%s", out)
+	}
+
+	// Fatal, never skipped: a sysmon run silently drops ~90% of contexts (audit A7).
+	if strings.Contains(string(out), "no-sysmon-context") {
+		t.Fatalf("dynamic contexts were dropped; COVERAGE_CORE=ctrace was not honoured:\n%s", out)
+	}
+
+	cov, err := coverage.ReadSQLite(filepath.Join(root, ".coverage"), root)
+	if err != nil {
+		t.Fatalf("ReadSQLite: %v", err)
+	}
+	return root, cov
+}
+
+func TestAcceptanceImportTimeOnlyFileIsNeverUncovered(t *testing.T) {
+	// GUARANTEE 1: a file whose changed lines are all import-time is correctly tested
+	// and must produce a clean report. This is audit finding A1 and the reason RTDD
+	// is usable on any repo with dataclasses, enums, config modules, Pydantic/Django
+	// models, or __init__.py re-exports.
+	_, cov := buildPyFixture(t)
+
+	if lines, ok := cov.ImportTime["src/constants.py"]; !ok || len(lines) == 0 {
+		t.Fatalf("fixture invariant broken: src/constants.py has no import-time lines: %#v", cov.ImportTime)
+	}
+	for _, tc := range cov.PerTest {
+		if len(tc.Files["src/constants.py"]) != 0 {
+			t.Fatalf("fixture invariant broken: %s attributes lines in src/constants.py; "+
+				"finding A1 says import-time code is attributed to ZERO test contexts", tc.Test)
+		}
+	}
+
+	changes := []gitctx.Change{
+		{Path: "src/constants.py", Status: gitctx.Modified, Lines: []gitctx.LineRange{{Start: 1, End: 15}}},
+	}
+	reports := uncovered.Classify(changes, cov)
+	if n := uncovered.Summarize(reports).UncoveredLines; n != 0 {
+		t.Fatalf("uncovered_lines = %d, want 0 — a dataclass/enum/constants module asserted "+
+			"on by two passing tests must produce a clean report\nreports: %#v", n, reports)
+	}
+	if s := RenderUncovered(reports); strings.Contains(s, "UNCOVERED") {
+		t.Fatalf("text report must contain no UNCOVERED line:\n%s", s)
+	}
+}
+
+func TestAcceptanceClassificationIsLineGranular(t *testing.T) {
+	// GUARANTEE 2: adding a function to an already-covered file must report the new
+	// function's lines as Uncovered. v1 was file-granular and reported green here.
+	_, cov := buildPyFixture(t)
+
+	// src/logic.py IS covered (line 5 belongs to tests/test_it.py::test_logic), yet
+	// lines 8-9 are the never-called unused_helper. Line 8 is the `def` (import-time);
+	// line 9 is its body, which nothing executes.
+	changes := []gitctx.Change{
+		{Path: "src/logic.py", Status: gitctx.Modified, Lines: []gitctx.LineRange{{Start: 8, End: 9}}},
+	}
+	reports := uncovered.Classify(changes, cov)
+	if len(reports) != 1 {
+		t.Fatalf("reports = %#v, want 1 file", reports)
+	}
+	if n := reports[0].UncoveredLines(); n != 1 {
+		t.Fatalf("UncoveredLines() = %d, want 1 (line 9 only)\nranges: %#v", n, reports[0].Ranges)
+	}
+	want := "  UNCOVERED: src/logic.py:9  (1 changed line, no executing test)\n" +
+		"  import-time: src/logic.py:8  (executed during collection, not attributed)\n"
+	if got := RenderUncovered(reports); got != want {
+		t.Fatalf("RenderUncovered()\n got:\n%s\nwant:\n%s", got, want)
+	}
+
+	// And the covered function body in the SAME file is attributed to its test.
+	covChanges := []gitctx.Change{
+		{Path: "src/logic.py", Status: gitctx.Modified, Lines: []gitctx.LineRange{{Start: 5, End: 5}}},
+	}
+	covReports := uncovered.Classify(covChanges, cov)
+	if len(covReports) != 1 || len(covReports[0].Ranges) != 1 ||
+		covReports[0].Ranges[0].Class != uncovered.Covered {
+		t.Fatalf("line 5 must be Covered; got %#v", covReports)
+	}
+}
+
+func TestAcceptanceUncoveredReportNeverChangesTheExitCode(t *testing.T) {
+	// GUARANTEE 3: `rtdd run` exits 1 only when a test fails. Uncovered is a signal.
+	_, cov := buildPyFixture(t)
+
+	changes := []gitctx.Change{
+		{Path: "src/logic.py", Status: gitctx.Modified, Lines: []gitctx.LineRange{{Start: 8, End: 9}}},
+	}
+	reports := uncovered.Classify(changes, cov)
+	if uncovered.Summarize(reports).UncoveredLines == 0 {
+		t.Fatal("fixture invariant broken: the report must be non-empty for this test to mean anything")
+	}
+
+	outcomes := []report.Outcome{
+		{Test: "tests/test_it.py::test_constants", Status: "pass", DurationMS: 2},
+		{Test: "tests/test_it.py::test_logic", Status: "pass", DurationMS: 1},
+	}
+	if code := ExitCodeFor(outcomes, reports); code != 0 {
+		t.Fatalf("ExitCodeFor() = %d, want 0 with a non-empty uncovered report and no failing test", code)
+	}
+
+	out := BuildOutput(OutputInput{
+		Command: "run", Base: "HEAD", Adapter: "python",
+		Executed: true, Outcomes: outcomes,
+		Reports: reports, UncoveredOK: true,
+		Instrumentable: map[string]bool{"src/logic.py": true},
+		Changes:        changes,
+	})
+	if out.ExitCode != 0 {
+		t.Fatalf("json exit_code = %d, want 0", out.ExitCode)
+	}
+	if out.Uncovered.Summary.UncoveredLines != 1 {
+		t.Fatalf("json uncovered_lines = %d, want 1", out.Uncovered.Summary.UncoveredLines)
+	}
+}
+
+func TestAcceptanceImportOnlyFileIsInNoMapRow(t *testing.T) {
+	// GUARANTEE 4: an import-time-only file is in NO map row's f, which is exactly the
+	// static-import fallback's trigger condition (spec §6, D14).
+	_, cov := buildPyFixture(t)
+
+	keep := func(a, b string) string { return a }
+	m := mapstore.New()
+	for _, tc := range cov.PerTest {
+		var fs []string
+		for path := range tc.Files {
+			fs = append(fs, path)
+		}
+		m.Union(mapstore.Row{T: tc.Test, F: fs, C: "aaaaaaa", D: 1, S: "pass"}, keep)
+	}
+
+	if got := m.TestsCovering([]string{"src/constants.py"}); len(got) != 0 {
+		t.Fatalf("TestsCovering(src/constants.py) = %#v, want empty — import-time lines "+
+			"are attributed to no test and therefore enter no row's f", got)
+	}
+
+	changes := []gitctx.Change{
+		{Path: "src/constants.py", Status: gitctx.Modified, Lines: []gitctx.LineRange{{Start: 1, End: 15}}},
+		{Path: "src/logic.py", Status: gitctx.Modified, Lines: []gitctx.LineRange{{Start: 8, End: 9}}},
+	}
+	sig := BuildSignal(SignalInput{
+		Changes:          changes,
+		Cov:              cov,
+		Map:              m,
+		IsInstrumentable: func(rel string) bool { return strings.HasPrefix(rel, "src/") },
+	})
+	if len(sig.UnmappedFiles) != 1 || sig.UnmappedFiles[0] != "src/constants.py" {
+		t.Fatalf("UnmappedFiles = %#v, want [src/constants.py]", sig.UnmappedFiles)
+	}
+}
+```
+
+- [ ] **14.2 — Run it and see it fail (or skip) before the milestone is complete.**
+
+```bash
+go test ./cmd/rtdd/ -run TestAcceptance -v
+```
+
+If any earlier task is incomplete this fails at compile time with `undefined: BuildSignal`
+or `undefined: ExitCodeFor`. With Tasks 1–13 done it must pass:
+
+```
+=== RUN   TestAcceptanceImportTimeOnlyFileIsNeverUncovered
+--- PASS: TestAcceptanceImportTimeOnlyFileIsNeverUncovered (1.42s)
+=== RUN   TestAcceptanceClassificationIsLineGranular
+--- PASS: TestAcceptanceClassificationIsLineGranular (1.38s)
+=== RUN   TestAcceptanceUncoveredReportNeverChangesTheExitCode
+--- PASS: TestAcceptanceUncoveredReportNeverChangesTheExitCode (1.40s)
+=== RUN   TestAcceptanceImportOnlyFileIsInNoMapRow
+--- PASS: TestAcceptanceImportOnlyFileIsInNoMapRow (1.39s)
+PASS
+ok  	github.com/VocanicZ/rtdd/cmd/rtdd	5.601s
+```
+
+- [ ] **14.3 — Run the whole suite and vet.**
+
+```bash
+go build ./... && go vet ./... && go test ./...
+```
+
+Expected: `ok` for every package; `go vet` silent.
+
+- [ ] **14.4 — Commit.**
+
+```bash
+git add cmd/rtdd/acceptance_test.go
+git commit -m "cmd: end-to-end acceptance for the four M2 guarantees
+
+Runs real pytest under COVERAGE_CORE=ctrace --cov-context=test, reads the real
+.coverage, and asserts: import-time-only files never report uncovered;
+classification is line-granular on an already-covered file; a non-empty
+uncovered report never changes the exit code; an import-time-only file is in no
+map row and therefore triggers the static-import fallback."
+```
+
+---
+
+## Definition of Done
+
+- [ ] `go build ./...`, `go vet ./...` and `go test ./...` all pass with zero failures.
+- [ ] **Zero non-stdlib dependencies added.** `internal/importscan` shells out to Python; it
+      does not link a Python or an AST library.
+- [ ] `uncovered.Classify` returns the three classes and **never** labels an import-time line
+      `Uncovered` — asserted on real coverage.py output in `TestAcceptanceImportTimeOnlyFileIsNeverUncovered`.
+- [ ] A file whose changed lines are all import-time produces an **empty** UNCOVERED section
+      in both the text report and `--json`.
+- [ ] Classification is **line-granular**: adding a function to an already-covered file
+      reports the new body as `Uncovered` — `TestAcceptanceClassificationIsLineGranular`.
+- [ ] Classification consumes **only** the fresh post-run `*coverage.Result`. No code path
+      reads line numbers from `map.jsonl`, which never contains them.
+- [ ] `rtdd run` exits **0** with a non-empty uncovered report — asserted directly in
+      `TestExitCodeZeroWithNonEmptyUncoveredReport` and `TestAcceptanceUncoveredReportNeverChangesTheExitCode`.
+      `ExitCodeFor` returns 1 if and only if a test failed or errored.
+- [ ] All six observed `git diff --unified=0` hunk-header forms parse correctly, including
+      the count-omitted single-line form, the count-0 pure deletion, and a context suffix
+      containing `@@`.
+- [ ] `internal/importscan` selects tests by **transitive** Python import, terminates on
+      import cycles, tolerates unparseable files, and satisfies
+      `selector.Inputs.ImportOnly func(rel string) []string`.
+- [ ] A failed import scan degrades selection; it never fails the command.
+- [ ] `rtdd doctor` prints the spec §9 fan-out caveat **in its own output**, naming
+      `@lru_cache`, module singletons, DI containers and session-scoped fixtures, and stating
+      that the most coupled file can appear as the cleanest — asserted in
+      `TestRenderDoctorAlwaysPrintsTheCaveat`, including for an empty map.
+- [ ] `rtdd explain <file>` reports zero covering tests as *import-time-only or untested*,
+      never as untested alone.
+- [ ] `rtdd which` emits `uncovered.available: false` with a reason. It never reports a
+      stale line-level signal.
+- [ ] `rtdd init` installs `.gitattributes` containing `.rtdd/map.jsonl merge=union`,
+      `.rtdd/config.yaml`, `AGENTS.md`, `CLAUDE.md` and `.cursor/rules/rtdd.mdc`.
+- [ ] `rtdd init` **merges** into an existing `AGENTS.md`/`CLAUDE.md`: content outside the
+      RTDD markers is preserved byte for byte, an existing config is never overwritten, and
+      re-running reports `unchanged` and writes nothing.
+- [ ] The `--json` schema v1 is implemented, emits no `null` for any collection, and is
+      documented in full in `docs/plans/00-interfaces.md`.
+- [ ] Every contract addition made by this milestone is present in
+      `docs/plans/00-interfaces.md`: `uncovered.ParseHunks`, `uncovered.WithLines`,
+      `uncovered.Summary`/`Summarize`, `Class.String`, `gitctx.RawDiff`,
+      `internal/importscan` (`Scan`, `Scanner`, `NewScanner`, `TestsImporting`, `Err`),
+      `doctor.Caveat`, `internal/initrepo`, and the `--json` schema.
+- [ ] Milestone M2's spec §12 row is satisfied: *line-level post-run report with the three
+      classes; import-time fallback selection.*

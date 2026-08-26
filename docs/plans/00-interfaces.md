@@ -355,3 +355,157 @@ rtdd init
 
 `--json` emits a machine-readable object for agent consumption. Its schema is defined in
 plan M2, task "JSON output", and is the interface the agent front-ends depend on.
+
+---
+
+# Amendments — 2026-08-26, post-planning reconciliation
+
+Symbols the five milestone plans require, plus corrections where **measurement contradicted
+the original contract**. Measured items are marked **[M]** and were reproduced on a real
+pytest/coverage.py install. These override anything above them in this file.
+
+## Corrections to the contract above
+
+### coverage.ReadSQLite — branch mode empties `line_bits` **[M]**
+
+With `[run] branch = True` in the host repo's coverage config, `line_bits` has **zero rows**
+and all data lands in the `arc` table (measured: 0 `line_bits`, 60 `arc`). The original query
+would return an empty map on a run that exits 0 — a silent-corruption path identical in shape
+to the sysmon bug.
+
+`ReadSQLite` MUST branch on `meta.has_arcs`:
+
+```go
+// line mode  (has_arcs = 0):
+//   SELECT f.path, c.context, lb.numbits FROM line_bits lb
+//     JOIN file f ON f.id=lb.file_id JOIN context c ON c.id=lb.context_id
+//
+// branch mode (has_arcs = 1):
+//   SELECT f.path, c.context, a.fromno, a.tono FROM arc a
+//     JOIN file f ON f.id=a.file_id JOIN context c ON c.id=a.context_id
+//   covered lines = {fromno | fromno > 0} ∪ {tono | tono > 0}
+//
+// The arc rule reproduces the line-mode answer exactly on every measured pair.
+// Negative fromno/tono encode entry/exit pseudo-arcs and are excluded.
+```
+
+### runner — the sysmon warning is on STDOUT, not stderr **[M]**
+
+pytest prints `no-sysmon-context` in its warnings summary on **stdout**; stderr was empty
+(measured: stdout hits 1, stderr hits 0). A stderr-only scan finds nothing and the corruption
+ships. `Run` and `Seed` MUST scan **combined** stdout+stderr and return `ErrSysmonContext`.
+
+### adapter — `{src}` is dropped; use bare `--cov` **[M]**
+
+`--cov=` with an empty value makes pytest exit 1 and record nothing, and any RTDD-guessed
+`{src}` reintroduces exactly the "seed and subset disagree on scope" failure the spec warns
+about. Measured: bare `--cov` honours the host's `[run] source` **and** `omit` identically
+for both commands. `{src}` is removed from `Seed`/`Subset` templates and from `Expand`'s
+variable set. Spec §8's sample YAML is corrected accordingly.
+
+### runner — never use `--cov-append`; merge in Go **[M]**
+
+Each chunk's pytest run **erases** `.coverage` (measured: after chunk 2, only chunk 2's
+contexts remained). `--cov-append` would fix that but also absorbs any stale pre-existing
+`.coverage`. `Run` instead reads and merges each chunk's `.coverage` in Go via
+`coverage.Result.Merge` before the next chunk starts.
+
+### report.ReadReportLog — the call-phase-only rule loses tests **[M]**
+
+The original comment ("only call-phase TestReport entries produce an Outcome") is
+self-contradictory: a **skipped** test and a **fixture-error** test emit no `call` entry at
+all, so both would vanish from the map. Corrected rule:
+
+| phase outcome | Outcome.Status |
+|---|---|
+| `call` passed | `pass` |
+| `call` failed | `fail` |
+| `setup` skipped (no call entry) | `skip` |
+| `setup`/`teardown` failed (no call entry) | `error` |
+
+`DurationMS` sums the durations of all phases present for that test id.
+
+## Additions
+
+```go
+// internal/paths
+func MatchGlob(pattern, rel string) bool   // doublestar semantics: ** crosses separators
+
+// internal/mapstore
+type Meta struct {
+    V        int    `json:"v"`
+    Adapter  string `json:"adapter"`
+    SeededAt string `json:"seeded_at"`
+    Cycles   int    `json:"cycles"`
+}
+func LoadMeta(path string) (Meta, error)   // missing file => zero Meta, nil error
+func SaveMeta(path string, m Meta) error
+// LoadWith is Load parameterised by the commit-age comparator, so duplicate-row
+// resolution can pick the OLDER commit without mapstore importing gitctx.
+func LoadWith(path string, older func(a, b string) string) (*Map, error)
+
+// internal/gitctx
+func RepoRoot(dir string) (string, error)
+// RawDiff returns `git diff --unified=0 <base>` output verbatim, for hunk parsing.
+func RawDiff(repoRoot, base string) (string, error)
+
+// internal/adapter
+func LoadFS(fsys fs.FS, name string) (*Adapter, error) // reads adapters/ embedded via go:embed
+func Builtin(name string) (*Adapter, error)            // "python" resolves without a filesystem
+// ExpandTests exists because Expand's map[string]string cannot carry test ids containing
+// spaces, brackets or "::" — argv elements must not be re-split by the shell.
+func ExpandTests(tmpl string, tests []string, vars map[string]string) ([]string, error)
+
+// internal/coverage
+// Merge folds other into r: per-test file/line sets union, ImportTime unions.
+func (r *Result) Merge(other *Result)
+
+// internal/runner
+// FatalExitError wraps a mapped exit code (4 bad-selector, 5 no-tests-collected).
+// These are FATAL, never a test failure — a bad selector means the map is stale and
+// silently reporting "0 failures" would be a false green.
+type FatalExitError struct{ Code int; Meaning string }
+func (e *FatalExitError) Error() string
+func List(a *adapter.Adapter, repoRoot string) ([]string, error)
+
+// internal/uncovered
+func ParseHunks(diff string) map[string][]gitctx.LineRange
+// WithLines attaches parsed hunk ranges to changes lacking them.
+func WithLines(changes []gitctx.Change, diff string) []gitctx.Change
+type Summary struct{ Covered, Uncovered, ImportTime int }
+func Summarize(reports []FileReport) Summary
+
+// internal/doctor
+// Caveat returns the fan-out warning text. It MUST appear in doctor's output:
+// anything executed once per process (@lru_cache, singletons, DI containers,
+// session-scoped fixtures) has a fan-out of 1, so the most-coupled file can
+// appear as the cleanest.
+func Caveat() string
+
+// internal/importscan
+// Scanner shells out to an embedded Python AST script. The engine is Go and must
+// never parse Python itself. Satisfies selector.Inputs.ImportOnly.
+type Scanner struct{ RepoRoot string; Python string }
+func (s *Scanner) Scan(target string, testFiles []string) ([]string, error)
+
+// internal/initrepo
+type Action int
+const (
+    Created Action = iota
+    Merged      // appended a delimited block to an existing AGENTS.md/CLAUDE.md
+    Unchanged
+)
+type Block struct{ Path string; Action Action }
+func Install(repoRoot string, force bool) ([]Block, error)
+
+// internal/pytestfixture — TEST-ONLY helper, never imported by non-test code
+func HavePytest(t *testing.T) bool          // skips the test when pytest is absent
+func InitGit(t *testing.T, dir string)      // real `git init` + initial commit
+func Materialize(t *testing.T, files map[string]string) string // returns a temp repo root
+```
+
+## Rule for future additions
+
+A task that needs a symbol not defined here MUST add it here **in the same commit** that
+uses it. Two packages with the same name and different shapes is the specific failure this
+file exists to prevent, and it is the failure mode that parallel agents produce by default.
