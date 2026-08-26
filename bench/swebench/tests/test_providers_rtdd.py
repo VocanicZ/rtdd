@@ -1,6 +1,8 @@
 import json
 import os
 import stat
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -502,10 +504,25 @@ def test_the_context_tool_arms_are_the_three_context_bearing_arms():
 
 
 def test_the_registry_imports_without_the_tdad_provider():
-    # The TDAD provider lands in its own task; importing the registry must not
-    # depend on it, or arms D and E cannot run until arm C exists.
+    # Importing the registry must not pull arm C's provider in, or a TDAD install
+    # failure becomes arms D and E's problem too. Checked in a fresh interpreter:
+    # in-process, any earlier import in this session — arm C's own test module,
+    # collected before anything runs — would make the check pass for the wrong
+    # reason, or fail for one.
     assert rtdd_provider.which_tool is not None
-    assert "tdad" not in dir(__import__("providers"))
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys, providers; "
+            "assert 'providers.tdad' not in sys.modules, "
+            "'importing the registry pulled arm C in eagerly'",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
 
 
 def test_seed_timeout_default_is_the_documented_ceiling():
