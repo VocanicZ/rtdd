@@ -255,3 +255,175 @@ func TestCmdRunEndToEndProducesUsableRows(t *testing.T) {
 		t.Errorf("test_add f = %v, want src/logic.py", rows["tests/test_a.py::test_add"].F)
 	}
 }
+
+// makeSuiteGreen rewrites the fixture's one deliberate failure so a run over the whole
+// selection passes. The uncovered report must be reachable on a GREEN run — that is the
+// case that proves RTDD reports without gating (spec §2 non-goals, §6, decision D3).
+func makeSuiteGreen(t *testing.T, repo string) {
+	t.Helper()
+	p := filepath.Join(repo, "tests", "test_b.py")
+	src, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("read test_b.py: %v", err)
+	}
+	fixed := strings.Replace(string(src), "assert mul(2, 3) == 7", "assert mul(2, 3) == 6", 1)
+	if fixed == string(src) {
+		t.Fatalf("test_b.py no longer carries the deliberate failure this helper repairs")
+	}
+	if err := os.WriteFile(p, []byte(fixed), 0o644); err != nil {
+		t.Fatalf("write test_b.py: %v", err)
+	}
+}
+
+// A non-empty uncovered report is a REPORT, not a gate: every test passed, so the exit
+// code is 0 even though changed lines went unexecuted (spec §2, §6, decision D3).
+func TestCmdRunExitsZeroWithANonEmptyUncoveredReport(t *testing.T) {
+	repo := realRepo(t)
+	chdir(t, repo)
+	makeSuiteGreen(t, repo)
+
+	if code := cmdSeed(nil); code != 0 {
+		t.Fatalf("cmdSeed = %d, want 0 once the suite is green", code)
+	}
+	touchLogic(t, repo)
+
+	var code int
+	out := captureStdout(t, func() { code = cmdRun(nil) })
+
+	if code != 0 {
+		t.Fatalf("cmdRun = %d, want 0: every test passed.\n%s", code, out)
+	}
+	if !strings.Contains(out, "UNCOVERED: src/logic.py:") {
+		t.Fatalf("run printed no uncovered report for the added, unexecuted body:\n%s", out)
+	}
+	// The changed test file is not instrumentable and coverage never measures it, so
+	// reporting it would mean calling every one of its lines uncovered.
+	if strings.Contains(out, "UNCOVERED: tests/") {
+		t.Fatalf("run reported a test file as uncovered:\n%s", out)
+	}
+}
+
+// The signal must come from the coverage this run just produced. map.jsonl carries no
+// line data at all, so a run that classified from it could only ever report whole files.
+func TestCmdRunJSONEmitsTheFreshUncoveredReport(t *testing.T) {
+	repo := realRepo(t)
+	chdir(t, repo)
+	makeSuiteGreen(t, repo)
+
+	if code := cmdSeed(nil); code != 0 {
+		t.Fatalf("cmdSeed = %d, want 0 once the suite is green", code)
+	}
+	touchLogic(t, repo)
+
+	var code int
+	raw := captureStdout(t, func() { code = cmdRun([]string{"--json"}) })
+	if code != 0 {
+		t.Fatalf("cmdRun --json = %d, want 0.\n%s", code, raw)
+	}
+
+	var got Output
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("--json stdout is not a single JSON document: %v\n%s", err, raw)
+	}
+	if got.Schema != SchemaVersion {
+		t.Fatalf("schema = %d, want %d", got.Schema, SchemaVersion)
+	}
+	if got.Command != "run" {
+		t.Fatalf("command = %q, want \"run\"", got.Command)
+	}
+	if !got.Uncovered.Available {
+		t.Fatalf("uncovered.available = false; a completed run always has fresh coverage.\n%s", raw)
+	}
+	if got.ExitCode != 0 {
+		t.Fatalf("exit_code = %d, want 0", got.ExitCode)
+	}
+	if got.Uncovered.Summary.UncoveredLines == 0 {
+		t.Fatalf("uncovered.summary.uncovered_lines = 0, want the added body counted.\n%s", raw)
+	}
+	var logic *JSONFileReport
+	for i := range got.Uncovered.Files {
+		if got.Uncovered.Files[i].Path == "src/logic.py" {
+			logic = &got.Uncovered.Files[i]
+		}
+		if strings.HasPrefix(got.Uncovered.Files[i].Path, "tests/") {
+			t.Fatalf("uncovered.files names a test file: %q", got.Uncovered.Files[i].Path)
+		}
+	}
+	if logic == nil {
+		t.Fatalf("uncovered.files has no src/logic.py:\n%s", raw)
+	}
+	if logic.UncoveredLines == 0 {
+		t.Fatalf("src/logic.py uncovered_lines = 0, want the added body counted:\n%s", raw)
+	}
+	// Line-granular ranges are only possible against fresh coverage; map.jsonl has none.
+	if len(logic.Ranges) == 0 {
+		t.Fatalf("src/logic.py has no classified ranges:\n%s", raw)
+	}
+	for _, r := range logic.Ranges {
+		if r.Start < 1 || r.End < r.Start {
+			t.Fatalf("src/logic.py range %#v is not a 1-indexed inclusive span", r)
+		}
+	}
+	// The changed set carries the verdict for every path, instrumentable or not.
+	seenTest := false
+	for _, c := range got.Changed {
+		if strings.HasPrefix(c.Path, "tests/") {
+			seenTest = true
+			if c.Instrumentable {
+				t.Fatalf("changed entry %q is marked instrumentable", c.Path)
+			}
+		}
+	}
+	if !seenTest {
+		t.Fatalf("changed set omits the modified test file:\n%s", raw)
+	}
+}
+
+// A run whose selection is empty executed nothing, so it has no fresh coverage and must
+// say so rather than emit a report a consumer would read as "nothing uncovered".
+func TestCmdRunJSONIsTheOnlyThingOnStdout(t *testing.T) {
+	repo := realRepo(t)
+	chdir(t, repo)
+	makeSuiteGreen(t, repo)
+
+	if code := cmdSeed(nil); code != 0 {
+		t.Fatalf("cmdSeed = %d, want 0 once the suite is green", code)
+	}
+	touchLogic(t, repo)
+
+	raw := captureStdout(t, func() { cmdRun([]string{"--json"}) })
+	if strings.Contains(raw, "tier ") || strings.Contains(raw, "rows in the map") {
+		t.Fatalf("--json stdout carries human-readable text a parser would choke on:\n%s", raw)
+	}
+	dec := json.NewDecoder(strings.NewReader(raw))
+	var first Output
+	if err := dec.Decode(&first); err != nil {
+		t.Fatalf("decode: %v\n%s", err, raw)
+	}
+	if dec.More() {
+		t.Fatalf("--json emitted more than one document:\n%s", raw)
+	}
+}
+
+// map.jsonl holds file-level rows and NO line numbers, so classifying against it could
+// only ever answer at whole-file granularity, on numbers stale the moment a file is
+// edited — the exact drift spec §4 eliminates. The one legitimate classification input
+// is the *coverage.Result the run just produced. This reads the source because the
+// wrong input would still compile, still run, and still print a plausible report.
+func TestRunClassifiesAgainstFreshCoverageOnly(t *testing.T) {
+	b, err := os.ReadFile("run.go")
+	if err != nil {
+		t.Fatalf("read run.go: %v", err)
+	}
+	src := string(b)
+	if !strings.Contains(src, "Cov:              res.Coverage") {
+		t.Fatal("run.go does not classify against res.Coverage — the coverage this run produced")
+	}
+	// mapstore.Map is still the right source for the FILE-level unmapped set; what it
+	// must never feed is a line-level classification.
+	for _, bad := range []string{"Cov:              m", "Cov: m", "Cov:              mapstore"} {
+		if strings.Contains(src, bad) {
+			t.Fatalf("run.go passes the map as classification coverage: %q", bad)
+		}
+	}
+}
