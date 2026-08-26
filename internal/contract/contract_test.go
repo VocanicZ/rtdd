@@ -7,7 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -46,14 +48,33 @@ func TestGoModDeclaresModulePathAndGoVersion(t *testing.T) {
 	if !regexp.MustCompile(`(?m)^module\s+github\.com/VocanicZ/rtdd\s*$`).MatchString(src) {
 		t.Errorf("go.mod must declare module github.com/VocanicZ/rtdd, got:\n%s", src)
 	}
-	if !regexp.MustCompile(`(?m)^go\s+1\.24\s*$`).MatchString(src) {
-		t.Errorf("go.mod must declare `go 1.24`, got:\n%s", src)
+	// modernc.org/sqlite and its libc declare `go 1.24.0`, and the module graph's
+	// minimum language version is the maximum of those — so the directive is the
+	// patch-qualified `go 1.24.0`, not the bare `go 1.24`. Both are the 1.24
+	// language version; anything outside the 1.24 line is a real change.
+	if !regexp.MustCompile(`(?m)^go\s+1\.24(\.\d+)?\s*$`).MatchString(src) {
+		t.Errorf("go.mod must declare the go 1.24 language version, got:\n%s", src)
 	}
 }
 
-func TestGoModRequiresExactlyYAMLv3(t *testing.T) {
-	src := readRepoFile(t, "go.mod")
+// TestGoModRequiresExactlyYAMLAndSQLite pins the engine's direct dependencies.
+// Spec §4 permits exactly two: gopkg.in/yaml.v3 for adapter definitions, and
+// modernc.org/sqlite to read .coverage directly. Adding a third needs a spec
+// amendment (DEVELOPMENT.md, "Dependencies").
+func TestGoModRequiresExactlyYAMLAndSQLite(t *testing.T) {
+	got := directRequires(t, readRepoFile(t, "go.mod"))
 
+	want := []string{"gopkg.in/yaml.v3", "modernc.org/sqlite"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("go.mod direct requirements = %v, want exactly %v", got, want)
+	}
+}
+
+// directRequires returns the module paths go.mod requires DIRECTLY — sorted, and
+// excluding every `// indirect` line, which is the module graph the two direct
+// dependencies drag in rather than a choice this repo made.
+func directRequires(t *testing.T, src string) []string {
+	t.Helper()
 	req := regexp.MustCompile(`(?m)^\s*(?:require\s+)?([\w.\-]+\.[\w.\-]+/[^\s]+)\s+v[^\s]+`)
 	var got []string
 	inBlock := false
@@ -66,73 +87,113 @@ func TestGoModRequiresExactlyYAMLv3(t *testing.T) {
 		case inBlock && trimmed == ")":
 			inBlock = false
 			continue
-		case strings.HasPrefix(trimmed, "module ") || strings.HasPrefix(trimmed, "go "):
+		case strings.HasPrefix(trimmed, "module ") || strings.HasPrefix(trimmed, "go ") ||
+			strings.HasPrefix(trimmed, "toolchain "):
+			continue
+		case strings.Contains(trimmed, "// indirect"):
 			continue
 		}
 		if m := req.FindStringSubmatch(trimmed); m != nil {
 			got = append(got, m[1])
 		}
 	}
-
-	want := []string{"gopkg.in/yaml.v3"}
-	if len(got) != len(want) || got[0] != want[0] {
-		t.Errorf("go.mod requirements = %v, want exactly %v", got, want)
-	}
+	sort.Strings(got)
+	return got
 }
 
-// TestModuleGraphIsModuleAndYAMLOnly pins the "exactly one non-stdlib dependency"
-// constraint against `go list -m all`.
+// sqliteClosure is modernc.org/sqlite's own dependency closure: the modules it
+// pulls in that are actually compiled into the binary. They are pure Go — that is
+// the whole reason sqlite is modernc's and not mattn's (DEVELOPMENT.md) — and they
+// are listed here so that a new module appearing in the build is a test failure
+// and not a silent widening of the "two dependencies" rule.
+var sqliteClosure = []string{
+	"github.com/dustin/go-humanize",
+	"github.com/google/uuid",
+	"github.com/mattn/go-isatty",
+	"github.com/ncruces/go-strftime",
+	"github.com/remyoudompheng/bigfft",
+	"golang.org/x/exp",
+	"golang.org/x/sys",
+	"modernc.org/libc",
+	"modernc.org/mathutil",
+	"modernc.org/memory",
+}
+
+// TestCompiledModulesAreYAMLAndSQLiteOnly pins the "zero non-stdlib dependencies
+// in the engine except yaml.v3 and sqlite" constraint against what the toolchain
+// actually COMPILES, which is the claim that matters — `go list -m all` reports the
+// whole module graph, including modules that contribute only a go.mod file.
 //
-// `go list -m all` also prints gopkg.in/check.v1: gopkg.in/yaml.v3's own go.mod declares
-// `go 1.11`, so module-graph pruning does not apply to it and its test-only requirement
-// stays in the graph. It contributes no source — go.sum carries only its /go.mod hash,
-// never an h1: content hash — so the build list that actually compiles is still exactly
-// the main module plus yaml.v3. This test asserts that: the two real modules are present,
-// and every other module in the graph is source-less.
-func TestModuleGraphIsModuleAndYAMLOnly(t *testing.T) {
+// The permitted set is the main module, the two direct dependencies, and sqlite's
+// own closure. Anything else means a third dependency crept into the engine.
+func TestCompiledModulesAreYAMLAndSQLiteOnly(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skipf("go toolchain not on PATH: %v", err)
 	}
 	root := repoRoot(t)
-	cmd := exec.Command("go", "list", "-m", "all")
-	cmd.Dir = root
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("go list -m all: %v\n%s", err, out)
-	}
-	var mods []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			mods = append(mods, strings.Fields(line)[0])
-		}
-	}
-	if len(mods) < 2 || mods[0] != "github.com/VocanicZ/rtdd" {
-		t.Fatalf("go list -m all = %v, want it to start with the main module", mods)
-	}
 
-	sum := readRepoFile(t, "go.sum")
-	// A go.sum line "<mod> <version> h1:..." records module source; "<mod> <version>/go.mod
-	// h1:..." records only the go.mod file, which is graph metadata, not compiled code.
-	hasSource := func(mod string) bool {
-		re := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(mod) + `\s+(\S+)\s+h1:`)
-		for _, m := range re.FindAllStringSubmatch(sum, -1) {
-			if !strings.HasSuffix(m[1], "/go.mod") {
-				return true
+	list := func(args ...string) []string {
+		cmd := exec.Command("go", args...)
+		cmd.Dir = root
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("go %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+		var vals []string
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			if line = strings.TrimSpace(line); line != "" {
+				vals = append(vals, line)
 			}
 		}
-		return false
+		return vals
 	}
 
-	var withSource []string
-	for _, m := range mods[1:] {
-		if hasSource(m) {
-			withSource = append(withSource, m)
+	pkgs := list("list", "-deps", "./...")
+	args := append([]string{"list", "-f", "{{if .Module}}{{.Module.Path}}{{end}}"}, pkgs...)
+	seen := map[string]bool{}
+	var mods []string
+	for _, m := range list(args...) {
+		if m == "" || seen[m] {
+			continue
+		}
+		seen[m] = true
+		mods = append(mods, m)
+	}
+	sort.Strings(mods)
+
+	permitted := map[string]bool{
+		"github.com/VocanicZ/rtdd": true,
+		"gopkg.in/yaml.v3":         true,
+		"modernc.org/sqlite":       true,
+	}
+	for _, m := range sqliteClosure {
+		permitted[m] = true
+	}
+
+	var extra []string
+	for _, m := range mods {
+		if !permitted[m] {
+			extra = append(extra, m)
 		}
 	}
-	want := []string{"gopkg.in/yaml.v3"}
-	if len(withSource) != len(want) || withSource[0] != want[0] {
-		t.Errorf("non-stdlib modules contributing source = %v, want exactly %v (full graph: %v)",
-			withSource, want, mods)
+	if len(extra) > 0 {
+		t.Errorf("modules compiled into the engine beyond yaml.v3, sqlite and sqlite's closure = %v (full set: %v)",
+			extra, mods)
+	}
+	for _, m := range []string{"gopkg.in/yaml.v3", "modernc.org/sqlite"} {
+		if !seen[m] {
+			t.Errorf("%s is not compiled into the engine at all; compiled set = %v", m, mods)
+		}
+	}
+}
+
+// TestSQLiteDriverIsPureGo guards spec D4: the binary must stay static, so the
+// SQLite driver must never become a cgo one. go.sum naming mattn/go-sqlite3 is the
+// signal that someone swapped it.
+func TestSQLiteDriverIsPureGo(t *testing.T) {
+	sum := readRepoFile(t, "go.sum")
+	if strings.Contains(sum, "github.com/mattn/go-sqlite3") {
+		t.Error("go.sum names github.com/mattn/go-sqlite3, which needs cgo; the driver must be modernc.org/sqlite so CGO_ENABLED=0 still links (spec D4)")
 	}
 }
 
