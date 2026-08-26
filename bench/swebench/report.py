@@ -24,11 +24,18 @@ the TDAD pin arm C actually ran, the model and its decoding settings, the frozen
 sample, the host the wall-clock figures belong to, and how many instances were
 seeded. It refuses to write a config claiming a model other than the
 pre-registered one — an arm run against a different model is not this benchmark.
+The model it checks is the one folded out of the raw records by
+:func:`observed_models`, not ``AgentConfig``'s default: ``run_arm.py`` accepts
+``--model`` and stamps the real one into every record, so a guard reading the
+default would let another model's run publish as this one.
+
+The published ``instance_list_sha256`` is :func:`preflight.instance_list_sha256`
+— the very digest the gate refused or allowed the run on. Two definitions under
+one field name is a field nobody can check.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import platform
 import re
@@ -38,7 +45,7 @@ from pathlib import Path
 import evaluate
 from agent import AgentConfig
 from analyze import SEEDED
-from preflight import preflight
+from preflight import instance_list_sha256, preflight
 from providers.tdad import TDAD_PIN
 
 #: The arms, in the order the pre-registration lists them. Fixed so a re-run
@@ -239,14 +246,45 @@ def seed_counts(repo_root: Path, arm: str) -> dict[str, int]:
     return counts
 
 
+def observed_models(repo_root: Path) -> list[str]:
+    """Every distinct model named by the raw records, sorted; ``[]`` before a run.
+
+    This is what actually produced the numbers. ``run_arm.py`` takes ``--model``
+    and writes the model it used into each record, so the records are the only
+    place the truth lives — ``AgentConfig``'s default is what the code would use
+    next time, which is a different question.
+    """
+    models: set[str] = set()
+    for arm in ARM_ORDER:
+        raw = evaluate.results_dir(repo_root) / "raw" / arm
+        if not raw.exists():
+            continue
+        for path in sorted(raw.glob("*.json")):
+            model = json.loads(path.read_text(encoding="utf-8")).get("model")
+            if model:
+                models.add(str(model))
+    return sorted(models)
+
+
 def write_config(repo_root: Path) -> Path:
     """Record what the published numbers came from, into ``config.json``."""
     pr = preflight(repo_root)
     cfg = AgentConfig()
-    if cfg.model != str(pr.fields["model"]):
+    prereg_model = str(pr.fields["model"])
+    observed = observed_models(repo_root)
+    if len(observed) > 1:
         raise ReportError(
-            f"the agent is configured for {cfg.model!r} but the pre-registered "
-            f"model is {pr.fields['model']!r} — a run against another model is "
+            f"the raw records name more than one model ({', '.join(observed)}) — "
+            "a benchmark whose arms did not all run against the same model is "
+            "not this benchmark and may not be published as it"
+        )
+    # Nothing has run yet: fall back to what the next run would use, so a config
+    # written ahead of the arms still names a model rather than nothing.
+    ran_model = observed[0] if observed else cfg.model
+    if ran_model != prereg_model:
+        raise ReportError(
+            f"the records were produced under {ran_model!r} but the pre-registered "
+            f"model is {prereg_model!r} — a run against another model is "
             "not this benchmark and may not be published as it"
         )
 
@@ -255,7 +293,7 @@ def write_config(repo_root: Path) -> Path:
         "rtdd_commit": _git(repo_root, "rev-parse", "HEAD"),
         "tdad_pin": TDAD_PIN,
         "model": {
-            "id": cfg.model,
+            "id": ran_model,
             "endpoint": cfg.base_url,
             "temperature": cfg.temperature,
             "max_tokens": cfg.max_tokens,
@@ -264,7 +302,7 @@ def write_config(repo_root: Path) -> Path:
         "sample": {
             "seed": int(pr.fields["sample_seed"]),
             "size": int(pr.fields["sample_size"]),
-            "instance_list_sha256": hashlib.sha256(instances.read_bytes()).hexdigest(),
+            "instance_list_sha256": instance_list_sha256(instances),
         },
         "host": {
             "platform": platform.platform(),

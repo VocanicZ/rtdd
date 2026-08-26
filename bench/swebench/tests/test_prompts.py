@@ -209,6 +209,7 @@ def test_findings_name_the_offending_phrase():
 
 @pytest.mark.xfail(
     strict=True,
+    raises=AssertionError,
     reason="evidence: a procedure smuggled into RTDD_CONTEXT must fail the lint gate",
 )
 def test_a_smuggled_procedure_fails_the_lint_gate():
@@ -218,6 +219,7 @@ def test_a_smuggled_procedure_fails_the_lint_gate():
 
 @pytest.mark.xfail(
     strict=True,
+    raises=AssertionError,
     reason="evidence: an extra sentence in the RTDD arm must break byte equality",
 )
 def test_an_extra_sentence_in_the_rtdd_arm_breaks_byte_equality():

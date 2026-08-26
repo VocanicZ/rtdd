@@ -9,6 +9,13 @@ with the price.
 
 :meth:`Budget.add` records before it refuses. The tokens that crossed the cap
 were really spent, and the cost file written on the way out has to say so.
+
+Both ceilings are ceilings on the *benchmark*, not on one invocation of it. A
+resumed arm calls :meth:`Budget.restore` with the cost file its previous run
+left behind, so the spend accumulates across crashes instead of starting again
+from zero each time — otherwise ``--max-usd 75`` would authorise $75 per
+restart, and the cost file rewritten on the way out would erase the spend it is
+supposed to record.
 """
 
 from __future__ import annotations
@@ -34,19 +41,42 @@ class Budget:
     started_at: float = 0.0
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    #: Wall-clock hours carried over from the runs this one is resuming.
+    prior_wall_hours: float = 0.0
 
     def start(self) -> None:
         self.started_at = time.time()
 
-    def add(self, prompt_tokens: int, completion_tokens: int) -> None:
-        """Account for one instance's tokens, then refuse if either ceiling is crossed."""
-        self.prompt_tokens += prompt_tokens
-        self.completion_tokens += completion_tokens
+    def restore(self, snapshot: dict) -> None:
+        """Adopt a previous run's spend, so a resume tops it up rather than restarting it.
+
+        Takes a :meth:`snapshot` — the cost file the previous run wrote — and
+        adds its counts to this budget's. A missing key reads as zero: a cost
+        file that predates a field is a partial record, not a reason to refuse
+        to resume.
+        """
+        self.prompt_tokens += int(snapshot.get("prompt_tokens", 0) or 0)
+        self.completion_tokens += int(snapshot.get("completion_tokens", 0) or 0)
+        self.prior_wall_hours += float(snapshot.get("wall_hours", 0.0) or 0.0)
+
+    def check(self) -> None:
+        """Refuse if either ceiling is already crossed.
+
+        Called before the next instance as well as after one, so a resume that
+        is already over the cap spends nothing more rather than one more
+        instance's worth.
+        """
         if self.usd > self.max_usd:
             raise BudgetExceeded(f"spend ${self.usd:.2f} exceeded cap ${self.max_usd:.2f}")
         hours = self.wall_hours
         if hours > self.max_wall_hours:
             raise BudgetExceeded(f"wall clock {hours:.1f}h exceeded cap {self.max_wall_hours}h")
+
+    def add(self, prompt_tokens: int, completion_tokens: int) -> None:
+        """Account for one instance's tokens, then refuse if either ceiling is crossed."""
+        self.prompt_tokens += prompt_tokens
+        self.completion_tokens += completion_tokens
+        self.check()
 
     @property
     def usd(self) -> float:
@@ -57,10 +87,13 @@ class Budget:
 
     @property
     def wall_hours(self) -> float:
-        """Zero until :meth:`start`, so an unstarted budget reads as unspent, not as decades."""
-        if not self.started_at:
-            return 0.0
-        return (time.time() - self.started_at) / 3600.0
+        """This run's elapsed hours plus whatever the runs it resumed already burned.
+
+        Zero elapsed until :meth:`start`, so an unstarted budget reads as
+        unspent, not as decades.
+        """
+        elapsed = 0.0 if not self.started_at else (time.time() - self.started_at) / 3600.0
+        return self.prior_wall_hours + elapsed
 
     def snapshot(self) -> dict:
         """The cost record: the assumed prices beside the counts they were applied to."""

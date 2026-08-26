@@ -80,3 +80,61 @@ def test_snapshot_is_json_serialisable():
     b.start()
     b.add(3, 4)
     assert json.loads(json.dumps(b.snapshot()))["prompt_tokens"] == 3
+
+
+# --- resuming an arm ------------------------------------------------------
+
+
+def test_restore_adopts_a_previous_runs_spend_so_a_resume_tops_it_up():
+    # Otherwise --max-usd is a per-invocation ceiling: a run stopped at the cap
+    # and resumed would be allowed to spend the whole cap again.
+    b = Budget()
+    b.restore({"prompt_tokens": 3_000, "completion_tokens": 300, "wall_hours": 1.5})
+    b.start()
+    b.add(1_000, 100)
+    assert (b.prompt_tokens, b.completion_tokens) == (4_000, 400)
+
+
+def test_restore_carries_the_previous_runs_wall_clock(monkeypatch):
+    clock = [1000.0]
+    monkeypatch.setattr(budget_mod.time, "time", lambda: clock[0])
+    b = Budget(max_wall_hours=2.0)
+    b.restore({"prompt_tokens": 0, "completion_tokens": 0, "wall_hours": 1.5})
+    b.start()
+    clock[0] += 3600.0
+    assert b.wall_hours == pytest.approx(2.5)
+    with pytest.raises(BudgetExceeded, match="wall clock"):
+        b.add(1, 1)
+
+
+def test_a_restored_budget_snapshots_the_whole_benchmarks_spend():
+    b = Budget()
+    b.restore({"prompt_tokens": 3_000, "completion_tokens": 300, "wall_hours": 0.25})
+    b.start()
+    b.add(1_000, 100)
+    snap = b.snapshot()
+    assert snap["prompt_tokens"] == 4_000
+    assert snap["completion_tokens"] == 400
+    assert snap["wall_hours"] >= 0.25
+
+
+def test_restore_of_an_empty_snapshot_changes_nothing():
+    b = Budget()
+    b.restore({})
+    assert (b.prompt_tokens, b.completion_tokens, b.wall_hours) == (0, 0, 0.0)
+
+
+def test_check_refuses_a_resume_that_is_already_over_the_cap():
+    # The refusal has to come before the next instance, not after it.
+    b = Budget(max_usd=0.01, usd_per_m_prompt=1.0, usd_per_m_completion=1.0)
+    b.restore({"prompt_tokens": 90_000, "completion_tokens": 10_000})
+    b.start()
+    with pytest.raises(BudgetExceeded, match=r"exceeded cap"):
+        b.check()
+
+
+def test_check_is_silent_while_both_ceilings_hold():
+    b = Budget()
+    b.start()
+    b.add(10, 10)
+    assert b.check() is None

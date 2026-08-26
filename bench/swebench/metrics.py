@@ -19,9 +19,12 @@ Two rates are reported because they answer different questions and the prior art
 reports one of them:
 
   - the test-level rate — failing P2P tests over all P2P tests in the sample —
-    which is what a maintainer feels as broken test volume;
+    which is what a maintainer feels as broken test volume, and which is what
+    TDAD's published 6.08% / 9.94% figures measure; it is therefore the rate
+    ``analyze.vanilla_reproduces`` bands the local control against;
   - the instance-level rate — instances with at least one regression over all
-    instances — which is what TDAD's published 6.08% / 9.94% figures measure.
+    instances — which is the complementary view: how many problems were touched
+    at all, rather than how much test volume broke.
 
 ``resolution_rate`` matches SWE-bench's own resolution definition: every
 FAIL_TO_PASS test passes and no PASS_TO_PASS test fails. It is printed beside

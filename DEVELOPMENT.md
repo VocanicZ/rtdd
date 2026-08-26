@@ -65,7 +65,17 @@ under `bench/results/swebench/raw/<arm>/`, and is resumable: an instance that al
 record is skipped, so a crash costs the current instance only. `budget.py` holds the
 ceilings — estimated dollars and wall-clock hours — and the run writes
 `bench/results/swebench/cost/<arm>/cost.json` however it ends, with the assumed per-token
-prices beside the actual token counts.
+prices beside the actual token counts. A resume reads that file back and restores the
+spend before it charges anything new, so `--max-usd` is a ceiling on the benchmark rather
+than on each restart, and the rewritten cost file is the whole arm's spend rather than the
+last invocation's.
+
+Every instance's prompt is checked before it reaches the model: all five arms are
+re-assembled from that instance's real workspace root and each context arm must still be
+its control plus exactly one `<test-context>` block. The workspace path carries no arm name
+for that reason — it is interpolated into the prompt's `Repository root:` line, so a
+per-arm path would ship the arm's own identity inside every system prompt. A violation
+stops the arm with exit 5 rather than being recorded as a failed instance.
 
 ```bash
 cd bench/swebench
@@ -74,7 +84,8 @@ uv run python run_arm.py rtdd --max-usd 75
 ```
 
 `--dry-run` is what CI runs. It assembles every arm's prompt for every instance through the
-same code path a real run uses and asserts the composition guarantee on those bytes — each
+same code path a real run uses, against the same workspace root a real run would use, and
+asserts the composition guarantee on those bytes — each
 context arm is its control plus exactly one `<test-context>` block, and the block carries no
 imperative — exiting non-zero if any arm violates it. It needs no signed pre-registration
 because it spends nothing.
