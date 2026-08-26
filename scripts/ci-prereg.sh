@@ -26,6 +26,13 @@ echo "==> arm-composition gate"
 # A run that does not print this line did not check it.
 uv run pytest tests/test_prompts.py -q
 
+echo "==> dry-run gate"
+# The arm composition as the DRIVER assembles it at run time, for all five arms
+# across the whole frozen instance list, with no model call and no network. The
+# test above checks prompts.build's constants; this checks the bytes an instance
+# would actually be handed, which is where a driver-side sentence would appear.
+uv run python run_arm.py --dry-run
+
 echo "==> preflight gate"
 # The gate must REFUSE while the pre-registration is unsigned, and PASS once a
 # human has signed and tagged it. Either verdict is correct for its state; a
