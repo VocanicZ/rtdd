@@ -416,8 +416,17 @@ type Hub struct {
     Fraction  float64 // TestCount / total tests in the map
 }
 
-// Hubs returns files sorted by descending TestCount.
+// Hubs returns files sorted by descending TestCount, ties broken by ascending Path.
+// Fraction is TestCount / m.Len(); an empty map yields an empty, non-nil slice.
 func Hubs(m *mapstore.Map) []Hub
+
+// Caveat is the fan-out warning `rtdd doctor` MUST print alongside its table (spec §9).
+// It is a const, not a function: the limitation belongs in the tool's own output, and a
+// const cannot be forgotten at a call site the way a rendering step can. Anything
+// executed once per process (@lru_cache, module singletons, DI containers,
+// session-scoped fixtures) has a fan-out of 1, so the most coupled file in the repo can
+// appear as the cleanest.
+const Caveat = "CAVEAT: anything executed once per process — ..."
 ```
 
 ## internal/initrepo
@@ -621,12 +630,10 @@ func WithLines(changes []gitctx.Change, diff string) []gitctx.Change
 type Summary struct{ Covered, Uncovered, ImportTime int }
 func Summarize(reports []FileReport) Summary
 
-// internal/doctor
-// Caveat returns the fan-out warning text. It MUST appear in doctor's output:
-// anything executed once per process (@lru_cache, singletons, DI containers,
-// session-scoped fixtures) has a fan-out of 1, so the most-coupled file can
-// appear as the cleanest.
-func Caveat() string
+// internal/doctor — SUPERSEDED by the `## internal/doctor` section above, which is the
+// shipped shape. The planning sketch that stood here made the fan-out warning a `Caveat()`
+// function returning a string; it ships as `const Caveat` so the text is one immutable
+// string every caller shares.
 
 // internal/importscan
 // Scanner shells out to an embedded Python AST script. The engine is Go and must
