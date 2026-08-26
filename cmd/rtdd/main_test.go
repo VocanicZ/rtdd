@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -248,7 +247,7 @@ func TestWhichRanksT0(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
-	if !strings.Contains(stdout, "tier:     T0") {
+	if !strings.Contains(stdout, "tier: T0") {
 		t.Fatalf("want tier T0:\n%s", stdout)
 	}
 	logout := strings.Index(stdout, "tests/test_auth.py::test_logout")
@@ -271,13 +270,13 @@ func TestWhichEmptySelectionIsExitZeroAndSaysSo(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (an empty selection is a signal, not a failure); stderr: %s", code, stderr)
 	}
-	if !strings.Contains(stdout, "tier:     empty") {
+	if !strings.Contains(stdout, "tier: empty") {
 		t.Fatalf("want tier empty:\n%s", stdout)
 	}
 	if !strings.Contains(stdout, "not a pass") {
 		t.Errorf("an empty selection must be reported in words, not as silence:\n%s", stdout)
 	}
-	if !strings.Contains(stdout, "selected: 0") {
+	if !strings.Contains(stdout, "(0 tests selected, ranked)") {
 		t.Errorf("want an explicit zero count:\n%s", stdout)
 	}
 }
@@ -291,7 +290,7 @@ func TestWhichEscalatesOnAFullEscalateFile(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
-	if !strings.Contains(stdout, "tier:     T2") {
+	if !strings.Contains(stdout, "tier: T2") {
 		t.Errorf("want tier T2:\n%s", stdout)
 	}
 	if !strings.Contains(stdout, "requirements.txt") {
@@ -308,7 +307,7 @@ func TestWhichEscalatesWhenTheSeedCommitIsUnreachable(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
-	if !strings.Contains(stdout, "tier:     T1") {
+	if !strings.Contains(stdout, "tier: T1") {
 		t.Errorf("an unreachable row commit is unknown age, which escalates:\n%s", stdout)
 	}
 }
@@ -347,37 +346,9 @@ func TestWhichRejectsAnUnknownFlag(t *testing.T) {
 	}
 }
 
-type whichJSONForTest struct {
-	Base    string   `json:"base"`
-	Head    string   `json:"head"`
-	Tier    string   `json:"tier"`
-	Reason  string   `json:"reason"`
-	Direct  []string `json:"direct"`
-	Tests   []string `json:"tests"`
-	Changed []struct {
-		Path    string `json:"path"`
-		OldPath string `json:"old_path"`
-		Status  string `json:"status"`
-		Lines   []struct {
-			Start int `json:"start"`
-			End   int `json:"end"`
-		} `json:"lines"`
-	} `json:"changed"`
-	MapTests int      `json:"map_tests"`
-	Adapter  string   `json:"adapter"`
-	Complete bool     `json:"complete"`
-	Warnings []string `json:"warnings"`
-}
-
-func decodeWhichJSON(t *testing.T, s string) whichJSONForTest {
-	t.Helper()
-	var out whichJSONForTest
-	if err := json.Unmarshal([]byte(s), &out); err != nil {
-		t.Fatalf("which --json emitted unparseable JSON: %v\n%s", err, s)
-	}
-	return out
-}
-
+// `which --json` emits the frozen v1 document (schema §"The --json output schema"), the
+// same one `run --json` emits, so an agent front-end binds once and reads both. The M1a
+// which-only shape it replaced was declared PROVISIONAL in the code that carried it.
 func TestWhichJSON(t *testing.T) {
 	dir := newTestRepo(t)
 	sha := headShort(t, dir)
@@ -389,36 +360,36 @@ func TestWhichJSON(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
-	got := decodeWhichJSON(t, stdout)
+	got := decodeOutput(t, stdout)
 
+	if got.Schema != SchemaVersion {
+		t.Errorf("schema = %d, want %d", got.Schema, SchemaVersion)
+	}
+	if got.Command != "which" {
+		t.Errorf("command = %q, want which", got.Command)
+	}
 	if got.Tier != "T0" {
 		t.Errorf("tier = %q, want T0 (reason: %s)", got.Tier, got.Reason)
 	}
 	if got.Base != "HEAD" {
 		t.Errorf("base = %q, want HEAD", got.Base)
 	}
-	if got.Head != sha {
-		t.Errorf("head = %q, want %q", got.Head, sha)
-	}
-	if got.MapTests != 4 {
-		t.Errorf("map_tests = %d, want 4", got.MapTests)
-	}
-	if len(got.Direct) != 1 || got.Direct[0] != "tests/test_brand_new.py" {
-		t.Errorf("direct = %#v, want [tests/test_brand_new.py]", got.Direct)
+	if len(got.Selection.Direct) != 1 || got.Selection.Direct[0] != "tests/test_brand_new.py" {
+		t.Errorf("selection.direct = %#v, want [tests/test_brand_new.py]", got.Selection.Direct)
 	}
 	want := []string{
 		"tests/test_brand_new.py",
 		"tests/test_auth.py::test_logout",
 		"tests/test_auth.py::test_login",
 	}
-	if !reflect.DeepEqual(got.Tests, want) {
-		t.Errorf("tests = %#v, want %#v", got.Tests, want)
+	if !reflect.DeepEqual(got.Selection.Tests, want) {
+		t.Errorf("selection.tests = %#v, want %#v", got.Selection.Tests, want)
+	}
+	if got.Selection.Count != len(want) {
+		t.Errorf("selection.count = %d, want %d", got.Selection.Count, len(want))
 	}
 	if got.Reason == "" {
 		t.Error("reason is empty; every selection must explain itself")
-	}
-	if !got.Complete {
-		t.Errorf("complete = false; a T0 selection is the whole list: %#v", got.Tests)
 	}
 	if got.Adapter != "python" {
 		t.Errorf("adapter = %q, want python", got.Adapter)
@@ -434,7 +405,7 @@ func TestWhichJSONReportsChangedLineRanges(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
-	got := decodeWhichJSON(t, stdout)
+	got := decodeOutput(t, stdout)
 
 	if len(got.Changed) != 1 {
 		t.Fatalf("changed = %#v, want exactly one entry", got.Changed)
@@ -442,6 +413,9 @@ func TestWhichJSONReportsChangedLineRanges(t *testing.T) {
 	c := got.Changed[0]
 	if c.Path != "src/auth.py" || c.Status != "modified" {
 		t.Errorf("changed[0] = %+v, want src/auth.py modified", c)
+	}
+	if !c.Instrumentable {
+		t.Errorf("changed[0].instrumentable = false; src/auth.py is source the adapter instruments")
 	}
 	if len(c.Lines) != 1 || c.Lines[0].Start != 2 || c.Lines[0].End != 2 {
 		t.Errorf("lines = %#v, want [{2 2}]", c.Lines)
@@ -462,16 +436,19 @@ func TestWhichJSONEmptySelectionEmitsArraysNotNull(t *testing.T) {
 	if strings.Contains(stdout, "null") {
 		t.Errorf("which --json emitted null:\n%s", stdout)
 	}
-	got := decodeWhichJSON(t, stdout)
+	got := decodeOutput(t, stdout)
 	if got.Tier != "empty" {
 		t.Errorf("tier = %q, want empty", got.Tier)
 	}
-	if len(got.Tests) != 0 {
-		t.Errorf("tests = %#v, want empty", got.Tests)
+	if len(got.Selection.Tests) != 0 {
+		t.Errorf("selection.tests = %#v, want empty", got.Selection.Tests)
 	}
 }
 
-func TestWhichJSONReportsARename(t *testing.T) {
+// A rename keeps selecting the tests recorded against the OLD path. The v1 document
+// reports the rename as `status: "renamed"` on the new path; the old path itself is a
+// human-facing detail and stays in the text output, which is asserted here too.
+func TestWhichReportsARename(t *testing.T) {
 	dir := newTestRepo(t)
 	installRTDD(t, dir, headShort(t, dir), 0)
 	if err := os.Rename(
@@ -482,29 +459,37 @@ func TestWhichJSONReportsARename(t *testing.T) {
 	}
 	gitRun(t, dir, "add", "-A")
 
-	code, stdout, _ := rtdd(t, dir, "which", "--json")
+	code, text, _ := rtdd(t, dir, "which")
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
-	got := decodeWhichJSON(t, stdout)
+	if !strings.Contains(text, "renamed   src/renderer.py (from src/render.py)") {
+		t.Errorf("the text output must name both sides of a rename:\n%s", text)
+	}
+
+	code, stdout, _ := rtdd(t, dir, "which", "--json")
+	if code != 0 {
+		t.Fatalf("--json exit code = %d, want 0", code)
+	}
+	got := decodeOutput(t, stdout)
 
 	found := false
 	for _, c := range got.Changed {
-		if c.Path == "src/renderer.py" && c.OldPath == "src/render.py" {
+		if c.Path == "src/renderer.py" && c.Status == "renamed" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("changed = %#v, want a rename carrying old_path", got.Changed)
+		t.Errorf("changed = %#v, want the new path reported as renamed", got.Changed)
 	}
 	hit := false
-	for _, id := range got.Tests {
+	for _, id := range got.Selection.Tests {
 		if id == "tests/test_render.py::test_page" {
 			hit = true
 		}
 	}
 	if !hit {
-		t.Errorf("tests = %#v, want the old path to still select its test", got.Tests)
+		t.Errorf("selection.tests = %#v, want the old path to still select its test", got.Selection.Tests)
 	}
 }
 
@@ -543,7 +528,7 @@ func TestWhichNotesTheUnenumeratedSuiteEvenWhenADirectTestIsSelected(t *testing.
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
-	if !strings.Contains(stdout, "tier:     T2") {
+	if !strings.Contains(stdout, "tier: T2") {
 		t.Fatalf("want tier T2:\n%s", stdout)
 	}
 	if !strings.Contains(stdout, "not enumerate") {
@@ -551,7 +536,11 @@ func TestWhichNotesTheUnenumeratedSuiteEvenWhenADirectTestIsSelected(t *testing.
 	}
 }
 
-func TestWhichJSONMarksAnUnenumeratedT2SelectionIncomplete(t *testing.T) {
+// T2 means the full suite and `which` does not enumerate it, so `selection.tests` is a
+// partial list. The v1 document says so through `tier: "T2"` — a consumer that reads T2 as
+// "run these ids" under-runs — and the caveat itself goes to stderr, where it cannot
+// corrupt the document a consumer pipes straight into a parser.
+func TestWhichJSONKeepsTheUnenumeratedT2CaveatOffStdout(t *testing.T) {
 	dir := newTestRepo(t)
 	installRTDD(t, dir, headShort(t, dir), 0)
 	writeFile(t, dir, "requirements.txt", "pytest==9.0.3\n")
@@ -561,15 +550,15 @@ func TestWhichJSONMarksAnUnenumeratedT2SelectionIncomplete(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
-	got := decodeWhichJSON(t, stdout)
+	got := decodeOutput(t, stdout)
 	if got.Tier != "T2" {
 		t.Fatalf("tier = %q, want T2 (reason: %s)", got.Tier, got.Reason)
 	}
-	if !strings.Contains(stdout, `"complete"`) {
-		t.Fatalf("--json must carry a `complete` field so a partial list is machine-readable:\n%s", stdout)
+	if !strings.Contains(stderr, "not the whole run") {
+		t.Errorf("stderr must carry the unenumerated-suite caveat:\n%s", stderr)
 	}
-	if got.Complete {
-		t.Errorf("complete = true, want false: tests = %#v is a partial list of the full suite", got.Tests)
+	if strings.Contains(stdout, "not the whole run") {
+		t.Errorf("--json stdout must be the document and nothing else:\n%s", stdout)
 	}
 }
 
@@ -598,12 +587,12 @@ func TestWhichReportsAMissingAdapter(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("--json exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
-	got := decodeWhichJSON(t, stdout)
+	got := decodeOutput(t, stdout)
 	if got.Adapter != "" {
 		t.Errorf("adapter = %q, want the empty string when no adapter file was found", got.Adapter)
 	}
-	if len(got.Warnings) == 0 {
-		t.Errorf("--json must carry the missing-adapter warning:\n%s", stdout)
+	if !strings.Contains(stderr, "classification is disabled") {
+		t.Errorf("--json must still report the missing adapter, on stderr:\n%s", stderr)
 	}
 	if strings.Contains(got.Reason, "no test file changed") {
 		t.Errorf("reason = %q: a test file did change", got.Reason)
