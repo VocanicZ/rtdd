@@ -1,0 +1,2 @@
+{"t":"tests/test_a.py::test_x","f":["src/a.py"],"c":"aaa1111","d":1,"s":"pass"}
+{"t":"tests/test_b.py::test_y","f":["src/b.py"],"c":"bbb2222","d":2,"s":"pass"}{"t":"tests/test_c.py::test_z","f":["src/c.py"],"c":"ccc3333","d":3,"s":"pass"}
