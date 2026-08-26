@@ -49,3 +49,9 @@ jobs:
 
       - name: prereg gate
         run: scripts/ci-prereg.sh
+
+      # The arm-composition guarantee, named as its own step so a red build
+      # points straight at it. ci-prereg.sh runs it too; this is the push gate.
+      - name: arm-composition gate
+        run: uv run pytest tests/test_prompts.py -q
+        working-directory: bench/swebench
