@@ -2,7 +2,7 @@
 # The authoritative CI gate for this repo. .github/workflows/ci.yml runs the same
 # checks; run this before merging so a green verdict never depends on hosted CI.
 #
-# Go 1.24+ must be on PATH — see DEVELOPMENT.md if `go` is not found.
+# Go 1.24+ and uv must be on PATH — see DEVELOPMENT.md if either is not found.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -23,6 +23,9 @@ fi
 
 echo "==> go test ./... -count=1"
 go test ./... -count=1
+
+echo "==> prereg gate"
+scripts/ci-prereg.sh
 
 echo "==> static binary"
 CGO_ENABLED=0 go build -o /tmp/rtdd ./cmd/rtdd
