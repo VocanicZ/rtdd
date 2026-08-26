@@ -409,6 +409,13 @@ func (s *Scanner) Err() error
 ## internal/uncovered
 
 ```go
+// ParseHunks parses `git diff --unified=0` output and returns, per NEW-file path,
+// the line ranges that exist in the new file. Hunks whose new-side count is 0
+// (pure deletions) contribute nothing. Files whose new side is /dev/null are omitted.
+// The hunk header's context suffix may itself contain "@@"; the range region is cut
+// at the FIRST following " @@". A missing count means 1.
+func ParseHunks(diff string) map[string][]gitctx.LineRange
+
 type Class int
 const (
     Covered Class = iota
