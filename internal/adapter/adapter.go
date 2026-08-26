@@ -148,37 +148,3 @@ func (a *Adapter) validateGlobs() error {
 	}
 	return nil
 }
-
-// IsTestFile reports whether rel is a file the runner may name as a test selector.
-// FullEscalate wins over TestGlobs: a fixture module such as tests/conftest.py matches
-// a broad test glob like tests/**/*.py, but collects no tests. Naming it as a selector
-// makes the runner exit 5 (no-tests-collected), which is fatal. A change to it escalates
-// to a full run through IsFullEscalate instead.
-func (a *Adapter) IsTestFile(rel string) bool {
-	return a != nil && anyGlob(a.TestGlobs, rel) && !anyGlob(a.FullEscalate, rel)
-}
-
-func (a *Adapter) IsOpaque(rel string) bool {
-	return a != nil && anyGlob(a.Opaque, rel)
-}
-
-func (a *Adapter) IsFullEscalate(rel string) bool {
-	return a != nil && anyGlob(a.FullEscalate, rel)
-}
-
-// IsInstrumentable: matches SourceGlobs AND is not a test file AND is not Opaque.
-func (a *Adapter) IsInstrumentable(rel string) bool {
-	if a == nil {
-		return false
-	}
-	return anyGlob(a.SourceGlobs, rel) && !a.IsTestFile(rel) && !a.IsOpaque(rel)
-}
-
-func anyGlob(patterns []string, rel string) bool {
-	for _, p := range patterns {
-		if paths.MatchGlob(p, rel) {
-			return true
-		}
-	}
-	return false
-}
