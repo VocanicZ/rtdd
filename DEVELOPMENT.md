@@ -46,3 +46,15 @@ Adding a third requires a spec amendment. No test framework beyond stdlib `testi
 ## Benchmark harnesses
 
 `bench/` is Python, managed with `uv`, and is deliberately outside the Go module.
+`scripts/ci-local.sh` runs `scripts/ci-prereg.sh` as part of the gate, so `uv` must be on
+PATH alongside `go`:
+
+```bash
+cd bench/swebench && uv sync && uv run pytest -q
+```
+
+`bench/PREREGISTRATION.md` gates every M4 arm. It ships `status: UNSIGNED` with
+`stratified_recall_floor:` deliberately empty — that number is a human decision, and
+`bench/swebench/preflight.py` refuses to launch (exit 3) until a human writes it, signs the
+file, and the signing commit is reachable from the `prereg-m4` tag. The bench gate asserts
+that refusal while the file is unsigned, so it is green on an unsigned repo.

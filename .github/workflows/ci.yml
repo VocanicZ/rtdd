@@ -37,3 +37,15 @@ jobs:
           CGO_ENABLED=0 go build -o /tmp/rtdd ./cmd/rtdd
           file /tmp/rtdd
           file /tmp/rtdd | grep -q 'statically linked'
+
+  prereg:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: prereg gate
+        run: scripts/ci-prereg.sh
