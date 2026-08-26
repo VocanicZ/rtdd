@@ -318,7 +318,7 @@ type Inputs struct {
     AllTests   []string          // from adapter.List; needed for T2 and for direct-tier discovery
     Distance   func(sha string) int // wraps gitctx.CommitDistance; -1 means unknown
     Cycles     int               // from meta.json, for DriftGuard
-    ImportOnly func(rel string) []string // static-import fallback; see M2
+    ImportOnly func(rel string) []string // importscan.Scanner.TestsImporting; static-import fallback
 }
 
 func Select(in Inputs) Selection
@@ -390,6 +390,20 @@ script; the Go engine never parses Python itself.
 // Import cycles terminate via a visited set. A target no module resolves to maps to an
 // empty slice, never a missing key.
 func Scan(repoRoot string, targets, tests []string) (map[string][]string, error)
+
+// Scanner memoises Scan across repeated lookups within one command invocation.
+// It is the value passed as selector.Inputs.ImportOnly.
+type Scanner struct { /* unexported */ }
+
+func NewScanner(repoRoot string, tests []string) *Scanner
+
+// TestsImporting returns the test files whose module transitively imports rel.
+// On scanner error it returns nil; the error is retained and reported by Err.
+// A failed scan degrades selection, it never fails the command.
+func (s *Scanner) TestsImporting(rel string) []string
+
+// Err returns the first error any TestsImporting call encountered, or nil.
+func (s *Scanner) Err() error
 ```
 
 ## internal/uncovered
@@ -653,8 +667,8 @@ func Summarize(reports []FileReport) Summary
 // exported RepoRoot/Python fields and a per-target `Scan` method; the shipped package is a
 // single package-level `Scan` taking every target at once, because one Python subprocess
 // that walks the tree once is the whole reason the scan is shelled out rather than inlined.
-// The memoising `Scanner` that satisfies selector.Inputs.ImportOnly is a later task and will
-// be recorded here when it lands.
+// The memoising `Scanner` that satisfies selector.Inputs.ImportOnly has since landed and is
+// recorded in that section.
 
 // internal/initrepo — SUPERSEDED by the `## internal/initrepo` section above, which is
 // the shipped shape. The planning sketch that stood here named the enum `Action` and the record
@@ -750,7 +764,7 @@ type Inputs struct {
     Distance   func(sha string) int // wraps gitctx.CommitDistance; -1 means unknown
     Cycles     int                  // from meta.json, for DriftGuard
     Merge      bool                 // ADDED: HEAD is a merge commit; escalates to T1 (spec §4)
-    ImportOnly func(rel string) []string // static-import fallback; see M2
+    ImportOnly func(rel string) []string // importscan.Scanner.TestsImporting; static-import fallback
 }
 ```
 

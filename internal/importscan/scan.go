@@ -87,3 +87,51 @@ func pythonBin() (string, error) {
 	}
 	return "", fmt.Errorf("importscan: no python3 or python on PATH")
 }
+
+// Scanner memoises Scan across repeated lookups within one command invocation.
+// It is the value passed as selector.Inputs.ImportOnly.
+type Scanner struct {
+	repoRoot string
+	tests    []string
+	cache    map[string][]string
+	err      error
+	// scan is the underlying scan, indirected so tests can observe how often it runs;
+	// memoisation is a claim about subprocess count, not about return values.
+	scan func(repoRoot string, targets, tests []string) (map[string][]string, error)
+}
+
+// NewScanner returns a Scanner over the given repo and candidate test files.
+func NewScanner(repoRoot string, tests []string) *Scanner {
+	return &Scanner{
+		repoRoot: repoRoot,
+		tests:    tests,
+		cache:    map[string][]string{},
+		scan:     Scan,
+	}
+}
+
+// TestsImporting returns the test files whose module transitively imports rel.
+// On scanner error it returns nil; the error is retained and reported by Err.
+// A failed scan degrades selection, it never fails the command.
+func (s *Scanner) TestsImporting(rel string) []string {
+	if v, ok := s.cache[rel]; ok {
+		return v
+	}
+	res, err := s.scan(s.repoRoot, []string{rel}, s.tests)
+	if err != nil {
+		if s.err == nil {
+			s.err = err
+		}
+		s.cache[rel] = nil
+		return nil
+	}
+	v := res[rel]
+	if v == nil {
+		v = []string{}
+	}
+	s.cache[rel] = v
+	return v
+}
+
+// Err returns the first error any TestsImporting call encountered, or nil.
+func (s *Scanner) Err() error { return s.err }
