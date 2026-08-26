@@ -2,7 +2,7 @@
 status: UNSIGNED
 sample_size: 100
 sample_seed: 20260826
-instance_list_sha256:
+instance_list_sha256: 25abcba0175745095ae7f7c4deec046dfb667175bdcf595c3c2910879d0e2247
 model: Qwen3-Coder-30B-A3B-Instruct
 arms: [vanilla, tdd, tdad, rtdd, rtdd_tdd]
 stratified_recall_floor:
@@ -17,10 +17,10 @@ This file is the contract. `bench/swebench/preflight.py` refuses to launch any a
 `status` is `SIGNED`, every field above has a value, and the commit that last touched this
 file is reachable from the `prereg-m4` git tag.
 
-Three fields ship deliberately empty — `stratified_recall_floor`, `signed_by`, `signed_at` —
-plus `instance_list_sha256`, which a sibling task fills when it freezes the sample. The
-harness is inert until a human writes them. No agent may write, guess, default, or infer the
-kill criterion.
+Three fields ship deliberately empty — `stratified_recall_floor`, `signed_by`, `signed_at`.
+The harness is inert until a human writes them. No agent may write, guess, default, or infer
+the kill criterion. `instance_list_sha256` is not one of those fields: it is a mechanical
+hash of a frozen file, filled by `bench/swebench/sample.py` when the sample was drawn.
 
 ## Sample
 
@@ -28,7 +28,20 @@ kill criterion.
 `random.Random(20260826).sample(eligible, 100)`, where `eligible` is the sorted list of
 instance ids whose `PASS_TO_PASS` set is non-empty. Instances with an empty `PASS_TO_PASS`
 set are ineligible because the regression rate is undefined for them; the count of such
-exclusions is published. n=100 matches TDAD's published sample size.
+exclusions is published below. n=100 matches TDAD's published sample size.
+
+The draw is frozen in `bench/swebench/instances.txt` and never regenerated.
+`sha256sum bench/swebench/instances.txt` reproduces `instance_list_sha256` above, and
+`uv run python bench/swebench/sample.py 20260826 100` reproduces the file itself.
+
+### Attempted and excluded
+
+| what | count | reason |
+|---|---|---|
+| SWE-bench Verified, `test` split | 500 | the dataset as published |
+| excluded: empty `PASS_TO_PASS` | 11 | no test passes before the patch, so no test can regress — the regression rate has no denominator |
+| eligible pool | 489 | |
+| drawn at seed 20260826 | 100 | `random.Random(20260826).sample(eligible, 100)`, sorted |
 
 ## Arms
 
