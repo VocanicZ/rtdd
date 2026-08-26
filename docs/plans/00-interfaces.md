@@ -214,8 +214,16 @@ type Outcome struct {
     DurationMS int
 }
 
-// ReadReportLog parses pytest --report-log JSONL. Only "call"-phase TestReport
-// entries produce an Outcome; setup/teardown errors map to Status "error".
+// ReadReportLog parses pytest --report-log JSONL into one Outcome per test, in
+// first-seen order. Measured phase rules (pytest 9.0.3):
+//   setup=failed, no call entry            -> "error"
+//   setup=skipped, no call entry           -> "skip"
+//   call=passed|failed|skipped             -> "pass"|"fail"|"skip"
+//   call=passed but teardown=failed        -> "error"
+// DurationMS is the call phase's duration in ms, or setup+teardown when there is
+// no call entry. `duration` in the JSONL is a float in seconds.
+// Non-TestReport envelopes (SessionStart, CollectReport, SessionFinish) are
+// ignored. A malformed line is a fatal error, never a silent skip.
 func ReadReportLog(path string) ([]Outcome, error)
 ```
 
@@ -444,10 +452,14 @@ all, so both would vanish from the map. Corrected rule:
 |---|---|
 | `call` passed | `pass` |
 | `call` failed | `fail` |
+| `call` skipped (`pytest.skip()` in the body) | `skip` |
 | `setup` skipped (no call entry) | `skip` |
-| `setup`/`teardown` failed (no call entry) | `error` |
+| `setup` failed (no call entry) | `error` |
+| `call` passed but `teardown` failed | `error` |
 
-`DurationMS` sums the durations of all phases present for that test id.
+`DurationMS` is the `call` phase's duration when there is one, and the sum of the
+phases present (setup+teardown) when there is not. The JSONL's `duration` is a float
+in seconds; `DurationMS` is milliseconds.
 
 ## Additions
 
