@@ -575,10 +575,11 @@ func (a *Adapter) ExpandTests(tmpl string, vars map[string]string, tests []strin
 func (r *Result) Merge(other *Result)
 
 // internal/runner
-// FatalExitError wraps a mapped exit code (4 bad-selector, 5 no-tests-collected).
-// These are FATAL, never a test failure — a bad selector means the map is stale and
-// silently reporting "0 failures" would be a false green.
-type FatalExitError struct{ Code int; Meaning string }
+// FatalExitError wraps a mapped exit code (4 bad-selector, 5 no-tests-collected)
+// from one chunk. These are FATAL, never a test failure — a bad selector means the
+// map is stale and silently reporting "0 failures" would be a false green. Label is
+// the adapter's name for the code; there is no separate Meaning field.
+type FatalExitError struct{ Chunk int; Code int; Label string }
 func (e *FatalExitError) Error() string
 func List(a *adapter.Adapter, repoRoot string) ([]string, error)
 
