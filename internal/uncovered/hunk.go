@@ -3,6 +3,10 @@
 package uncovered
 
 import (
+	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -77,4 +81,60 @@ func parseHunkHeader(line string) (gitctx.LineRange, bool) {
 		return gitctx.LineRange{Start: start, End: start + count - 1}, true
 	}
 	return gitctx.LineRange{}, false
+}
+
+// WithLines returns changes with Lines populated from rawDiff. It is authoritative:
+// it OVERWRITES any Lines already present, so there is exactly one source of truth.
+// Deleted changes get nil Lines. A change absent from rawDiff (an untracked file git
+// diff never lists) gets the whole file as one range, counted from disk; a missing or
+// empty file gets nil Lines.
+//
+// Hunks are keyed by the NEW-side path, which is the path a renamed Change carries in
+// Path — matching on OldPath would find nothing and silently degrade the file to a
+// whole-file range. The input slice is never mutated; changes are copied by value.
+func WithLines(repoRoot string, changes []gitctx.Change, rawDiff string) ([]gitctx.Change, error) {
+	hunks := ParseHunks(rawDiff)
+	out := make([]gitctx.Change, 0, len(changes))
+	for _, c := range changes {
+		c.Lines = nil
+		if c.Status == gitctx.Deleted {
+			out = append(out, c)
+			continue
+		}
+		if rs, ok := hunks[c.Path]; ok {
+			c.Lines = rs
+			out = append(out, c)
+			continue
+		}
+		n, err := countLines(repoRoot, c.Path)
+		if err != nil {
+			return nil, err
+		}
+		if n > 0 {
+			c.Lines = []gitctx.LineRange{{Start: 1, End: n}}
+		}
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+// countLines returns the number of lines in repoRoot/rel. A missing file is 0, not an
+// error: a path can be listed as changed and then removed before the report runs. A
+// final line with no trailing newline still counts.
+func countLines(repoRoot, rel string) (int, error) {
+	b, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(rel)))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("uncovered: counting lines of %s: %w", rel, err)
+	}
+	if len(b) == 0 {
+		return 0, nil
+	}
+	n := bytes.Count(b, []byte{'\n'})
+	if b[len(b)-1] != '\n' {
+		n++
+	}
+	return n, nil
 }

@@ -1,10 +1,13 @@
 package uncovered
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
 	"github.com/VocanicZ/rtdd/internal/gitctx"
+	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
 )
 
 func TestParseHunks(t *testing.T) {
@@ -137,5 +140,193 @@ func TestParseHunksQuotedPaths(t *testing.T) {
 				t.Fatalf("ParseHunks()\n got: %#v\nwant: %#v", got, tc.want)
 			}
 		})
+	}
+}
+
+// WithLines is the one place a Change's Lines are decided, and every case below is a
+// path by which a second source of truth used to creep in: ranges already on the
+// Change, a file git diff never lists, a file that is gone by the time we look.
+func TestWithLines(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "untracked.py", "a = 1\nb = 2\nc = 3\n")
+	writeFile(t, root, "noeol.py", "x = 1\ny = 2")
+	writeFile(t, root, "empty.py", "")
+	writeFile(t, root, "mod.py", "l1\nl2\nl3\nl4\n")
+
+	diff := "--- a/mod.py\n+++ b/mod.py\n@@ -3 +3 @@ l2\n-old\n+new\n" +
+		"--- a/stale.py\n+++ b/stale.py\n@@ -0,0 +1,2 @@\n+p\n+q\n"
+
+	in := []gitctx.Change{
+		{Path: "mod.py", Status: gitctx.Modified, Lines: []gitctx.LineRange{{Start: 99, End: 99}}},
+		{Path: "stale.py", Status: gitctx.Added},
+		{Path: "untracked.py", Status: gitctx.Untracked},
+		{Path: "noeol.py", Status: gitctx.Untracked},
+		{Path: "empty.py", Status: gitctx.Untracked},
+		{Path: "gone.py", Status: gitctx.Deleted, Lines: []gitctx.LineRange{{Start: 1, End: 5}}},
+		{Path: "vanished.py", Status: gitctx.Untracked},
+	}
+
+	got, err := WithLines(root, in, diff)
+	if err != nil {
+		t.Fatalf("WithLines() error = %v", err)
+	}
+
+	want := []gitctx.Change{
+		{Path: "mod.py", Status: gitctx.Modified, Lines: []gitctx.LineRange{{Start: 3, End: 3}}},
+		{Path: "stale.py", Status: gitctx.Added, Lines: []gitctx.LineRange{{Start: 1, End: 2}}},
+		{Path: "untracked.py", Status: gitctx.Untracked, Lines: []gitctx.LineRange{{Start: 1, End: 3}}},
+		{Path: "noeol.py", Status: gitctx.Untracked, Lines: []gitctx.LineRange{{Start: 1, End: 2}}},
+		{Path: "empty.py", Status: gitctx.Untracked, Lines: nil},
+		{Path: "gone.py", Status: gitctx.Deleted, Lines: nil},
+		{Path: "vanished.py", Status: gitctx.Untracked, Lines: nil},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("WithLines()\n got: %#v\nwant: %#v", got, want)
+	}
+}
+
+// The input slice is the caller's; WithLines returns a new one and must not reach back
+// into it. A caller that still holds the pre-call Change would otherwise see it mutate.
+func TestWithLinesDoesNotMutateItsInput(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "mod.py", "l1\nl2\nl3\n")
+	in := []gitctx.Change{
+		{Path: "mod.py", Status: gitctx.Modified, Lines: []gitctx.LineRange{{Start: 99, End: 99}}},
+	}
+
+	if _, err := WithLines(root, in, "--- a/mod.py\n+++ b/mod.py\n@@ -1 +1 @@\n-l1\n+L1\n"); err != nil {
+		t.Fatalf("WithLines() error = %v", err)
+	}
+	want := []gitctx.LineRange{{Start: 99, End: 99}}
+	if !reflect.DeepEqual(in[0].Lines, want) {
+		t.Fatalf("WithLines() mutated its input: in[0].Lines = %#v, want %#v", in[0].Lines, want)
+	}
+}
+
+// A renamed Change carries both paths; the hunks are keyed by the new one. Matching on
+// OldPath finds nothing and silently degrades the file to a whole-file range.
+func TestWithLinesMatchesRenamesOnTheNewPath(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "new.py", "l1\nl2\nl3\nl4\nl5\n")
+	in := []gitctx.Change{
+		{Path: "new.py", OldPath: "old.py", Status: gitctx.Renamed},
+	}
+
+	got, err := WithLines(root, in, "--- a/old.py\n+++ b/new.py\n@@ -2 +2 @@\n-l2\n+L2\n")
+	if err != nil {
+		t.Fatalf("WithLines() error = %v", err)
+	}
+	want := []gitctx.Change{
+		{Path: "new.py", OldPath: "old.py", Status: gitctx.Renamed, Lines: []gitctx.LineRange{{Start: 2, End: 2}}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("WithLines()\n got: %#v\nwant: %#v", got, want)
+	}
+}
+
+// Nil in, nil out — a caller with nothing changed gets an empty result, not a panic.
+func TestWithLinesEmptyInput(t *testing.T) {
+	got, err := WithLines(t.TempDir(), nil, "")
+	if err != nil {
+		t.Fatalf("WithLines() error = %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("WithLines(nil) = %#v, want empty", got)
+	}
+}
+
+// The end-to-end statement, against a real repository and real git output: whatever
+// ChangedSet reports and whatever RawDiff prints, WithLines reconciles them into one
+// set of ranges. Hand-written diff strings can only prove the parser; this proves the
+// contract with git.
+func TestWithLinesOverRealGitDiff(t *testing.T) {
+	root := gittest.Init(t)
+	gittest.Write(t, root, "mod.py", "l1\nl2\nl3\nl4\n")
+	gittest.Write(t, root, "old.py", "r1\nr2\nr3\nr4\nr5\nr6\n")
+	gittest.Write(t, root, "gone.py", "d1\nd2\n")
+	gittest.Commit(t, root, "init")
+
+	gittest.Write(t, root, "mod.py", "l1\nl2\nCHANGED\nl4\n")
+	gittest.Run(t, root, "mv", "old.py", "new.py")
+	gittest.Write(t, root, "new.py", "r1\nR2\nr3\nr4\nr5\nr6\n")
+	gittest.Run(t, root, "rm", "-q", "gone.py")
+	gittest.Write(t, root, "untracked.py", "u1\nu2\nu3\n")
+
+	changes, err := gitctx.ChangedSet(root, "HEAD")
+	if err != nil {
+		t.Fatalf("ChangedSet() error = %v", err)
+	}
+	raw, err := gitctx.RawDiff(root, "HEAD")
+	if err != nil {
+		t.Fatalf("RawDiff() error = %v", err)
+	}
+
+	got, err := WithLines(root, changes, raw)
+	if err != nil {
+		t.Fatalf("WithLines() error = %v", err)
+	}
+
+	want := map[string][]gitctx.LineRange{
+		"mod.py":       {{Start: 3, End: 3}},
+		"new.py":       {{Start: 2, End: 2}},
+		"gone.py":      nil,
+		"untracked.py": {{Start: 1, End: 3}},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("WithLines() returned %d changes, want %d: %#v", len(got), len(want), got)
+	}
+	for _, c := range got {
+		w, ok := want[c.Path]
+		if !ok {
+			t.Fatalf("WithLines() returned an unexpected path %q", c.Path)
+		}
+		if !reflect.DeepEqual(c.Lines, w) {
+			t.Errorf("WithLines()[%q].Lines = %#v, want %#v", c.Path, c.Lines, w)
+		}
+	}
+}
+
+// WithLines is authoritative over ChangedSet too: ChangedSet already fills Lines, and
+// running both must leave exactly one answer, not an accumulation of two.
+func TestWithLinesIsIdempotentOverChangedSet(t *testing.T) {
+	root := gittest.Init(t)
+	gittest.Write(t, root, "mod.py", "l1\nl2\nl3\nl4\n")
+	gittest.Commit(t, root, "init")
+	gittest.Write(t, root, "mod.py", "l1\nl2\nCHANGED\nl4\n")
+
+	changes, err := gitctx.ChangedSet(root, "HEAD")
+	if err != nil {
+		t.Fatalf("ChangedSet() error = %v", err)
+	}
+	raw, err := gitctx.RawDiff(root, "HEAD")
+	if err != nil {
+		t.Fatalf("RawDiff() error = %v", err)
+	}
+
+	once, err := WithLines(root, changes, raw)
+	if err != nil {
+		t.Fatalf("WithLines() error = %v", err)
+	}
+	twice, err := WithLines(root, once, raw)
+	if err != nil {
+		t.Fatalf("WithLines() error = %v", err)
+	}
+	if !reflect.DeepEqual(once, twice) {
+		t.Fatalf("WithLines() is not idempotent\n once: %#v\ntwice: %#v", once, twice)
+	}
+	if len(once) != 1 || !reflect.DeepEqual(once[0].Lines, []gitctx.LineRange{{Start: 3, End: 3}}) {
+		t.Fatalf("WithLines() = %#v, want mod.py lines 3-3", once)
+	}
+}
+
+// writeFile creates root/rel, and any missing parent directories, with the given content.
+func writeFile(t *testing.T, root, rel, content string) {
+	t.Helper()
+	p := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

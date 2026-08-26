@@ -128,6 +128,12 @@ type Change struct {
 // whole file as one LineRange). Deletions are retained.
 func ChangedSet(repoRoot, base string) ([]Change, error)
 
+// RawDiff returns the full text of `git diff --unified=0 -M <base>` for the working
+// tree. An empty base means HEAD, as in ChangedSet. Renames are detected so the
+// new-side path is authoritative, and the git configs that rewrite the `+++ b/<path>`
+// header are pinned off. Errors carry git's own stderr, never swallowed.
+func RawDiff(repoRoot, base string) (string, error)
+
 func HeadSHA(repoRoot string) (string, error)
 
 // CommitDistance returns the number of commits from sha to HEAD.
@@ -415,6 +421,14 @@ func (s *Scanner) Err() error
 // The hunk header's context suffix may itself contain "@@"; the range region is cut
 // at the FIRST following " @@". A missing count means 1.
 func ParseHunks(diff string) map[string][]gitctx.LineRange
+
+// WithLines returns changes with Lines populated from rawDiff. It is authoritative:
+// it OVERWRITES any Lines already present, so there is exactly one source of truth.
+// Deleted changes get nil Lines. A change absent from rawDiff (an untracked file git
+// diff never lists) gets the whole file as one range, counted from disk; a missing or
+// empty file gets nil Lines. Renamed changes are matched on their NEW path, which is
+// what Change.Path holds. The input slice is never mutated.
+func WithLines(repoRoot string, changes []gitctx.Change, rawDiff string) ([]gitctx.Change, error)
 
 type Class int
 const (
