@@ -656,3 +656,43 @@ def test_a_second_replay_reproduces_the_records_byte_for_byte(synth, tmp_path, c
     first = replay_repo(work_root=tmp_path / "w1", **kwargs)
     second = replay_repo(work_root=tmp_path / "w2", **kwargs)
     assert [r.to_dict() for r in first.strategies] == [r.to_dict() for r in second.strategies]
+
+
+def test_the_parallel_baselines_subset_runs_are_actually_parallel(
+    synth, tmp_path, cache_root, monkeypatch
+):
+    """The wall-clock column is where `xdist` earns its place, so the orchestrator
+    has to hand the strategy's `exec_args` to the runner — otherwise the `xdist`
+    row is a serial full run and the published comparison flatters RTDD."""
+    from replay import replay as replay_mod
+
+    seen: list[tuple[str, tuple[str, ...]]] = []
+    real = replay_mod.run_subset
+
+    def recording(work, tests, **kw):
+        seen.append((len(tests), tuple(kw.get("exec_args", ()))))
+        return real(work, tests, **kw)
+
+    monkeypatch.setattr(replay_mod, "run_subset", recording)
+
+    cfg = _cfg(strategies=("xdist", "path"), commits=1)
+    replay_repo(
+        repo=synth.path,
+        spec=_spec(synth, commits=1, pin_index=3),
+        cfg=cfg,
+        cache=Cache(cache_root, cfg.digest()),
+        hw=probe({}),
+        work_root=tmp_path / "work",
+        opts=ReplayOptions(
+            variants=("natural",),
+            strategy_ids=("xdist", "path"),
+            wallclock_sample=1,
+            wallclock_enabled=True,
+        ),
+    )
+
+    parallel = {n for n, args in seen if args == ("-n", "auto")}
+    serial = {n for n, args in seen if args == ()}
+    assert parallel, f"no subset run carried -n auto: {seen}"
+    assert serial, f"no subset run stayed serial: {seen}"
+    assert parallel.isdisjoint(serial)

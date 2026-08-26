@@ -171,6 +171,16 @@ def test_markdown_publishes_every_metric_the_prd_names():
         assert heading in md, heading
 
 
+def test_the_wallclock_table_discloses_which_column_ran_in_parallel():
+    """A reader comparing the `xdist` row to the `full` row has to be told which
+    invocation produced each number, or a parallel row and a serial one look the
+    same kind of measurement."""
+    md = render_markdown(build_summary(_out(), ("rtdd", "path"), HW), CFG, HW)
+    section = md.split("## Wall-clock", 1)[1]
+    assert "exec_args" in section
+    assert "-n auto" in section
+
+
 def test_isolation_violations_survive_the_ci_wallclock_refusal():
     md = render_markdown(build_summary(_out(), ("rtdd", "path"), CI_HW), CFG, CI_HW)
     assert "Suppressed" in md

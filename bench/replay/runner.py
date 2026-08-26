@@ -198,7 +198,7 @@ def _pytest_argv(
     instrumented: bool,
     source_globs: Sequence[str],
     log: pathlib.Path,
-    xdist: bool,
+    exec_args: Sequence[str],
     cacheprovider: bool = False,
 ) -> list[str]:
     argv = ["-q", "--no-header", "--continue-on-collection-errors", f"--report-log={log}"]
@@ -207,8 +207,10 @@ def _pytest_argv(
         # every other mode disables it so one commit's run cannot leak state into
         # the next one's.
         argv += ["-p", "no:cacheprovider"]
-    if xdist:
-        argv += ["-n", "auto"]
+    # A strategy whose whole intervention *is* the execution mode — `pytest -n auto`
+    # — carries it here in `Selection.exec_args`. This is the only place those flags
+    # become real; a baseline whose flags never reach argv is its own control.
+    argv += list(exec_args)
     if instrumented:
         for src in source_globs or (".",):
             argv.append(f"--cov={src}")
@@ -222,7 +224,7 @@ def _invoke(
     tests: Sequence[str],
     instrumented: bool,
     source_globs: Sequence[str],
-    xdist: bool,
+    exec_args: Sequence[str],
     cacheprovider: bool = False,
 ) -> RunResult:
     outcomes: list[Outcome] = []
@@ -236,7 +238,7 @@ def _invoke(
                 python,
                 "-m",
                 "pytest",
-                *_pytest_argv(instrumented, source_globs, log, xdist, cacheprovider),
+                *_pytest_argv(instrumented, source_globs, log, exec_args, cacheprovider),
                 *batch,
             ]
             start = time.perf_counter()
@@ -272,10 +274,10 @@ def run_full(
     python: str = sys.executable,
     instrumented: bool = False,
     source_globs: Sequence[str] = (),
-    xdist: bool = False,
+    exec_args: Sequence[str] = (),
     cacheprovider: bool = False,
 ) -> RunResult:
-    return _invoke(work, python, (), instrumented, source_globs, xdist, cacheprovider)
+    return _invoke(work, python, (), instrumented, source_globs, exec_args, cacheprovider)
 
 
 def run_subset(
@@ -284,11 +286,12 @@ def run_subset(
     python: str = sys.executable,
     instrumented: bool = False,
     source_globs: Sequence[str] = (),
+    exec_args: Sequence[str] = (),
     cacheprovider: bool = False,
 ) -> RunResult:
     if not tests:
         return RunResult(outcomes=(), exit_code=0, wall_ms=0, collected=())
-    return _invoke(work, python, tests, instrumented, source_globs, False, cacheprovider)
+    return _invoke(work, python, tests, instrumented, source_globs, exec_args, cacheprovider)
 
 
 # --- cache integration ------------------------------------------------------
@@ -326,17 +329,25 @@ def run_key(
     variant: str,
     strategy: str,
     tests: Sequence[str] = (),
+    exec_args: Sequence[str] = (),
 ) -> str:
     """Cache key for one run, salted with the config digest by :meth:`Cache.key`.
 
     A subset run is additionally keyed by the *set* of selected tests: two
     strategies that happen to select the same tests may share the run, and the
     same strategy re-ordering its answer must not be a miss.
+
+    It is keyed by `exec_args` too, and must be: `xdist` selects exactly what
+    `full` selects, so without this a serial full run would be served straight
+    back as the parallel baseline's timing and the two rows would agree to the
+    millisecond — which is the bug this key separation exists to prevent.
     """
     parts = [mode, repo_id, commit, variant, strategy]
     if tests:
         digest = hashlib.sha256("\0".join(sorted(set(tests))).encode("utf-8")).hexdigest()
         parts.append(digest)
+    if exec_args:
+        parts.append("exec:" + " ".join(exec_args))
     return cache.key(*parts)
 
 

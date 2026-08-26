@@ -517,11 +517,29 @@ def replay_repo(
                 if wall_every and index % wall_every == 0:
                     for sid in order:
                         tests = selections[sid].tests
+                        # A strategy whose intervention is the execution mode — the
+                        # `-n auto` baseline — is only itself if those flags reach
+                        # pytest. They are in the cache key too, or the serial run
+                        # of the same test set would be replayed as the parallel one.
+                        exec_args = selections[sid].exec_args
                         sub = cached_run(
                             cache,
-                            run_key(cache, "subset", spec.id, point.commit, variant, sid, tests),
-                            lambda tests=tests: run_subset(
-                                work, tests, python=python, source_globs=spec.source_globs
+                            run_key(
+                                cache,
+                                "subset",
+                                spec.id,
+                                point.commit,
+                                variant,
+                                sid,
+                                tests,
+                                exec_args,
+                            ),
+                            lambda tests=tests, exec_args=exec_args: run_subset(
+                                work,
+                                tests,
+                                python=python,
+                                source_globs=spec.source_globs,
+                                exec_args=exec_args,
                             ),
                         )
                         if sid == "rtdd" and rtdd_wall_ms is not None:
@@ -537,13 +555,15 @@ def replay_repo(
                                     variant,
                                     sid,
                                     tests,
+                                    exec_args,
                                 ),
-                                lambda tests=tests: run_subset(
+                                lambda tests=tests, exec_args=exec_args: run_subset(
                                     work,
                                     tests,
                                     python=python,
                                     instrumented=True,
                                     source_globs=spec.source_globs,
+                                    exec_args=exec_args,
                                 ),
                             ).wall_ms
                         out.wallclocks.append(
