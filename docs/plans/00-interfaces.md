@@ -1,0 +1,357 @@
+# RTDD — shared interface contract
+
+**Every plan and every task binds to this file.** If a task needs a signature that is not
+here, it must add it here in the same commit. Do not invent a parallel name.
+
+Source of truth for behaviour: [`docs/specs/2026-08-26-rtdd-design.md`](../specs/2026-08-26-rtdd-design.md).
+
+## Global constraints
+
+- **Go 1.24+**, module `github.com/VocanicZ/rtdd`.
+- **Zero non-stdlib dependencies in the engine** except: `modernc.org/sqlite` (pure-Go, no
+  cgo — required so the binary stays static), and `gopkg.in/yaml.v3`. No test framework
+  beyond stdlib `testing`.
+- All paths inside the engine are **repo-relative, slash-separated, cleaned**. Conversion
+  happens at the boundary (`internal/paths`), never ad hoc.
+- Every exported function returns `error` rather than panicking. `cmd/` is the only place
+  that prints to stdout/stderr.
+- Table-driven tests, stdlib `testing`, golden files under `testdata/`.
+
+## Process exit codes for `rtdd`
+
+| Code | Meaning |
+|---|---|
+| 0 | Success. **Includes** an empty selection and a non-empty uncovered report — these are signals, not failures |
+| 1 | A test failed during `run`/`verify` |
+| 2 | Usage or configuration error (bad flag, unparseable adapter, no adapter detected) |
+| 3 | Fatal environment error (`no-sysmon-context` warning observed, `.coverage` unreadable, git unavailable) |
+
+RTDD never exits nonzero to express a policy opinion. See spec §2 non-goals.
+
+## Package layout
+
+```
+cmd/rtdd/            CLI only — flag parsing, output formatting, exit codes
+internal/paths/      path normalisation
+internal/mapstore/   map.jsonl I/O, union resolution, compaction, queries
+internal/gitctx/     changed set, commit distance, merge detection
+internal/adapter/    YAML load, detection, file classification
+internal/coverage/   .coverage SQLite reader, context normalisation
+internal/report/     pytest-reportlog parser
+internal/selector/   tiers + ranking
+internal/runner/     subprocess execution, argv chunking
+internal/uncovered/  line classification
+internal/doctor/     fan-out analysis
+```
+
+---
+
+## internal/paths
+
+```go
+// Normalize converts an absolute or runner-relative path to a cleaned,
+// slash-separated path relative to repoRoot. Returns ok=false if p escapes repoRoot.
+func Normalize(repoRoot, p string) (rel string, ok bool)
+
+// StripModulePrefix removes a Go module path prefix. Unused in M1; present so the
+// Go adapter (deferred) has a defined home.
+func StripModulePrefix(modulePath, p string) string
+```
+
+## internal/mapstore
+
+```go
+type Row struct {
+    T string   `json:"t"` // test id, exactly as the runner accepts it as a selector
+    F []string `json:"f"` // repo-relative source files, sorted, deduped
+    C string   `json:"c"` // short SHA of HEAD when recorded
+    D int      `json:"d"` // last duration, ms
+    S string   `json:"s"` // last outcome: "pass" | "fail" | "skip" | "error"
+}
+
+type Map struct { /* unexported: rows map[string]Row */ }
+
+func New() *Map
+func Load(path string) (*Map, error)   // missing file returns an empty Map and nil error
+func (m *Map) Save(path string) error  // sorted by T ascending; MUST end with a trailing "\n"
+func (m *Map) Get(t string) (Row, bool)
+func (m *Map) Len() int
+func (m *Map) Rows() []Row             // sorted by T
+
+// Union merges r into the map: F becomes the set-union, D and S take r's values,
+// and C takes the OLDER of the two commits (a row's F is only as trustworthy as its
+// stalest component). Used by every path except seed.
+func (m *Map) Union(r Row, older func(a, b string) string)
+
+// Replace overwrites the row wholesale. ONLY rtdd seed may call this.
+func (m *Map) Replace(r Row)
+
+func (m *Map) Delete(t string)
+
+// TestsCovering returns every test id whose F intersects any of files. Unsorted.
+func (m *Map) TestsCovering(files []string) []string
+
+// FanOut returns file -> number of tests whose F contains it.
+func (m *Map) FanOut() map[string]int
+```
+
+**Union-merge duplicate handling.** `Load` MUST tolerate duplicate `t` values (the union
+merge driver leaves both lines) and resolve them exactly as `Union` does. A malformed line
+is a **fatal error, never a silent skip** — silently dropping rows narrows selection.
+
+## internal/gitctx
+
+```go
+type Status int
+const (
+    Added Status = iota
+    Modified
+    Deleted
+    Renamed
+    Untracked
+)
+
+type LineRange struct{ Start, End int } // 1-indexed, inclusive, in the NEW file
+
+type Change struct {
+    Path     string
+    OldPath  string      // set only when Status == Renamed
+    Status   Status
+    Lines    []LineRange // empty for Deleted
+}
+
+// ChangedSet returns the union of `git diff --name-only --unified=0 <base>` and
+// `git status --porcelain -uall`. Untracked files are included (Status=Added with the
+// whole file as one LineRange). Deletions are retained.
+func ChangedSet(repoRoot, base string) ([]Change, error)
+
+func HeadSHA(repoRoot string) (string, error)
+
+// CommitDistance returns the number of commits from sha to HEAD.
+// Returns (-1, nil) when sha is unreachable — after a rebase, squash, or shallow clone.
+// Callers MUST treat -1 as "unknown", never as "fresh".
+func CommitDistance(repoRoot, sha string) (int, error)
+
+func IsMergeCommit(repoRoot, sha string) (bool, error)
+
+// Older returns whichever of a or b is the earlier ancestor. If either is unreachable,
+// it returns that one (unknown age is treated as older, i.e. less trustworthy).
+func Older(repoRoot string) func(a, b string) string
+```
+
+## internal/adapter
+
+```go
+type Adapter struct {
+    Name          string            `yaml:"name"`
+    Detect        []string          `yaml:"detect"`
+    Env           map[string]string `yaml:"env"`
+    Seed          string            `yaml:"seed"`
+    Subset        string            `yaml:"subset"`
+    List          string            `yaml:"list"`
+    Coverage      string            `yaml:"coverage"` // "sqlite"
+    Report        string            `yaml:"report"`   // "pytest-reportlog"
+    FailFastFlag  string            `yaml:"failfast_flag"`
+    TestGlobs     []string          `yaml:"test_globs"`
+    SourceGlobs   []string          `yaml:"source_globs"`
+    ExitCodes     map[int]string    `yaml:"exit_codes"`
+    Opaque        []string          `yaml:"opaque"`
+    FullEscalate  []string          `yaml:"full_escalate"`
+}
+
+func Load(path string) (*Adapter, error)
+func LoadAll(dir string) ([]*Adapter, error)
+
+// Detect returns the adapter whose Detect globs match a file in repoRoot.
+// Exactly one match required; zero or multiple is an error (polyglot is out of scope in v1).
+func Detect(repoRoot string, adapters []*Adapter) (*Adapter, error)
+
+func (a *Adapter) IsTestFile(rel string) bool
+func (a *Adapter) IsOpaque(rel string) bool
+func (a *Adapter) IsFullEscalate(rel string) bool
+// IsInstrumentable: matches SourceGlobs AND is not a test file AND is not Opaque.
+func (a *Adapter) IsInstrumentable(rel string) bool
+
+// Expand substitutes {tests} {src} {out} {log} into a command template and returns argv.
+func (a *Adapter) Expand(tmpl string, vars map[string]string) ([]string, error)
+```
+
+## internal/coverage
+
+```go
+type TestCoverage struct {
+    Test  string           // normalised id, phase suffix stripped
+    Files map[string][]int // repo-relative path -> sorted covered line numbers
+}
+
+type Result struct {
+    PerTest    []TestCoverage
+    ImportTime map[string][]int // empty-context lines: executed, attributed to no test
+}
+
+// ReadSQLite reads .coverage directly:
+//   SELECT DISTINCT f.path, c.context, lb.numbits FROM line_bits lb
+//     JOIN file f ON f.id = lb.file_id JOIN context c ON c.id = lb.context_id
+// numbits is coverage.py's packed line bitmap; decode with Numbits.
+func ReadSQLite(dbPath, repoRoot string) (*Result, error)
+
+// Numbits decodes coverage.py's numbits blob into sorted line numbers.
+// Byte i, bit j set => line i*8+j is covered.
+func Numbits(b []byte) []int
+
+// NormalizeContext splits "tests/test_a.py::test_x|run" into ("tests/test_a.py::test_x", "run", true).
+// An empty context returns ok=false — that is import-time coverage, not a test.
+func NormalizeContext(ctx string) (testID, phase string, ok bool)
+```
+
+## internal/report
+
+```go
+type Outcome struct {
+    Test       string
+    Status     string // "pass" | "fail" | "skip" | "error"
+    DurationMS int
+}
+
+// ReadReportLog parses pytest --report-log JSONL. Only "call"-phase TestReport
+// entries produce an Outcome; setup/teardown errors map to Status "error".
+func ReadReportLog(path string) ([]Outcome, error)
+```
+
+## internal/selector
+
+```go
+type Tier int
+const (
+    TierEmpty Tier = iota // nothing selected — reported explicitly, never silently green
+    TierDirect
+    TierT0
+    TierT1
+    TierT2
+)
+func (t Tier) String() string
+
+type Config struct {
+    StaleCommits int     // default 50
+    DriftGuard   int     // default 100
+    HubThreshold float64 // default 0.40
+}
+func DefaultConfig() Config
+
+type Selection struct {
+    Tier    Tier
+    Tests   []string // final ranked list, direct tests first
+    Direct  []string // changed/new test files, always run
+    Reason  string   // human-readable escalation cause
+}
+
+type Inputs struct {
+    Map        *mapstore.Map
+    Changes    []gitctx.Change
+    Adapter    *adapter.Adapter
+    Cfg        Config
+    AllTests   []string          // from adapter.List; needed for T2 and for direct-tier discovery
+    Distance   func(sha string) int // wraps gitctx.CommitDistance; -1 means unknown
+    Cycles     int               // from meta.json, for DriftGuard
+    ImportOnly func(rel string) []string // static-import fallback; see M2
+}
+
+func Select(in Inputs) Selection
+
+// Rank orders tests by: descending |F ∩ changed| / |F|, then S=="fail" first,
+// then ascending len(F), then ascending D.
+func Rank(m *mapstore.Map, tests, changedFiles []string) []string
+```
+
+## internal/runner
+
+```go
+type RunResult struct {
+    Outcomes []report.Outcome
+    Coverage *coverage.Result
+    Failed   []string
+    ExitCode int
+}
+
+// Run executes the adapter's subset (or seed) command. It sets Adapter.Env,
+// chunks test ids across multiple invocations when argv would exceed MaxArgvBytes,
+// and merges the results. A chunk that exits with a mapped ExitCode (4=bad-selector,
+// 5=no-tests-collected) is a fatal error, not a test failure.
+func Run(a *adapter.Adapter, repoRoot string, tests []string, failFast bool) (*RunResult, error)
+func Seed(a *adapter.Adapter, repoRoot string) (*RunResult, error)
+
+const MaxArgvBytes = 100_000 // conservative; Windows CMD is 8191 chars, Linux ARG_MAX is 2MB
+
+func Chunk(tests []string, maxBytes int) [][]string
+
+// ErrSysmonContext is returned when the run emitted coverage.py's
+// "no-sysmon-context" warning. Callers MUST exit 3. Never proceed with the map.
+var ErrSysmonContext = errors.New("dynamic contexts unavailable: COVERAGE_CORE=sysmon")
+```
+
+## internal/uncovered
+
+```go
+type Class int
+const (
+    Covered Class = iota
+    Uncovered
+    ImportTime
+)
+
+type ClassifiedRange struct {
+    Range gitctx.LineRange
+    Class Class
+}
+
+type FileReport struct {
+    Path   string
+    Ranges []ClassifiedRange
+}
+
+// Classify intersects each Change's line ranges with fresh post-run coverage.
+// A line covered by any test is Covered. A line present only in Result.ImportTime is
+// ImportTime and MUST NOT be reported as Uncovered. Everything else is Uncovered.
+func Classify(changes []gitctx.Change, cov *coverage.Result) []FileReport
+
+func (r FileReport) UncoveredLines() int
+```
+
+## internal/doctor
+
+```go
+type Hub struct {
+    Path      string
+    TestCount int
+    Fraction  float64 // TestCount / total tests in the map
+}
+
+// Hubs returns files sorted by descending TestCount.
+func Hubs(m *mapstore.Map) []Hub
+```
+
+## .rtdd/meta.json
+
+```json
+{"v":1,"adapter":"python","seeded_at":"a3f21e0","cycles":7}
+```
+
+`cycles` increments on every completed `run`, pass or fail — a failing streak must still
+buy an eventual `DriftGuard` full run.
+
+## CLI surface
+
+```
+rtdd status
+rtdd seed
+rtdd which   [--base <ref>] [--json]
+rtdd run     [--base <ref>] [--fail-fast] [--json]
+rtdd verify
+rtdd doctor
+rtdd explain <file>
+rtdd map compact
+rtdd init
+```
+
+`--json` emits a machine-readable object for agent consumption. Its schema is defined in
+plan M2, task "JSON output", and is the interface the agent front-ends depend on.
