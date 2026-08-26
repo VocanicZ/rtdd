@@ -186,16 +186,18 @@ def collect(work: pathlib.Path, python: str = sys.executable) -> tuple[str, ...]
 
 
 def _pytest_argv(
-    instrumented: bool, source_globs: Sequence[str], log: pathlib.Path, xdist: bool
+    instrumented: bool,
+    source_globs: Sequence[str],
+    log: pathlib.Path,
+    xdist: bool,
+    cacheprovider: bool = False,
 ) -> list[str]:
-    argv = [
-        "-q",
-        "--no-header",
-        "-p",
-        "no:cacheprovider",
-        "--continue-on-collection-errors",
-        f"--report-log={log}",
-    ]
+    argv = ["-q", "--no-header", "--continue-on-collection-errors", f"--report-log={log}"]
+    if not cacheprovider:
+        # `--lf` is the one baseline that needs pytest's cache to survive a run;
+        # every other mode disables it so one commit's run cannot leak state into
+        # the next one's.
+        argv += ["-p", "no:cacheprovider"]
     if xdist:
         argv += ["-n", "auto"]
     if instrumented:
@@ -212,6 +214,7 @@ def _invoke(
     instrumented: bool,
     source_globs: Sequence[str],
     xdist: bool,
+    cacheprovider: bool = False,
 ) -> RunResult:
     outcomes: list[Outcome] = []
     exit_code = 0
@@ -224,7 +227,7 @@ def _invoke(
                 python,
                 "-m",
                 "pytest",
-                *_pytest_argv(instrumented, source_globs, log, xdist),
+                *_pytest_argv(instrumented, source_globs, log, xdist, cacheprovider),
                 *batch,
             ]
             start = time.perf_counter()
@@ -261,8 +264,9 @@ def run_full(
     instrumented: bool = False,
     source_globs: Sequence[str] = (),
     xdist: bool = False,
+    cacheprovider: bool = False,
 ) -> RunResult:
-    return _invoke(work, python, (), instrumented, source_globs, xdist)
+    return _invoke(work, python, (), instrumented, source_globs, xdist, cacheprovider)
 
 
 def run_subset(
@@ -271,10 +275,11 @@ def run_subset(
     python: str = sys.executable,
     instrumented: bool = False,
     source_globs: Sequence[str] = (),
+    cacheprovider: bool = False,
 ) -> RunResult:
     if not tests:
         return RunResult(outcomes=(), exit_code=0, wall_ms=0, collected=())
-    return _invoke(work, python, tests, instrumented, source_globs, False)
+    return _invoke(work, python, tests, instrumented, source_globs, False, cacheprovider)
 
 
 # --- cache integration ------------------------------------------------------

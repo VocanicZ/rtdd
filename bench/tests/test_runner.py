@@ -367,3 +367,15 @@ def test_a_cached_run_of_the_real_suite_skips_the_second_pytest(synth, cache_roo
     assert second.collected == first.collected
     assert second.durations() == first.durations()
     assert second.cached is True
+
+
+def test_cacheprovider_flag_populates_pytest_cache(synth):
+    _checkout(synth.path, synth.sha(3))
+    run_full(synth.path, cacheprovider=True)
+    assert (synth.path / ".pytest_cache" / "v" / "cache" / "lastfailed").exists()
+
+
+def test_the_cacheprovider_is_disabled_by_default(synth):
+    _checkout(synth.path, synth.sha(3))
+    run_full(synth.path)
+    assert not (synth.path / ".pytest_cache").exists()

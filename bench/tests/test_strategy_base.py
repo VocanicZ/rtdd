@@ -21,8 +21,15 @@ from replay.strategies.base import (
 
 @pytest.fixture(autouse=True)
 def _isolated_registry():
-    """The registry is process-global; keep one test's strategies out of another's."""
+    """The registry is process-global; keep one test's strategies out of another's.
+
+    It is cleared on the way in as well as restored on the way out: importing any
+    real strategy module registers it for the whole session, and these tests
+    describe the registry's own behaviour, not whichever baselines a sibling test
+    module happened to import first.
+    """
     saved = dict(base.REGISTRY)
+    base.REGISTRY.clear()
     try:
         yield
     finally:
