@@ -75,8 +75,8 @@ func loadEnv(adapterPath string) (*env, int, error) {
 
 	e := &env{
 		root:     root,
-		mapPath:  filepath.Join(root, ".rtdd", "map.jsonl"),
-		metaPath: filepath.Join(root, ".rtdd", "meta.json"),
+		mapPath:  mapPath(root),
+		metaPath: metaPath(root),
 		adPath:   adapterPath,
 	}
 	if e.adPath == "" {
