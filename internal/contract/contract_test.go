@@ -201,18 +201,41 @@ func TestCIWorkflowRunsTheGoPipeline(t *testing.T) {
 	if strings.Contains(src, "autodetect") {
 		t.Error("ci.yml must no longer be the language-autodetect stub")
 	}
-	for _, want := range []string{
-		"pull_request",
-		"branches: [main]",
-		"go build ./...",
-		"go vet ./...",
-		"gofmt -l .",
-		"go test ./... -count=1",
-		"CGO_ENABLED=0 go build -o /tmp/rtdd ./cmd/rtdd",
-		"statically linked",
-	} {
+	for _, want := range append([]string{"pull_request", "branches: [main]"}, ciCommands...) {
 		if !strings.Contains(src, want) {
 			t.Errorf("ci.yml must run/contain %q", want)
+		}
+	}
+}
+
+// ciCommands are the checks that define "green" for this repo. They must appear in both
+// the hosted workflow and the local entrypoint, so the two cannot drift apart.
+var ciCommands = []string{
+	"go build ./...",
+	"go vet ./...",
+	"gofmt -l .",
+	"go test ./... -count=1",
+	"CGO_ENABLED=0 go build -o /tmp/rtdd ./cmd/rtdd",
+	"statically linked",
+}
+
+func TestLocalCIEntrypointIsExecutableAndRunsTheSameChecks(t *testing.T) {
+	rel := "scripts/ci-local.sh"
+	info, err := os.Stat(filepath.Join(repoRoot(t), rel))
+	if err != nil {
+		t.Fatalf("%s must exist: %v", rel, err)
+	}
+	if info.Mode().Perm()&0o111 == 0 {
+		t.Errorf("%s must be executable, mode is %v", rel, info.Mode().Perm())
+	}
+
+	src := readRepoFile(t, rel)
+	if !strings.Contains(src, "set -e") {
+		t.Errorf("%s must fail fast (set -e)", rel)
+	}
+	for _, want := range ciCommands {
+		if !strings.Contains(src, want) {
+			t.Errorf("%s must run/contain %q", rel, want)
 		}
 	}
 }
