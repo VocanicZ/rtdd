@@ -25,6 +25,7 @@ being prose and start being code:
 from __future__ import annotations
 
 import dataclasses
+import os
 import pathlib
 import shutil
 import sys
@@ -35,6 +36,7 @@ from replay.cache import Cache
 from replay.config import RunConfig
 from replay.corpus import Corpus, RepoSpec
 from replay.covread import read_coverage
+from replay.envsetup import with_source_path
 from replay.falsesignal import build_record as build_uncovered
 from replay.gitwork import (
     Change,
@@ -47,7 +49,15 @@ from replay.gitwork import (
 )
 from replay.hardware import Hardware
 from replay.records import CommitRecord, StrategyRecord, UncoveredRecord, WallClockRecord
-from replay.runner import RunResult, cached_run, collect, run_full, run_key, run_subset
+from replay.runner import (
+    NoTestsCollectedError,
+    RunResult,
+    cached_run,
+    collect,
+    run_full,
+    run_key,
+    run_subset,
+)
 from replay.strategies import base as sbase
 from replay.strategies.randomratio import RandomRatio
 
@@ -105,6 +115,10 @@ class ReplayOutput:
     wallclocks: list[WallClockRecord] = dataclasses.field(default_factory=list)
     uncovered: list[UncoveredRecord] = dataclasses.field(default_factory=list)
     skipped: list[dict] = dataclasses.field(default_factory=list)
+    #: Cycles where `rtdd run` refused. Its own list, not `skipped`: the commit
+    #: was replayed and every selection scored — what was lost is the uncovered
+    #: report, and the refusal is itself a measurement of the tool under test.
+    rtdd_run_errors: list[dict] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -123,6 +137,10 @@ class ReplayOptions:
     wallclock_sample: int = 20
     wallclock_enabled: bool = True
     rtdd_binary: str = "rtdd"
+    #: The interpreter the corpus repo's suite runs in. `None` means the harness's
+    #: own, which is right for the synthetic repo and wrong for every real one:
+    #: flask's tests need flask installed, and `sys.executable` never has it.
+    python: str | None = None
 
 
 def strategy_order(ids: Sequence[str]) -> list[str]:
@@ -301,7 +319,7 @@ def replay_repo(
     sbase.register(_rtdd.Rtdd(binary=opts.rtdd_binary))
 
     out = ReplayOutput()
-    python = sys.executable
+    python = opts.python or sys.executable
     points = replay_points(repo, spec.pin, spec.replay_commits)
     order = strategy_order(opts.strategy_ids)
     wall_every = (
@@ -316,10 +334,25 @@ def replay_repo(
             # `natural` replays the child over the parent; `probe` keeps the child's
             # tests and reverts its source half, so its clean base is the child.
             base_sha = point.parent if variant == "natural" else point.commit
+            saved_pythonpath = os.environ.get("PYTHONPATH")
             try:
                 add_worktree(repo, base_sha, work)
+                # The repo is installed editable from the *clone*, and a `.pth`
+                # entry sorts after everything `PYTHONPATH` contributes. Without
+                # this the suite imports the clone at every commit, `F_full` is
+                # empty throughout, and the table measures nothing.
+                os.environ["PYTHONPATH"] = with_source_path(
+                    os.environ, work, spec.source_globs
+                )["PYTHONPATH"]
                 pre_existing, _ = clean_tree_failures(
                     work, python, cache, cache.key(spec.id, base_sha, "clean")
+                )
+
+                # What the base tree collects, before the child's tree lands on top
+                # of it. Every parent-state strategy answers out of state built
+                # here, so this is what tells a stale id from an invented one.
+                base_tests = _cached_collect(
+                    cache, cache.key(spec.id, base_sha, "collect-base"), work, python
                 )
 
                 seed_ctx = sbase.CommitContext(
@@ -333,6 +366,7 @@ def replay_repo(
                     source_globs=spec.source_globs,
                     test_globs=spec.test_globs,
                     python=python,
+                    base_tests=base_tests,
                 )
                 for sid in order:
                     if getattr(sbase.get(sid), "needs_parent_state", False):
@@ -400,27 +434,44 @@ def replay_repo(
                             escalated=sel.escalated,
                             reason=sel.reason,
                             select_ms=sel.select_ms,
+                            stale_dropped=sel.stale_dropped,
                         )
                     )
 
                 rtdd_wall_ms: int | None = None
                 if "rtdd" in order:
-                    reported, rtdd_wall_ms = _cached_uncovered(
-                        cache,
-                        cache.key(spec.id, point.commit, variant, "rtdd-run"),
-                        work,
-                        opts.rtdd_binary,
-                    )
-                    covered = _cached_coverage_truth(
-                        cache,
-                        cache.key(spec.id, point.commit, variant, "covered"),
-                        work,
-                        python,
-                        spec.source_globs,
-                    )
-                    out.uncovered.append(
-                        build_uncovered(spec.id, point.commit, variant, reported, covered)
-                    )
+                    try:
+                        reported, rtdd_wall_ms = _cached_uncovered(
+                            cache,
+                            cache.key(spec.id, point.commit, variant, "rtdd-run"),
+                            work,
+                            opts.rtdd_binary,
+                        )
+                    except rtddio.RtddError as exc:
+                        # The shipped tool refuses to run a map that names a test
+                        # the tree no longer collects, and says so — real behaviour
+                        # against a real deletion. It costs this cycle its uncovered
+                        # report and nothing else; the selections are already scored.
+                        out.rtdd_run_errors.append(
+                            {
+                                "repo_id": spec.id,
+                                "commit": point.commit,
+                                "variant": variant,
+                                "reason": "rtdd-run-refused",
+                                "detail": str(exc)[:500],
+                            }
+                        )
+                    else:
+                        covered = _cached_coverage_truth(
+                            cache,
+                            cache.key(spec.id, point.commit, variant, "covered"),
+                            work,
+                            python,
+                            spec.source_globs,
+                        )
+                        out.uncovered.append(
+                            build_uncovered(spec.id, point.commit, variant, reported, covered)
+                        )
 
                 if wall_every and index % wall_every == 0:
                     for sid in order:
@@ -469,6 +520,22 @@ def replay_repo(
                                 ),
                             )
                         )
+            except NoTestsCollectedError as exc:
+                # pytest exit 4/5 at this tree: a fact about the commit, not a
+                # harness fault. Record it and walk on.
+                out.skipped.append(
+                    {
+                        "repo_id": spec.id,
+                        "commit": point.commit,
+                        "variant": variant,
+                        "reason": "no-tests-collected",
+                        "detail": str(exc)[:500],
+                    }
+                )
             finally:
+                if saved_pythonpath is None:
+                    os.environ.pop("PYTHONPATH", None)
+                else:
+                    os.environ["PYTHONPATH"] = saved_pythonpath
                 remove_worktree(repo, work)
     return out

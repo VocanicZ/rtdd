@@ -14,8 +14,7 @@ repos:
     replay_commits: 200
     python: "3.12"
     install:
-      - "uv pip install -e ."
-      - "uv pip install -r requirements-dev.txt"
+      - "uv pip install -e .[test]"
     source_globs: ["httpie/**/*.py"]
     test_globs: ["tests/**/*.py"]
   - id: flask
@@ -25,7 +24,7 @@ repos:
     python: "3.12"
     install:
       - "uv pip install -e ."
-      - "uv pip install -r requirements/tests.txt"
+      - "uv pip install asgiref 'pytest<9' python-dotenv"
     source_globs: ["src/flask/**/*.py"]
     test_globs: ["tests/**/*.py"]
   - id: sqlfluff

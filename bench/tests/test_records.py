@@ -242,3 +242,31 @@ def test_parse_jsonl_lines_skips_blank_lines():
 def test_from_dict_refuses_an_unknown_kind():
     with pytest.raises(ValueError, match="unknown record kind"):
         from_dict({"kind": "nope", "repo_id": "synth"})
+
+
+def test_a_strategy_record_publishes_the_stale_ids_it_dropped():
+    """A rename is visible in the record, not silently absorbed.
+
+    `--lf`, testmon and rtdd answer out of state built at the base tree, so a
+    commit that removed a test can be handed an id that no longer collects. The
+    id is dropped from `selected` — it is not work — and named here, so a reader
+    can see that it happened rather than inferring it from a shrunken count.
+    """
+    r = StrategyRecord(
+        repo_id="synth",
+        commit="c1",
+        variant="natural",
+        strategy="lf",
+        selected=("t/f.py::a",),
+        escalated=False,
+        reason="last failed",
+        select_ms=3,
+        stale_dropped=("t/f.py::gone",),
+    )
+    d = r.to_dict()
+    assert d["stale_dropped"] == ["t/f.py::gone"]
+    assert d["n_stale_dropped"] == 1
+    assert StrategyRecord.from_dict(d) == r
+    # An older line without the key still reads back.
+    older = {k: v for k, v in d.items() if not k.startswith(("stale_", "n_stale"))}
+    assert StrategyRecord.from_dict(older).stale_dropped == ()

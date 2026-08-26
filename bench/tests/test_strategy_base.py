@@ -159,3 +159,80 @@ def test_validate_selection_rejects_a_test_id_the_repo_never_collected():
 
 def test_unknown_test_error_is_a_value_error():
     assert issubclass(UnknownTestError, ValueError)
+
+
+# --- file-level selectors ------------------------------------------------
+
+
+def test_a_whole_file_selector_expands_to_the_tests_that_file_collected():
+    """`pytest tests/test_basic.py` runs every test in the file; so does scoring it.
+
+    `rtdd which --json` names a changed test file itself alongside the node ids
+    its map knows, because a test file that changed may contain tests the map has
+    never seen. Refusing that selector would make the system under test unscoreable
+    against a real repo; treating it as one opaque id would understate the work it
+    actually causes. Expansion is what pytest itself does.
+    """
+    ctx = _ctx(all_tests=("t/f.py::a", "t/f.py::b", "t/g.py::c"))
+    out = validate_selection(
+        Selection(tests=("t/f.py", "t/g.py::c"), escalated=False, reason="T0"), ctx
+    )
+    assert out.tests == ("t/f.py::a", "t/f.py::b", "t/g.py::c")
+
+
+def test_expansion_does_not_duplicate_an_id_the_strategy_already_named():
+    ctx = _ctx(all_tests=("t/f.py::a", "t/f.py::b"))
+    out = validate_selection(
+        Selection(tests=("t/f.py", "t/f.py::a"), escalated=False, reason="T0"), ctx
+    )
+    assert out.tests == ("t/f.py::a", "t/f.py::b")
+
+
+def test_a_file_selector_that_collected_nothing_selects_nothing():
+    """A named file with no collected tests contributes no runnable work.
+
+    The collected list is ground truth: a file pytest never collected cannot fail,
+    so counting it as a selected test would inflate the selection ratio with work
+    that does not exist.
+    """
+    ctx = _ctx(all_tests=("t/f.py::a",))
+    out = validate_selection(
+        Selection(tests=("t/deleted.py",), escalated=False, reason="T0"), ctx
+    )
+    assert out.tests == ()
+
+
+def test_an_unknown_node_id_is_still_an_error():
+    ctx = _ctx(all_tests=("t/f.py::a",))
+    with pytest.raises(UnknownTestError):
+        validate_selection(
+            Selection(tests=("t/f.py::nope",), escalated=False, reason="T0"), ctx
+        )
+
+
+# --- stale ids from the base tree ----------------------------------------
+
+
+def test_a_test_the_base_tree_collected_but_the_child_removed_is_dropped_not_fatal():
+    """`--lf`, testmon and rtdd all answer out of state built at the *base* tree.
+
+    A commit that renames or deletes a test leaves those ids in that state, and a
+    replay of real history meets that on the first refactor. The id cannot run and
+    cannot fail, so it is dropped from the selection and published as dropped —
+    never counted as work, and never a reason to abandon the replay.
+    """
+    ctx = _ctx(all_tests=("t/f.py::a",), base_tests=("t/f.py::a", "t/f.py::gone"))
+    out = validate_selection(
+        Selection(tests=("t/f.py::a", "t/f.py::gone"), escalated=False, reason="lf"), ctx
+    )
+    assert out.tests == ("t/f.py::a",)
+    assert out.stale_dropped == ("t/f.py::gone",)
+
+
+def test_an_id_neither_tree_ever_collected_is_still_an_error():
+    """The invention guard survives: a strategy may not name a test that never existed."""
+    ctx = _ctx(all_tests=("t/f.py::a",), base_tests=("t/f.py::a",))
+    with pytest.raises(UnknownTestError):
+        validate_selection(
+            Selection(tests=("t/f.py::invented",), escalated=False, reason="?"), ctx
+        )

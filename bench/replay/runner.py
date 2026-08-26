@@ -52,6 +52,15 @@ MODE_SUBSET = "subset"
 _PHASE_STATUS = {"passed": "pass", "failed": "fail", "skipped": "skip"}
 
 
+class NoTestsCollectedError(RuntimeError):
+    """pytest exited 4 (bad selector) or 5 (nothing collected).
+
+    A historical commit whose tree will not collect is a fact about that commit,
+    so the orchestrator records it in `skipped` and walks on; it is a distinct
+    type precisely so that catching it cannot also swallow a real harness fault.
+    """
+
+
 class SysmonContextError(RuntimeError):
     pass
 
@@ -241,7 +250,7 @@ def _invoke(
                     "Any map built from this run is ~90% empty (audit A7)."
                 )
             if proc.returncode in (4, 5):
-                raise RuntimeError(
+                raise NoTestsCollectedError(
                     f"pytest exit {proc.returncode} (bad selector / no tests collected) in {work}: "
                     f"{proc.stdout[-2000:]}"
                 )

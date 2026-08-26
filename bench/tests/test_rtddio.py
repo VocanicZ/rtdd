@@ -517,3 +517,22 @@ def test_real_binary_honours_the_consumed_schema(synth, monkeypatch):
     assert r.exit_code == 1
     assert r.failures == ("tests/test_alpha.py::test_add",)
     assert r.uncovered_available is True
+
+
+def test_seed_accepts_exit_1_because_a_red_test_at_the_base_is_data(tmp_path):
+    """`rtdd seed` exits 1 when a test failed while seeding — the map is still built.
+
+    Real history has commits whose suite is red, and `clean_tree_failures` measures
+    exactly that so `F_full` can subtract it. Treating the exit code as fatal would
+    abort the whole replay on the first such commit, throwing away every commit
+    after it because one of them had a failing test.
+    """
+    b = _stub(tmp_path, "b", stdout="seeded 490 tests at a29f88ce\n", code=1)
+    rtddio.seed(_work(tmp_path), binary=str(b))
+
+
+def test_seed_still_raises_on_a_usage_or_environment_exit(tmp_path):
+    for code in (2, 3):
+        b = _stub(tmp_path, f"b{code}", stderr="rtdd: no adapter matched\n", code=code)
+        with pytest.raises(RtddError, match=f"exited {code}"):
+            rtddio.seed(_work(tmp_path), binary=str(b))

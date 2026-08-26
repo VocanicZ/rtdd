@@ -286,3 +286,77 @@ def test_results_directory_is_committed_and_not_gitignored():
         capture_output=True,
     )
     assert proc.returncode == 1, "bench/results/ must be committed, not gitignored"
+
+
+# --- the secondary verdict ------------------------------------------------
+
+
+def _no_natural_detections():
+    """A `natural` population that is entirely green, plus a detecting `probe`.
+
+    This is the ordinary case on a real repo: commits are pushed green, so the
+    natural detecting population can be empty while `probe` — the same commits'
+    source halves reverted — detects.
+    """
+    o = ReplayOutput()
+    o.commits = [
+        CommitRecord("synth", "c1", "c0", "natural", ALL, DUR, (), (), ("src/a.py",)),
+        CommitRecord("synth", "c1", "c0", "probe", ALL, DUR, ("a",), (), ("src/a.py",)),
+    ]
+    o.strategies = [
+        StrategyRecord("synth", "c1", "natural", "rtdd", ("a",), False, "T0", 2),
+        StrategyRecord("synth", "c1", "natural", "path", (), False, "none", 1),
+        StrategyRecord("synth", "c1", "probe", "rtdd", ("a",), False, "T0", 2),
+        StrategyRecord("synth", "c1", "probe", "path", (), False, "none", 1),
+    ]
+    return o
+
+
+def test_a_green_natural_population_still_publishes_the_probe_comparison():
+    """`verdict: not computable` must not be the last word when `probe` detected.
+
+    The pre-registered criterion is measured on `natural`, and that stays true:
+    the probe line is labelled an upper bound and never replaces the verdict. But
+    a summary whose only comparison is "not computable" gates nothing, and the
+    probe population is exactly what the plan added for this case.
+    """
+    from replay.report import secondary_verdict_lines
+
+    s = build_summary(_no_natural_detections(), ("rtdd", "path"), HW)
+    assert verdict_line(s).startswith("verdict: not computable")
+    extra = secondary_verdict_lines(s)
+    assert extra, "a detecting probe population must be reported"
+    line = extra[0]
+    assert line.startswith("verdict (probe")
+    assert "upper bound" in line
+    assert "rtdd=1.000" in line and "path heuristic=0.000" in line
+
+
+def test_the_probe_verdict_is_absent_when_probe_was_not_run():
+    from replay.report import secondary_verdict_lines
+
+    s = build_summary(_out(), ("rtdd", "path"), HW)
+    assert secondary_verdict_lines(s) == []
+
+
+def test_the_markdown_carries_the_probe_verdict_beside_the_primary_one():
+    md = render_markdown(build_summary(_no_natural_detections(), ("rtdd", "path"), HW), CFG, HW)
+    assert [ln for ln in md.splitlines() if ln.startswith("verdict:")]
+    assert [ln for ln in md.splitlines() if ln.startswith("verdict (probe")]
+
+
+def test_the_summary_publishes_the_cycles_where_rtdd_run_refused():
+    """A refusal is a number about the system under test, so it is in the table.
+
+    `rtdd run` exits 2 rather than run a map that names a deleted test. Leaving
+    that out of the summary would present the uncovered-signal rate as if it had
+    been measured on every cycle.
+    """
+    o = _out()
+    o.rtdd_run_errors = [
+        {"repo_id": "synth", "commit": "c2", "variant": "natural", "reason": "rtdd-run-refused"}
+    ]
+    s = build_summary(o, ("rtdd", "path"), HW)
+    assert s["rtdd_run_errors"] == 1
+    md = render_markdown(s, CFG, HW)
+    assert "`rtdd run` refused on 1 of" in md
