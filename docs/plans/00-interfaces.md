@@ -759,8 +759,16 @@ type env struct { root, mapPath, metaPath, adPath string; m *mapstore.Map; meta 
 // code to use when err is non-nil: 3 for a fatal environment error, 2 for a bad config.
 func loadEnv(adapterPath string) (*env, int, error)
 func cmdStatus(args []string, stdout, stderr io.Writer) int
+func cmdSeed(args []string) int
+func cmdRun(args []string) int
 ```
 
 `main` is a one-liner around `run` so every command is testable with in-memory writers and
 an asserted exit code. `env.ad` is nil when no adapter file is present — that is a reported
 state (`adapter: none`), not an error, because `adapter.Detect` is M1b.
+
+`cmdSeed` and `cmdRun` print to `os.Stdout`/`os.Stderr` rather than taking writers: both
+stream a subprocess's progress, and both are asserted through their exit code and the
+`.rtdd/` they leave behind. `cmdRun` calls `(*Map).Union` and never `(*Map).Replace` —
+only `cmdSeed` may shrink a row (spec §4, D11, audit A4), and
+`TestOnlySeedCallsMapstoreReplace` enforces it across the whole tree.
