@@ -16,6 +16,7 @@ import (
 const usage = `rtdd - relational test-driven development
 
 usage:
+  rtdd seed
   rtdd status [--adapter <path>]
   rtdd which  [--base <ref>] [--json] [--adapter <path>]
 
@@ -36,6 +37,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	switch args[0] {
+	case "seed":
+		return cmdSeed(args[1:])
 	case "status":
 		return cmdStatus(args[1:], stdout, stderr)
 	case "which":
