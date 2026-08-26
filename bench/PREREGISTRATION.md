@@ -101,3 +101,22 @@ One model for every arm: `Qwen3-Coder-30B-A3B-Instruct`, served locally, greedy 
 per instance. Matching TDAD's model class is deliberate — their published numbers were
 measured on Qwen3-Coder 30B Q4_K_M, and swapping in a frontier model would make the
 comparison to their table meaningless.
+
+## Reference implementations
+
+Both halves of the comparison are pinned before the run, so neither the code under test
+nor the code it is compared against can move between signing and publication.
+
+| what | pin |
+|---|---|
+| RTDD, the implementation under test | the commit this file's `prereg-m4` tag points at, recorded in `bench/results/swebench/config.json` as `rtdd_commit` |
+| TDAD, arm C's context source | `73d1234d3fd02817bc58f1c03b434aca5027ea78` of `https://github.com/pepealonso95/TDAD.git` (MIT) |
+
+Arm C **runs** TDAD's reference implementation on this harness at that commit; it does not
+cite TDAD's published figures. That is what puts all five arms on one scaffold, one model and
+one instance list, and it is the only condition under which the arms may be ranked against
+each other. If TDAD cannot be installed or indexed, the arm is not silently run without its
+map: `providers.tdad.TdadUnavailable` stops it, and the contingency in
+`docs/results/tdad-caveat.md` applies — arm C leaves the locally-measured table, TDAD's
+published 1.82% appears in a separate labelled column, and no head-to-head ranking is
+reportable.

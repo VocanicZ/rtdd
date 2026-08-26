@@ -1,0 +1,5 @@
+{
+  "tdad_pin": "73d1234d3fd02817bc58f1c03b434aca5027ea78",
+  "tdad_repo": "https://github.com/pepealonso95/TDAD.git",
+  "note": "Arm C's context source is TDAD's reference implementation run locally at the pin above, not its published figures. The RTDD commit under test, the hardware and the seed counts are written into this file by the run that produces the results beside it; the pin is committed ahead of the run so it cannot be chosen after seeing the outcome."
+}
