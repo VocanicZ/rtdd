@@ -102,9 +102,3 @@ func loadEnv(adapterPath string) (*env, int, error) {
 	}
 	return e, 0, nil
 }
-
-// TEMPORARY: replaced by cmd/rtdd/which.go in Task 20.
-func cmdWhich(args []string, stdout, stderr io.Writer) int {
-	fmt.Fprintln(stderr, "rtdd which: not implemented yet")
-	return 2
-}
