@@ -435,6 +435,119 @@ func TestInterfaceContractDropsSrcFromExpand(t *testing.T) {
 	if !strings.Contains(doc, "the var map the caller supplies") {
 		t.Error("00-interfaces.md must record that the caller's var map is what keeps {src} out of expanded argv")
 	}
+	// The contract document is not the only place the promise survives. Expand's own
+	// godoc is the first thing a reader of the public API sees, and it outlived the
+	// amendment that the document above was already policed for: {src} is unresolvable
+	// at runtime, so a comment still naming it sends a host adapter author to a
+	// placeholder no template can expand. expand.go must not name it at all — the
+	// negative assertions live in expand_test.go, not in the shipped source.
+	impl := readRepoFile(t, "internal/adapter/expand.go")
+	for i, line := range strings.Split(impl, "\n") {
+		if strings.Contains(line, "{src}") {
+			t.Errorf("internal/adapter/expand.go:%d still names {src}: %q", i+1, strings.TrimSpace(line))
+		}
+	}
+}
+
+// structDeclRe finds every declaration of a struct type named name, whether it stands as
+// Go source or inside a `//` comment, and whether its fields are braced on one line or
+// spread over many. Both forms are read as contract by a human.
+func structDeclRe(name string) *regexp.Regexp {
+	return regexp.MustCompile(`(?m)^[ \t]*(?://[ \t]*)?type[ \t]+` + name + `[ \t]+struct[ \t]*\{`)
+}
+
+// structFieldSets returns the sorted field names of every declaration of struct name in
+// src. Comment markers are stripped, so a declaration quoted inside a `//` block compares
+// byte-for-byte against one in Go source.
+func structFieldSets(t *testing.T, src, name string) [][]string {
+	t.Helper()
+	var out [][]string
+	for _, m := range structDeclRe(name).FindAllStringIndex(src, -1) {
+		body, ok := braceBody(src[m[1]-1:])
+		if !ok {
+			t.Fatalf("declaration of %s at offset %d has no closing brace", name, m[0])
+		}
+		out = append(out, fieldNames(body))
+	}
+	return out
+}
+
+// braceBody returns the contents between s's leading '{' and its matching '}'.
+func braceBody(s string) (string, bool) {
+	depth := 0
+	for i, r := range s {
+		switch r {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return s[1:i], true
+			}
+		}
+	}
+	return "", false
+}
+
+// fieldNames extracts the declared names from a struct body. Fields separated by ';' on
+// one line and fields on their own lines are the same declaration written two ways, so
+// both split the same; a grouped `Covered, Uncovered int` contributes both names.
+func fieldNames(body string) []string {
+	var out []string
+	for _, decl := range strings.FieldsFunc(body, func(r rune) bool { return r == '\n' || r == ';' }) {
+		decl = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(decl), "//"))
+		if i := strings.Index(decl, "//"); i >= 0 {
+			decl = strings.TrimSpace(decl[:i])
+		}
+		toks := strings.Fields(decl)
+		if len(toks) < 2 {
+			continue
+		}
+		for _, name := range toks[:len(toks)-1] {
+			out = append(out, strings.TrimSuffix(name, ","))
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// A struct in the contract binds exactly as hard as a func signature, and the
+// Amendments/Additions block declares itself as overriding everything above it — so an
+// amended field list that disagrees with the shipped struct does not merely duplicate:
+// it says the implementation is wrong, and it is the half that formally wins. Comparing
+// signatures alone let FatalExitError drift, because the divergence was in its fields.
+func TestInterfaceContractStructFieldsDoNotContradictTheImplementation(t *testing.T) {
+	doc := readRepoFile(t, "docs/plans/00-interfaces.md")
+
+	for _, tc := range []struct{ rel, name string }{
+		{"internal/runner/errors.go", "FatalExitError"},
+	} {
+		impl := structFieldSets(t, readRepoFile(t, tc.rel), tc.name)
+		if len(impl) != 1 {
+			t.Fatalf("%s declares struct %s %d times; want exactly one", tc.rel, tc.name, len(impl))
+		}
+		want := impl[0]
+		got := structFieldSets(t, doc, tc.name)
+		if len(got) == 0 {
+			t.Errorf("00-interfaces.md declares struct %s nowhere; %s has fields %v", tc.name, tc.rel, want)
+			continue
+		}
+		for _, g := range got {
+			if !reflect.DeepEqual(g, want) {
+				t.Errorf("00-interfaces.md declares %s with fields\n  %v\nbut %s implements\n  %v",
+					tc.name, g, tc.rel, want)
+			}
+		}
+	}
+	// Spelled out separately from the field-set comparison: `Meaning` is the specific
+	// field the superseded amendment invented, and it must be gone from the document
+	// rather than merely outnumbered by correct declarations elsewhere in it.
+	for _, m := range structDeclRe("FatalExitError").FindAllStringIndex(doc, -1) {
+		body, ok := braceBody(doc[m[1]-1:])
+		if ok && strings.Contains(body, "Meaning") {
+			t.Errorf("00-interfaces.md still declares FatalExitError with a Meaning field: {%s}", body)
+		}
+	}
 }
 
 // internal/adapter/classify.go narrows IsTestFile with a FullEscalate exclusion that the

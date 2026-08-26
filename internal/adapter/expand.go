@@ -16,7 +16,11 @@ import (
 // reach the runner as a nonsense argument and surface as an unreadable bad-selector exit.
 var placeholderRe = regexp.MustCompile(`\{[^{}]*\}`)
 
-// Expand substitutes {src}, {out} and {log} into a command template and returns argv.
+// Expand substitutes {out} and {log} into a command template and returns argv.
+//
+// Those are the two names the engine's callers supply, not a set enforced here: Expand
+// resolves whatever keys the vars map holds and rejects any placeholder it cannot
+// resolve, so the caller's map is what decides which names a host adapter may use.
 //
 // The template is tokenised on whitespace BEFORE substitution, so a substituted value is
 // never re-split: a log path containing a space stays one argv element.
