@@ -286,7 +286,19 @@ func Chunk(tests []string, maxBytes int) [][]string
 
 // ErrSysmonContext is returned when the run emitted coverage.py's
 // "no-sysmon-context" warning. Callers MUST exit 3. Never proceed with the map.
+// MEASURED: pytest prints this warning on STDOUT, in its warnings summary, and
+// stderr is empty — the runner scans the COMBINED stream.
 var ErrSysmonContext = errors.New("dynamic contexts unavailable: COVERAGE_CORE=sysmon")
+
+// FatalExitError is a chunk that exited with a code mapped in Adapter.ExitCodes
+// (4=bad-selector, 5=no-tests-collected). It is NOT a test failure; the CLI
+// recovers it with errors.As and exits 2.
+type FatalExitError struct {
+    Chunk int
+    Code  int
+    Label string
+}
+func (e *FatalExitError) Error() string
 ```
 
 ## internal/uncovered
