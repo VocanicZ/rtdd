@@ -76,3 +76,105 @@ func TestReplaceDoesNotAliasCallerSlice(t *testing.T) {
 		}
 	}
 }
+
+// olderLexical is a deterministic stand-in for gitctx.Older in unit tests:
+// the lexically smaller sha is treated as the older one.
+func olderLexical(a, b string) string {
+	if a <= b {
+		return a
+	}
+	return b
+}
+
+func TestUnion(t *testing.T) {
+	tests := []struct {
+		name  string
+		seed  []Row
+		apply Row
+		wantF []string
+		wantC string
+		wantD int
+		wantS string
+	}{
+		{
+			name:  "insert into an empty map",
+			seed:  nil,
+			apply: Row{T: "t1", F: []string{"src/b.py", "src/a.py"}, C: "ccc", D: 10, S: "pass"},
+			wantF: []string{"src/a.py", "src/b.py"},
+			wantC: "ccc", wantD: 10, wantS: "pass",
+		},
+		{
+			name:  "F is the set union, never a replacement",
+			seed:  []Row{{T: "t1", F: []string{"src/a.py", "src/db.py"}, C: "bbb", D: 10, S: "pass"}},
+			apply: Row{T: "t1", F: []string{"src/a.py"}, C: "ccc", D: 3, S: "pass"},
+			wantF: []string{"src/a.py", "src/db.py"},
+			wantC: "bbb", wantD: 3, wantS: "pass",
+		},
+		{
+			name:  "D and S take the new row's values",
+			seed:  []Row{{T: "t1", F: []string{"src/a.py"}, C: "bbb", D: 999, S: "pass"}},
+			apply: Row{T: "t1", F: []string{"src/a.py"}, C: "ccc", D: 7, S: "fail"},
+			wantF: []string{"src/a.py"},
+			wantC: "bbb", wantD: 7, wantS: "fail",
+		},
+		{
+			name:  "C takes the older commit even when the new row is older",
+			seed:  []Row{{T: "t1", F: []string{"src/a.py"}, C: "zzz", D: 1, S: "pass"}},
+			apply: Row{T: "t1", F: []string{"src/b.py"}, C: "aaa", D: 2, S: "pass"},
+			wantF: []string{"src/a.py", "src/b.py"},
+			wantC: "aaa", wantD: 2, wantS: "pass",
+		},
+		{
+			name:  "an empty incoming C keeps the existing one",
+			seed:  []Row{{T: "t1", F: []string{"src/a.py"}, C: "bbb", D: 1, S: "pass"}},
+			apply: Row{T: "t1", F: []string{"src/a.py"}, C: "", D: 2, S: "pass"},
+			wantF: []string{"src/a.py"},
+			wantC: "bbb", wantD: 2, wantS: "pass",
+		},
+		{
+			name:  "duplicate files across both sides collapse",
+			seed:  []Row{{T: "t1", F: []string{"src/a.py", "src/b.py"}, C: "bbb", D: 1, S: "pass"}},
+			apply: Row{T: "t1", F: []string{"src/b.py", "src/c.py"}, C: "bbb", D: 2, S: "pass"},
+			wantF: []string{"src/a.py", "src/b.py", "src/c.py"},
+			wantC: "bbb", wantD: 2, wantS: "pass",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := New()
+			for _, r := range tc.seed {
+				m.Replace(r)
+			}
+			m.Union(tc.apply, olderLexical)
+			got, ok := m.Get("t1")
+			if !ok {
+				t.Fatalf("Union did not insert the row")
+			}
+			if !reflect.DeepEqual(got.F, tc.wantF) {
+				t.Errorf("F = %#v, want %#v", got.F, tc.wantF)
+			}
+			if got.C != tc.wantC {
+				t.Errorf("C = %q, want %q", got.C, tc.wantC)
+			}
+			if got.D != tc.wantD {
+				t.Errorf("D = %d, want %d", got.D, tc.wantD)
+			}
+			if got.S != tc.wantS {
+				t.Errorf("S = %q, want %q", got.S, tc.wantS)
+			}
+		})
+	}
+}
+
+func TestUnionNilComparatorKeepsExistingC(t *testing.T) {
+	m := New()
+	m.Replace(Row{T: "t1", F: []string{"src/a.py"}, C: "first", D: 1, S: "pass"})
+	m.Union(Row{T: "t1", F: []string{"src/b.py"}, C: "second", D: 2, S: "pass"}, nil)
+	got, _ := m.Get("t1")
+	if got.C != "first" {
+		t.Errorf("C = %q, want %q (a nil comparator must be deterministic: first wins)", got.C, "first")
+	}
+	if !reflect.DeepEqual(got.F, []string{"src/a.py", "src/b.py"}) {
+		t.Errorf("F = %#v, want the union", got.F)
+	}
+}

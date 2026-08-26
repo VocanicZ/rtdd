@@ -57,3 +57,54 @@ func normalizeRow(r Row) Row {
 	r.F = out
 	return r
 }
+
+// Union merges r into the map: F becomes the set-union, D and S take r's values,
+// and C takes the OLDER of the two commits (a row's F is only as trustworthy as its
+// stalest component). Used by every path except seed.
+func (m *Map) Union(r Row, older func(a, b string) string) {
+	r = normalizeRow(r)
+	prev, ok := m.rows[r.T]
+	if !ok {
+		m.rows[r.T] = r
+		return
+	}
+	m.rows[r.T] = Row{
+		T: r.T,
+		F: unionStrings(prev.F, r.F),
+		C: pickOlder(prev.C, r.C, older),
+		D: r.D,
+		S: r.S,
+	}
+}
+
+// pickOlder resolves C. With a nil comparator the existing value wins, which is
+// deterministic but age-blind; callers that have git available pass gitctx.Older.
+func pickOlder(existing, incoming string, older func(a, b string) string) string {
+	switch {
+	case existing == "":
+		return incoming
+	case incoming == "":
+		return existing
+	case existing == incoming:
+		return existing
+	case older == nil:
+		return existing
+	}
+	return older(existing, incoming)
+}
+
+func unionStrings(a, b []string) []string {
+	seen := make(map[string]struct{}, len(a)+len(b))
+	out := make([]string, 0, len(a)+len(b))
+	for _, group := range [][]string{a, b} {
+		for _, s := range group {
+			if _, dup := seen[s]; dup {
+				continue
+			}
+			seen[s] = struct{}{}
+			out = append(out, s)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
