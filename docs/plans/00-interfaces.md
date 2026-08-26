@@ -437,6 +437,8 @@ const (
     ImportTime
 )
 
+func (c Class) String() string // "covered" | "uncovered" | "import-time"
+
 type ClassifiedRange struct {
     Range gitctx.LineRange
     Class Class
@@ -450,9 +452,29 @@ type FileReport struct {
 // Classify intersects each Change's line ranges with fresh post-run coverage.
 // A line covered by any test is Covered. A line present only in Result.ImportTime is
 // ImportTime and MUST NOT be reported as Uncovered. Everything else is Uncovered.
+// Deleted changes, and changes with no Lines, produce no FileReport. Output is sorted
+// by Path; each file's ranges are sorted ascending and adjacent lines of the same Class
+// are coalesced. Callers pass only instrumentable changes.
+//
+// One exception, spec §6 / audit A1: a file coverage MEASURED but that NO test context
+// touches is an import-time-only file, and every one of its changed lines is ImportTime.
+// Coverage stores only executed lines, so within such a file a blank line is
+// indistinguishable from a dead statement, and reporting the blanks in a changed
+// dataclass/Enum/constants module as Uncovered is exactly the false positive A1 forbids.
+// A file coverage never saw at all is NOT import-time-only: it is wholly Uncovered.
 func Classify(changes []gitctx.Change, cov *coverage.Result) []FileReport
 
 func (r FileReport) UncoveredLines() int
+
+type Summary struct {
+    Files           int
+    CoveredLines    int
+    UncoveredLines  int
+    ImportTimeLines int
+}
+
+// Summarize totals a set of FileReports.
+func Summarize(reports []FileReport) Summary
 ```
 
 ## internal/doctor
