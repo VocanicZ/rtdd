@@ -271,6 +271,24 @@ def test_the_dry_run_cli_builds_five_arms_over_the_frozen_list_with_no_network()
     assert "0 findings" in proc.stdout
 
 
+def test_the_dry_run_prints_the_real_repository_root_the_same_for_every_arm():
+    """The bytes CI checks are the bytes an instance is handed, not a stand-in.
+
+    The driver's workspace carries no arm, so the ``Repository root:`` line is
+    one line for all five arms — and the dry run assembles against that very
+    path rather than substituting the difference away.
+    """
+    first = driver.instance_ids(REPO_ROOT)[0]
+    assert driver.dry_run_root(first) == driver.work_root() / first
+
+    proc = run_script("run_arm.py", "--dry-run", env=offline_env())
+    assert proc.returncode == 0, proc.stderr
+    root_lines = {
+        line for line in proc.stdout.splitlines() if line.startswith("Repository root:")
+    }
+    assert root_lines == {f"Repository root: {driver.work_root() / first}"}
+
+
 def test_the_dry_run_needs_no_signed_pre_registration_so_ci_can_run_it_here():
     """CI runs this on a deliberately unsigned repository, so it must not gate on one."""
     assert front_matter(PREREG_PATH)["status"] == "UNSIGNED"

@@ -9,6 +9,7 @@ dead at a ceiling with the cost written down.
 
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
 
@@ -181,7 +182,7 @@ def test_the_prompt_is_the_arm_prompt_with_the_instance_substituted(monkeypatch,
     assert "is broken and should not be." in prompt
     assert "{problem_statement}" not in prompt
     assert prompt == driver.assemble(
-        "rtdd", tmp_path / "work" / "rtdd" / IDS[0], rows_for(IDS)[IDS[0]]["problem_statement"]
+        "rtdd", tmp_path / "work" / IDS[0], rows_for(IDS)[IDS[0]]["problem_statement"]
     )
 
 
@@ -205,7 +206,7 @@ def test_an_instance_with_a_record_is_skipped_so_a_crashed_run_resumes(monkeypat
     assert sorted(records(root, "vanilla")) == sorted(IDS)
 
 
-def test_a_second_run_with_every_record_present_spends_nothing(monkeypatch, tmp_path, make_repo):
+def test_a_second_run_with_every_record_present_spends_nothing_new(monkeypatch, tmp_path, make_repo):
     root = make_repo(IDS)
     stub(monkeypatch, tmp_path)
     driver.run_arm(root, "vanilla", agent.AgentConfig(), Budget())
@@ -213,7 +214,9 @@ def test_a_second_run_with_every_record_present_spends_nothing(monkeypatch, tmp_
     b = Budget()
     driver.run_arm(root, "vanilla", agent.AgentConfig(), b)
     assert rec2.ran == []
-    assert b.prompt_tokens == 0
+    # Nothing new was charged, but the arm's recorded spend is still the first
+    # run's: a resume that read zero would erase what the benchmark cost.
+    assert (b.prompt_tokens, b.completion_tokens) == (3000, 300)
 
 
 def test_arms_do_not_share_a_raw_directory(monkeypatch, tmp_path, make_repo):
@@ -432,3 +435,113 @@ def test_main_dry_run_accepts_no_arm_argument(monkeypatch, make_repo):
     root = make_repo(IDS)
     no_model(monkeypatch)
     assert driver.main(["--dry-run", "--repo-root", str(root)]) == 0
+
+
+# --- the arm's name never reaches the prompt ------------------------------
+
+
+def test_the_workspace_the_prompt_names_is_the_same_for_every_arm():
+    # ``work_root`` feeds ``prompts.BASE``'s "Repository root:" line, so an
+    # arm-shaped path would put the arm's own name — and its length — inside the
+    # system prompt of every instance. It takes no arm; there is nothing to pass.
+    assert list(inspect.signature(driver.work_root).parameters) == []
+    root_lines = {
+        next(
+            line
+            for line in driver.assemble(arm, driver.dry_run_root(IDS[0]), "why").splitlines()
+            if line.startswith("Repository root:")
+        )
+        for arm in prompts.ARMS
+    }
+    assert len(root_lines) == 1, root_lines
+
+
+def test_the_dry_run_assembles_against_the_root_a_real_run_uses(monkeypatch, tmp_path, make_repo):
+    root = make_repo(IDS)
+    rec = stub(monkeypatch, tmp_path)
+    driver.run_arm(root, "rtdd", agent.AgentConfig(), Budget())
+    statement = rows_for(IDS)[IDS[0]]["problem_statement"]
+    assert driver.dry_run_root(IDS[0]) == driver.work_root() / IDS[0]
+    assert rec.prompts[IDS[0]] == driver.assemble("rtdd", driver.dry_run_root(IDS[0]), statement)
+
+
+def test_two_arms_hand_the_model_prompts_that_differ_by_exactly_the_block(monkeypatch, tmp_path, make_repo):
+    # The guarantee on the bytes an instance is actually given, not on
+    # prompts.build's constants and not on a substituted stand-in root.
+    root = make_repo(IDS)
+    handed: dict[str, str] = {}
+    for arm in prompts.ARMS:
+        rec = stub(monkeypatch, tmp_path)
+        driver.run_arm(root, arm, agent.AgentConfig(), Budget())
+        handed[arm] = rec.prompts[IDS[0]]
+
+    for arm in prompts.ARMS:
+        control = prompts.control_for(arm)
+        if control is None:
+            assert prompts.extract_context(handed[arm]) is None
+            continue
+        block = prompts.extract_context(handed[arm])
+        assert handed[arm] == handed[control] + "\n" + prompts.context_block(block)
+
+
+def test_a_composition_violation_stops_the_arm_instead_of_being_recorded(monkeypatch, tmp_path, make_repo):
+    root = make_repo(IDS)
+    rec = stub(monkeypatch, tmp_path)
+    real_build = prompts.build
+    monkeypatch.setattr(
+        driver.prompts,
+        "build",
+        lambda arm: real_build(arm) + ("\nRun the ranked tests first.\n" if arm == "rtdd" else ""),
+    )
+    with pytest.raises(driver.CompositionError):
+        driver.run_arm(root, "rtdd", agent.AgentConfig(), Budget())
+    assert rec.ran == [], "the arm spent a token on a prompt that violates the guarantee"
+
+
+def test_main_exits_5_on_a_composition_violation(monkeypatch, tmp_path, make_repo, capsys):
+    root = make_repo(IDS)
+    stub(monkeypatch, tmp_path)
+    real_build = prompts.build
+    monkeypatch.setattr(
+        driver.prompts,
+        "build",
+        lambda arm: real_build(arm) + ("\nRun the ranked tests first.\n" if arm == "rtdd" else ""),
+    )
+    code = driver.main(["rtdd", "--repo-root", str(root)])
+    assert code == 5
+    assert "COMPOSITION" in capsys.readouterr().err
+
+
+# --- a resume tops the spend up, it does not erase it ---------------------
+
+
+def test_a_resume_tops_up_the_recorded_spend_instead_of_erasing_it(monkeypatch, tmp_path, make_repo):
+    root = make_repo(IDS)
+    stub(monkeypatch, tmp_path)
+    driver.run_arm(root, "vanilla", agent.AgentConfig(), Budget())
+    before = json.loads(driver.cost_path(root, "vanilla").read_text(encoding="utf-8"))
+    assert (before["prompt_tokens"], before["completion_tokens"]) == (3000, 300)
+
+    driver.raw_path(root, "vanilla", IDS[1]).unlink()
+    rec2 = stub(monkeypatch, tmp_path)
+    driver.run_arm(root, "vanilla", agent.AgentConfig(), Budget())
+    assert rec2.ran == [IDS[1]]
+
+    after = json.loads(driver.cost_path(root, "vanilla").read_text(encoding="utf-8"))
+    assert (after["prompt_tokens"], after["completion_tokens"]) == (4000, 400)
+    assert after["usd_estimated"] > before["usd_estimated"]
+
+
+def test_the_spend_cap_is_a_per_benchmark_ceiling_not_a_per_invocation_one(monkeypatch, tmp_path, make_repo):
+    root = make_repo(IDS)
+    rec = stub(monkeypatch, tmp_path)
+    cap = dict(max_usd=0.0015, usd_per_m_prompt=1.0, usd_per_m_completion=1.0)
+    with pytest.raises(BudgetExceeded):
+        driver.run_arm(root, "vanilla", agent.AgentConfig(), Budget(**cap))
+    assert rec.ran == [IDS[0], IDS[1]]
+
+    rec2 = stub(monkeypatch, tmp_path)
+    with pytest.raises(BudgetExceeded):
+        driver.run_arm(root, "vanilla", agent.AgentConfig(), Budget(**cap))
+    assert rec2.ran == [], "the resume was handed the whole cap again"
+    assert sorted(records(root, "vanilla")) == sorted(IDS[:2])

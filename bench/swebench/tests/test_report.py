@@ -24,11 +24,13 @@ import pytest
 
 from agent import AgentConfig
 from providers.tdad import TDAD_PIN
+from preflight import instance_list_sha256
 from report import (
     ARM_LABEL,
     ARM_ORDER,
     ReportError,
     assert_resolution_beside_regression,
+    observed_models,
     render,
     write_config,
 )
@@ -345,16 +347,65 @@ def test_config_refuses_a_model_that_is_not_the_pre_registered_one(tmp_path):
         write_config(root)
 
 
+def write_models(repo_root: Path, arm: str, models: dict[str, str]) -> None:
+    raw = repo_root / "bench" / "results" / "swebench" / "raw" / arm
+    raw.mkdir(parents=True, exist_ok=True)
+    for instance_id, model in models.items():
+        (raw / f"{instance_id}.json").write_text(
+            json.dumps({"instance_id": instance_id, "arm": arm, "model": model}),
+            encoding="utf-8",
+        )
+
+
+def test_observed_models_folds_the_distinct_models_out_of_the_raw_records(tmp_path):
+    root = make_repo(tmp_path)
+    write_models(root, "vanilla", {IDS[0]: "model-a", IDS[1]: "model-a"})
+    write_models(root, "rtdd", {IDS[0]: "model-b"})
+    assert observed_models(root) == ["model-a", "model-b"]
+
+
+def test_the_model_guard_reads_the_records_not_the_agent_default(tmp_path):
+    # run_arm.py takes --model and stamps the real one into every record, so a
+    # guard that compares AgentConfig's default lets another model's run publish
+    # a config claiming the pre-registered one.
+    root = make_repo(tmp_path)
+    write_models(root, "vanilla", {IDS[0]: "gpt-4o"})
+    with pytest.raises(ReportError, match="gpt-4o"):
+        write_config(root)
+
+
+def test_config_records_the_model_the_records_were_actually_produced_under(tmp_path):
+    root = make_repo(tmp_path, model="Qwen3-Coder-30B-A3B-Instruct-AWQ")
+    write_models(root, "vanilla", {IDS[0]: "Qwen3-Coder-30B-A3B-Instruct-AWQ"})
+    assert config_of(root)["model"]["id"] == "Qwen3-Coder-30B-A3B-Instruct-AWQ"
+
+
+def test_a_run_whose_records_name_two_models_is_refused(tmp_path):
+    root = make_repo(tmp_path)
+    write_models(root, "vanilla", {IDS[0]: AgentConfig().model})
+    write_models(root, "rtdd", {IDS[0]: "gpt-4o"})
+    with pytest.raises(ReportError, match="more than one model"):
+        write_config(root)
+
+
 def test_config_records_the_sample_seed_size_and_instance_list_sha256(tmp_path):
     root = make_repo(tmp_path)
     sample = config_of(root)["sample"]
     instances = root / "bench" / "swebench" / "instances.txt"
     assert sample["seed"] == 20260826
     assert sample["size"] == 3
-    assert (
-        sample["instance_list_sha256"]
-        == hashlib.sha256(instances.read_bytes()).hexdigest()
-    )
+    assert sample["instance_list_sha256"] == instance_list_sha256(instances)
+
+
+def test_the_published_digest_is_the_one_the_gate_checked(tmp_path):
+    # One field name, one definition. preflight hashes the normalised ids; a
+    # second raw-bytes hash published under the same name would disagree with
+    # the gate the moment the file gained a blank line.
+    root = make_repo(tmp_path)
+    instances = root / "bench" / "swebench" / "instances.txt"
+    instances.write_text(instances.read_text(encoding="utf-8") + "\n\n", encoding="utf-8")
+    assert instance_list_sha256(instances) != hashlib.sha256(instances.read_bytes()).hexdigest()
+    assert config_of(root)["sample"]["instance_list_sha256"] == instance_list_sha256(instances)
 
 
 def test_config_records_the_host_the_wall_clock_figures_came_from(tmp_path):

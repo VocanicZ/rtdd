@@ -13,12 +13,21 @@ structural rather than remembered:
      rather than skipped, because an instance that vanishes silently shrinks the
      denominator every published rate divides by.
   4. **Resumable.** An instance whose record already exists is skipped, so a
-     crash costs the current instance and nothing else.
+     crash costs the current instance and nothing else, and the arm's previous
+     spend is restored from its cost file so ``--max-usd`` stays a ceiling on
+     the benchmark rather than on each restart.
   5. **The record is written before the budget is charged.** The tokens are
      already spent by then; charging first would let a ceiling stop discard the
      instance that paid for it.
+  6. **The composition guarantee is checked on the bytes that ship.** Before an
+     instance's prompt reaches the model, :func:`check_assembled` re-assembles
+     all five arms from *that instance's real workspace root* and refuses the
+     run if any arm is not its control plus exactly one ``<test-context>``
+     block. The workspace carries no arm name for exactly this reason: it is
+     interpolated into ``prompts.BASE``, and a per-arm path would make the arms
+     differ by their root line as well as by the block.
 
-``--dry-run`` is the fifth guarantee's mirror image: it exercises the arm
+``--dry-run`` is the sixth guarantee's mirror image: it exercises the arm
 builders for all five arms across the whole instance list with **no model call
 and no network**, and asserts on the prompts *as assembled here* — control plus
 exactly one ``<test-context>`` block, byte for byte, with no imperative inside
@@ -86,8 +95,39 @@ def cost_path(repo_root: Path, arm: str) -> Path:
     return repo_root / "bench" / "results" / "swebench" / "cost" / arm / "cost.json"
 
 
-def work_root(arm: str) -> Path:
-    return WORK_ROOT / arm
+def read_cost(repo_root: Path, arm: str) -> dict:
+    """The spend this arm's previous runs recorded, or ``{}`` if it has none.
+
+    Read back so a resume tops the spend up instead of erasing it: the ``finally``
+    block rewrites this same file, and a budget that started at zero would
+    publish a cost of one restart for a benchmark that took several.
+    """
+    path = cost_path(repo_root, arm)
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def work_root() -> Path:
+    """The checkout root, and deliberately not a per-arm one.
+
+    ``workspace.prepare`` puts the instance under this root, and that path is
+    interpolated into ``prompts.BASE``'s ``Repository root:`` line. A per-arm
+    root would therefore ship the arm's own name — and its string length —
+    inside the system prompt of every instance, in exactly the arm whose claim
+    is "context, no procedure". Arms run one at a time and each instance's
+    worktree is rebuilt from the mirror, so one root serves all five.
+    """
+    return WORK_ROOT
+
+
+class CompositionError(RuntimeError):
+    """An assembled prompt is not its control plus exactly one context block.
+
+    Raised out of the run loop rather than recorded as a failed instance: a
+    prompt that violates the guarantee invalidates the comparison, so the arm
+    stops instead of quietly producing records nobody may publish.
+    """
 
 
 def assemble(arm: str, repo_root: Path, problem_statement: str) -> str:
@@ -136,13 +176,14 @@ def check_assembled(root: Path, problem_statement: str) -> list[str]:
 
 
 def dry_run_root(instance_id: str) -> Path:
-    """The workspace path stood in for at dry-run time.
+    """The workspace path the dry run assembles against — the real one.
 
-    One path for all five arms rather than each arm's own: the identity being
-    checked is that two arms assembled from the same instance differ by exactly
-    one block, and a per-arm path would make them differ by their root line too.
+    Not a stand-in and not a substitution: :func:`work_root` carries no arm, so
+    the path an instance is actually handed is already the same for all five
+    arms, and the dry run can check the bytes that ship rather than bytes made
+    comparable for it.
     """
-    return WORK_ROOT / "<arm>" / instance_id
+    return work_root() / instance_id
 
 
 def dry_run(repo_root: Path, out=print) -> list[str]:
@@ -179,12 +220,22 @@ def run_arm(repo_root: Path, arm: str, cfg: agent.AgentConfig, budget: Budget) -
         raise PreregError(f"arm {arm!r} is not pre-registered; arms are {pr.fields['arms']}")
 
     cache = CACHE_ROOT
-    work = work_root(arm)
+    work = work_root()
     ids = instance_ids(repo_root)
     rows = sample.load_rows()
+    prior = read_cost(repo_root, arm)
+    if prior:
+        budget.restore(prior)
+        print(
+            f"{arm}: resuming with {budget.prompt_tokens} prompt and "
+            f"{budget.completion_tokens} completion tokens already spent "
+            f"(${budget.usd:.2f} of ${budget.max_usd:.2f})"
+        )
     budget.start()
 
     try:
+        # A resume that is already over a ceiling spends nothing more.
+        budget.check()
         for index, instance_id in enumerate(ids, 1):
             out = raw_path(repo_root, arm, instance_id)
             if out.exists():
@@ -195,6 +246,14 @@ def run_arm(repo_root: Path, arm: str, cfg: agent.AgentConfig, budget: Budget) -
             record: dict = {"instance_id": instance_id, "arm": arm, "model": cfg.model}
             try:
                 ws = workspace.prepare(cache / "mirrors", work, row)
+                # The guarantee, on the bytes this instance is about to be
+                # handed: all five arms assembled from this very root, and each
+                # context arm still its control plus exactly one block.
+                violations = check_assembled(ws.root, row["problem_statement"])
+                if violations:
+                    raise CompositionError(
+                        f"{instance_id}: " + "; ".join(violations)
+                    )
                 extra, provenance = context_tools(arm, ws, cache, row)
                 record.update(provenance)
                 system_prompt = assemble(arm, ws.root, row["problem_statement"])
@@ -211,6 +270,10 @@ def run_arm(repo_root: Path, arm: str, cfg: agent.AgentConfig, budget: Budget) -
                         "error": None,
                     }
                 )
+            except CompositionError:
+                # Not a failed instance: a broken comparison. Out, with the cost
+                # file still written by the finally block below.
+                raise
             except Exception as exc:  # an instance that errors is a failed instance
                 record.update(
                     {
@@ -279,6 +342,9 @@ def main(argv: list[str] | None = None) -> int:
     except PreregError as exc:
         print(f"PREFLIGHT REFUSED: {exc}", file=sys.stderr)
         return 3
+    except CompositionError as exc:
+        print(f"COMPOSITION VIOLATION: {exc}", file=sys.stderr)
+        return 5
     except BudgetExceeded as exc:
         print(f"BUDGET STOP: {exc}", file=sys.stderr)
         return 4
