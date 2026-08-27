@@ -189,8 +189,19 @@ def collect(work: pathlib.Path, python: str = sys.executable) -> tuple[str, ...]
     ids = []
     for line in proc.stdout.splitlines():
         line = line.strip()
-        if "::" in line and not line.startswith(("=", "-", "<")):
-            ids.append(line)
+        head, sep, rest = line.partition("::")
+        if not sep or not rest:
+            continue
+        # `--collect-only -q` writes the warnings summary to the same stream, and
+        # pytest's own deprecation text quotes the offending node id inside a
+        # sentence (`Test: tests/x.py::test_y, argvalues type: zip`). Keying on
+        # `::` alone admits that sentence as a test. A node id's first segment is
+        # always the test file's path, so it ends in `.py` and carries no
+        # whitespace; prose fails both, and the parametrised id's own brackets —
+        # which may well contain spaces — sit after the `::` and are untouched.
+        if not head.endswith(".py") or head.split() != [head]:
+            continue
+        ids.append(line)
     return tuple(sorted(set(ids)))
 
 
