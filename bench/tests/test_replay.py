@@ -696,3 +696,47 @@ def test_the_parallel_baselines_subset_runs_are_actually_parallel(
     assert parallel, f"no subset run carried -n auto: {seen}"
     assert serial, f"no subset run stayed serial: {seen}"
     assert parallel.isdisjoint(serial)
+
+
+def test_a_base_tree_rtdd_refuses_to_seed_is_skipped_not_fatal(synth, cache_root, monkeypatch):
+    """A parent tree the tool under test will not seed is data, not an abort.
+
+    `rtdd seed` exits 3 on a tree whose suite will not collect, and real history
+    supplies those trees: `httpie` drops its `pytest-lazy-fixture` dependency
+    partway through the frozen replay window, so every commit older than that drop
+    imports a plugin the pinned environment does not install. The harness's own
+    runs survive it — they pass `--continue-on-collection-errors` — but the shipped
+    binary does not, and it is the shipped binary that decides whether this cycle
+    has a comparable base at all.
+
+    One such commit must cost its own cycle and nothing else. Aborting the walk
+    there throws away every later commit, which is how a corpus repo ends up with
+    no published table.
+    """
+    import replay.replay as mod
+    from replay.rtddio import RtddError
+
+    seeded = {"n": 0}
+
+    def refuse_once(work, binary="rtdd"):
+        seeded["n"] += 1
+        if seeded["n"] == 1:
+            raise RtddError("rtdd seed exited 3: 3 errors during collection")
+
+    monkeypatch.setattr(mod.rtddio, "seed", refuse_once)
+    spec = _spec(synth)
+    cfg = _cfg(strategies=("rtdd", "full"))
+    out = replay_repo(
+        repo=synth.path,
+        spec=spec,
+        cfg=cfg,
+        cache=Cache(cache_root, cfg.digest()),
+        hw=probe(),
+        work_root=synth.path.parent / "trees-noseed",
+        opts=ReplayOptions(
+            variants=("natural",), strategy_ids=("rtdd", "full"), wallclock_sample=0
+        ),
+    )
+    assert any(s["reason"] == "parent-state-unavailable" for s in out.skipped), out.skipped
+    assert out.skipped[0]["strategy"] == "rtdd"
+    assert out.commits, "the replay must continue past a base tree it could not prepare"

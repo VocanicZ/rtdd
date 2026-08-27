@@ -402,9 +402,30 @@ def replay_repo(
                     python=python,
                     base_tests=base_tests,
                 )
+                unpreparable = None
                 for sid in order:
                     if getattr(sbase.get(sid), "needs_parent_state", False):
-                        _prepare_state(sid, seed_ctx, cache, spec.id, base_sha)
+                        try:
+                            _prepare_state(sid, seed_ctx, cache, spec.id, base_sha)
+                        except rtddio.RtddError as exc:
+                            # The tool under test refuses a base tree whose suite
+                            # will not collect, and a cycle with no parent state
+                            # has no comparable base for *any* map-based strategy.
+                            # It is this cycle's loss and not the walk's: aborting
+                            # here would throw away every later commit, which is
+                            # how a corpus repo ends up with no published table.
+                            unpreparable = {
+                                "repo_id": spec.id,
+                                "commit": point.commit,
+                                "variant": variant,
+                                "strategy": sid,
+                                "reason": "parent-state-unavailable",
+                                "detail": str(exc)[:500],
+                            }
+                            break
+                if unpreparable is not None:
+                    out.skipped.append(unpreparable)
+                    continue
 
                 if variant == "natural":
                     materialise_natural(work, repo, point)
