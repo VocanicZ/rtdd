@@ -260,6 +260,21 @@ def _cached_uncovered(
     )
 
 
+def _xdist_workers() -> str:
+    """How wide the ground-truth run may go, as a pytest-xdist ``-n`` value.
+
+    ``auto`` takes every core, which is right on a dedicated box and hostile on a
+    shared one — this benchmark runs for hours, and a developer's own machine has to
+    stay usable while it does. ``RTDD_BENCH_XDIST_N`` caps it. Only *this* run is
+    capped: the ``xdist`` baseline's own ``-n auto`` is a published measurement and
+    is never touched by this knob.
+
+    A capped run is still not a quiet-box run. Nothing here makes a contended
+    machine safe to take timings on; this run simply publishes none.
+    """
+    return os.environ.get("RTDD_BENCH_XDIST_N", "auto")
+
+
 def _cached_coverage_truth(
     cache: Cache,
     key: str,
@@ -284,7 +299,7 @@ def _cached_coverage_truth(
             python=python,
             instrumented=True,
             source_globs=source_globs,
-            exec_args=("-n", "auto"),
+            exec_args=("-n", _xdist_workers()),
         )
         truth = read_coverage(work / ".coverage", work)
         return {"covered": sorted([f, line] for f, line in truth.covered)}

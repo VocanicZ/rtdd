@@ -767,3 +767,53 @@ def test_the_instrumented_ground_truth_run_is_parallel(monkeypatch, tmp_path, ca
 
     assert seen == [("-n", "auto")]
     assert covered == frozenset({("a.py", 1)})
+
+
+def test_the_ground_truth_run_can_be_capped_to_leave_the_box_usable(
+    monkeypatch, tmp_path, cache_root
+):
+    """`auto` takes every core; a box someone else is working on needs a ceiling."""
+    from replay import replay as replay_mod
+
+    seen: list[tuple[str, ...]] = []
+
+    def fake_run_full(work, python=None, instrumented=False, source_globs=(), **kw):
+        seen.append(tuple(kw.get("exec_args", ())))
+        return None
+
+    monkeypatch.setenv("RTDD_BENCH_XDIST_N", "6")
+    monkeypatch.setattr(replay_mod, "run_full", fake_run_full)
+    monkeypatch.setattr(
+        replay_mod, "read_coverage", lambda db, work: type("T", (), {"covered": set()})()
+    )
+
+    replay_mod._cached_coverage_truth(
+        Cache(cache_root, "capped"), "k", tmp_path, sys.executable, ()
+    )
+
+    assert seen == [("-n", "6")]
+
+
+def test_the_ground_truth_run_can_be_capped_to_leave_the_box_usable(
+    monkeypatch, tmp_path, cache_root
+):
+    """`auto` takes every core; a box someone else is using needs a ceiling."""
+    from replay import replay as replay_mod
+
+    seen: list[tuple[str, ...]] = []
+
+    def fake_run_full(work, python=None, instrumented=False, source_globs=(), **kw):
+        seen.append(tuple(kw.get("exec_args", ())))
+        return None
+
+    monkeypatch.setenv("RTDD_BENCH_XDIST_N", "8")
+    monkeypatch.setattr(replay_mod, "run_full", fake_run_full)
+    monkeypatch.setattr(
+        replay_mod, "read_coverage", lambda db, work: type("T", (), {"covered": set()})()
+    )
+
+    replay_mod._cached_coverage_truth(
+        Cache(cache_root, "capped"), "k", tmp_path, sys.executable, ()
+    )
+
+    assert seen == [("-n", "8")]
