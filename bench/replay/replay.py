@@ -275,7 +275,17 @@ def _cached_coverage_truth(
     """
 
     def build() -> dict:
-        run_full(work, python=python, instrumented=True, source_globs=source_globs)
+        # The dominant cost of a cycle, and the last full run still serial after #182.
+        # Per-test contexts survive `-n auto` (the xdist column already relies on it,
+        # and SysmonContextError would catch a drop), and this run's wall-clock is
+        # never published — only its covered set — so the flags cost no number.
+        run_full(
+            work,
+            python=python,
+            instrumented=True,
+            source_globs=source_globs,
+            exec_args=("-n", "auto"),
+        )
         truth = read_coverage(work / ".coverage", work)
         return {"covered": sorted([f, line] for f, line in truth.covered)}
 

@@ -43,7 +43,12 @@ CORPUS = BENCH / "corpus.yaml"
 LOCK = BENCH / "corpus.lock"
 WORK = BENCH / "work"
 ENVS = BENCH / "work" / "envs"
-CACHE = BENCH / "cache"
+CACHE = pathlib.Path(os.environ.get("RTDD_BENCH_CACHE") or BENCH / "cache").expanduser()
+"""Ground truth is expensive enough to outlive the checkout that produced it.
+The fleet reaps and recreates its worktree on every claim, which takes a
+``bench/cache/`` down with it and makes every claim pay the ground truth again, so
+``RTDD_BENCH_CACHE`` can point the store somewhere durable. Entries stay keyed by the
+config digest either way, so a longer-lived cache is not a staler one."""
 RESULTS = BENCH / "results"
 
 DEFAULT_STRATEGIES = ("rtdd", "testmon", "path", "lf", "importgraph", "xdist", "random", "full")

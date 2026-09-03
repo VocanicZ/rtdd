@@ -740,3 +740,30 @@ def test_a_base_tree_rtdd_refuses_to_seed_is_skipped_not_fatal(synth, cache_root
     assert any(s["reason"] == "parent-state-unavailable" for s in out.skipped), out.skipped
     assert out.skipped[0]["strategy"] == "rtdd"
     assert out.commits, "the replay must continue past a base tree it could not prepare"
+
+
+def test_the_instrumented_ground_truth_run_is_parallel(monkeypatch, tmp_path, cache_root):
+    """The one full run left serial after #182 — the dominant cost of a cycle.
+
+    Per-test contexts survive `-n auto` and this run's wall-clock is never published,
+    only its covered set, so the flags buy back hours without moving a number.
+    """
+    from replay import replay as replay_mod
+
+    seen: list[tuple[str, ...]] = []
+
+    def fake_run_full(work, python=None, instrumented=False, source_globs=(), **kw):
+        seen.append(tuple(kw.get("exec_args", ())))
+        return None
+
+    monkeypatch.setattr(replay_mod, "run_full", fake_run_full)
+    monkeypatch.setattr(
+        replay_mod, "read_coverage", lambda db, work: type("T", (), {"covered": {("a.py", 1)}})()
+    )
+
+    covered = replay_mod._cached_coverage_truth(
+        Cache(cache_root, "digest"), "k", tmp_path, sys.executable, ()
+    )
+
+    assert seen == [("-n", "auto")]
+    assert covered == frozenset({("a.py", 1)})
