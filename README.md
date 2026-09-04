@@ -81,12 +81,14 @@ comparison against that line is the point of the project rather than a marketing
   gap between "2% of tests selected" and "32% faster" is real, and RTDD measures itself
   against it rather than reporting selection ratio alone.
 
-- **SonarQube's new-code coverage gate**, Codecov's patch status, and `diff-cover` are prior
-  art for "changed code that no test covers is a problem". RTDD's uncovered-change report is
-  the same idea moved from CI into the inner loop, and reported rather than enforced.
+- **[SonarQube's new-code coverage gate](https://docs.sonarsource.com/sonarqube-server/latest/user-guide/clean-as-you-code/)**,
+  Codecov's patch status, and `diff-cover` are prior art for "changed code that no test
+  covers is a problem". RTDD's uncovered-change report is the same idea moved from CI into
+  the inner loop, and reported rather than enforced.
 
-- **Bazel**, Google TAP, Microsoft's Azure DevOps Test Impact Analysis, `jest
-  --findRelatedTests`, NCrunch, and **Meta's predictive test selection** are also in the
+- **[Bazel](https://bazel.build/query/guide)**, Google TAP, Microsoft's Azure DevOps Test
+  Impact Analysis, `jest --findRelatedTests`, NCrunch, and
+  **[Meta's predictive test selection](https://arxiv.org/abs/1810.05286)** are also in the
   lineage and are not claimed as novel here.
 
 **What is new here, if anything, is one measurement.** Every tool above builds its map
