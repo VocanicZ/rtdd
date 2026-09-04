@@ -47,6 +47,13 @@ jobs:
           file /tmp/rtdd
           file /tmp/rtdd | grep -q 'statically linked'
 
+      # The step above proves the linux/amd64 host build is static. PRD #6 criterion 5
+      # asks for all four released artifacts, so this cross-builds the whole
+      # .goreleaser.yaml matrix and inspects each one by executable format. `go test ./...`
+      # above runs it too; naming it here points a red build straight at the artifacts.
+      - name: every release artifact is statically linked
+        run: go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' .
+
   prereg:
     runs-on: ubuntu-latest
     steps:

@@ -41,4 +41,10 @@ CGO_ENABLED=0 go build -o /tmp/rtdd ./cmd/rtdd
 file /tmp/rtdd
 file /tmp/rtdd | grep -q 'statically linked'
 
+# The host build above covers linux/amd64 only. PRD #6 criterion 5 wants all four
+# released artifacts, so cross-build the whole .goreleaser.yaml matrix and inspect
+# each one by executable format (ELF, Mach-O, PE).
+echo "==> every release artifact is statically linked"
+go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' .
+
 echo "==> ci-local: PASS"

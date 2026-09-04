@@ -28,7 +28,17 @@ It runs exactly what `.github/workflows/ci.yml` runs:
 go build ./... && go vet ./... && gofmt -l . && go test ./... -count=1
 CGO_ENABLED=0 go build -o /tmp/rtdd ./cmd/rtdd   # must produce a STATIC binary
 file /tmp/rtdd | grep -q 'statically linked' || echo "FAIL: not static"
+go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' .   # all four artifacts
 ```
+
+The `file` check above only ever sees the linux/amd64 host build. PRD #6 criterion 5 is
+about every published artifact, so `release_artifacts_test.go` cross-builds the whole
+`.goreleaser.yaml` matrix and inspects each binary in its own format: ELF must be
+statically linked (no PT_INTERP, no dynamic section, no imported libraries), Mach-O must
+load nothing beyond the base-system dylibs — Go on darwin always links `libSystem`, so
+`statically linked` is a string that can never appear there — and PE must import only
+OS-provided DLLs. `scripts/release-preflight.sh` reports the same check on its own
+`Release binaries:` line.
 
 `CGO_ENABLED=0` is not optional. Spec D4 promises a binary with no runtime dependencies
 forced into the host repo; `modernc.org/sqlite` is chosen over `mattn/go-sqlite3`
