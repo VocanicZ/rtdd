@@ -27,6 +27,7 @@ from replay.hardware import CIWallClockRefused, Hardware, probe, require_wallclo
 from replay.replay import ReplayOptions, replay_repo, strategy_order
 from replay.report import render_aggregate, write_results
 from replay.session import run_drift
+from replay.strategies import base as sbase
 from replay.strategies import (  # noqa: F401  side-effect registration
     full as _full,
     importgraph as _ig,
@@ -166,6 +167,16 @@ def cmd_replay(args) -> int:
         return EXIT_GUARD
     wallclock_enabled = _wallclock_enabled(hw, args)
     strategies = tuple(args.strategies.split(",")) if args.strategies else DEFAULT_STRATEGIES
+    if "random" in strategies:
+        peer = sbase.get("random").peer
+        if peer not in strategies:
+            print(
+                f"'random' is ratio-matched against {peer!r}'s selection size; "
+                f"{peer!r} must run in the same --strategies list. "
+                f"got: {','.join(strategies)}",
+                file=sys.stderr,
+            )
+            return EXIT_GUARD
     commits = args.replay_commits or spec.replay_commits
     spec = dataclasses.replace(spec, replay_commits=commits)
     repo = clone_pinned(spec.url, spec.pin, WORK / "repos" / spec.id)
@@ -217,7 +228,7 @@ def cmd_replay(args) -> int:
 
 def cmd_session(args) -> int:
     hw = probe()
-    corpus = _corpus()
+    corpus = _corpus(getattr(args, "corpus_version", None))
     try:
         spec = corpus.require(args.repo)
     except CorpusError as exc:
@@ -283,7 +294,7 @@ def cmd_report(args) -> int:
     # later version dropped is kept — it was published, and deleting a published
     # number is worse than superseding it — but it is not weighed here, or the
     # aggregate would span a corpus that no longer exists.
-    ids = set(_corpus().ids())
+    ids = set(_corpus(getattr(args, "corpus_version", None)).ids())
     summaries = []
     for d in sorted(RESULTS.iterdir()) if RESULTS.exists() else []:
         f = d / "summary.json"
@@ -352,6 +363,16 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--repo", required=True)
     s.add_argument("--cycles", type=int, default=25)
     s.add_argument("--seed", type=int, default=1)
+    s.add_argument(
+        "--corpus-version",
+        type=int,
+        default=None,
+        dest="corpus_version",
+        help=(
+            "replay against a superseded corpus version kept in bench/corpus.d/ — "
+            "how a result published under an older corpus_digest is reproduced"
+        ),
+    )
     s.set_defaults(func=cmd_session)
 
     au = sub.add_parser("audit", help="check the corpus against its own admission criteria")
@@ -359,6 +380,7 @@ def build_parser() -> argparse.ArgumentParser:
     au.set_defaults(func=cmd_audit)
 
     rep = sub.add_parser("report", help="regenerate aggregate.md from committed summaries")
+    rep.add_argument("--corpus-version", type=int, default=None, dest="corpus_version")
     rep.set_defaults(func=cmd_report)
     return p
 
