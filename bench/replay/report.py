@@ -103,10 +103,27 @@ def isolation_table(output) -> dict:
     }
 
 
-def wallclock_table(output, hw: Hardware) -> dict:
-    """The three wall-clock columns, or the refusal that replaced them under CI."""
+def wallclock_table(output, hw: Hardware, *, wallclock_enabled: bool = True) -> dict:
+    """The three wall-clock columns, or the refusal that replaced them.
+
+    Two distinct refusals share this table, and a reader must not confuse them:
+    CI detection is the library's own guard (spec §10), while ``wallclock_enabled``
+    is an operator's `--no-wallclock` — typically because the run shares a
+    contended machine and a timing taken there would be inflated and, thanks to
+    the durable cache, silently reused forever after.
+    """
     if not hw.wallclock_allowed():
         return {"suppressed": True, "reason": f"CI detected via {hw.ci}", "rows": {}}
+    if not wallclock_enabled:
+        return {
+            "suppressed": True,
+            "reason": (
+                "withheld by operator (--no-wallclock) — measured on a contended "
+                "workstation, timings would be inflated and, once cached, reused "
+                "forever; re-run on a quiet box to publish them"
+            ),
+            "rows": {},
+        }
     rows: dict[str, dict] = {}
     for w in output.wallclocks:
         row = rows.setdefault(
@@ -132,7 +149,9 @@ def wallclock_table(output, hw: Hardware) -> dict:
     return {"suppressed": False, "reason": "", "rows": dict(sorted(rows.items()))}
 
 
-def build_summary(output, strategy_ids: Sequence[str], hw: Hardware) -> dict:
+def build_summary(
+    output, strategy_ids: Sequence[str], hw: Hardware, *, wallclock_enabled: bool = True
+) -> dict:
     """Every published number for one repo, in the shape `summary.json` is written from."""
     repo_id = metrics.assert_single_repo([*output.commits, *output.strategies])
     variants = sorted({c.variant for c in output.commits})
@@ -158,7 +177,7 @@ def build_summary(output, strategy_ids: Sequence[str], hw: Hardware) -> dict:
         "false_signal": falsesignal.summarise(head_uncovered, len(head_commits)),
         "rtdd_run_errors": len(getattr(output, "rtdd_run_errors", ())),
         "isolation": isolation_table(output),
-        "wallclock": wallclock_table(output, hw),
+        "wallclock": wallclock_table(output, hw, wallclock_enabled=wallclock_enabled),
     }
 
 
@@ -321,10 +340,13 @@ def render_markdown(summary: dict, cfg: RunConfig, hw: Hardware) -> str:
     wc = summary["wallclock"]
     lines.append("")
     if wc["suppressed"]:
-        lines.append(
-            f"Suppressed: {wc['reason']}. Spec §10 permits wall-clock only from "
-            f"disclosed hardware, never from CI runners."
+        note = (
+            " Spec §10 permits wall-clock only from disclosed hardware, never from "
+            "CI runners."
+            if hw.ci
+            else ""
         )
+        lines.append(f"Suppressed: {wc['reason']}.{note}")
     else:
         lines.append(
             "| strategy | n | full uninstrumented | subset instrumented "
@@ -403,12 +425,14 @@ def write_results(
     hw: Hardware,
     strategy_ids: Sequence[str],
     drift: DriftCurve | None = None,
+    *,
+    wallclock_enabled: bool = True,
 ) -> dict:
     """Write one repo's results directory and return the summary that was written."""
     out_dir.mkdir(parents=True, exist_ok=True)
     records = [*output.commits, *output.strategies, *output.wallclocks, *output.uncovered]
     (out_dir / "commits.jsonl").write_text("".join(to_jsonl_lines(records)), encoding="utf-8")
-    summary = build_summary(output, strategy_ids, hw)
+    summary = build_summary(output, strategy_ids, hw, wallclock_enabled=wallclock_enabled)
     (out_dir / "summary.json").write_text(canonical_json(summary), encoding="utf-8")
     (out_dir / "summary.md").write_text(render_markdown(summary, cfg, hw), encoding="utf-8")
     (out_dir / "config.json").write_text(

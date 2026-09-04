@@ -60,6 +60,35 @@ def test_collect_lists_every_test_id(synth):
     }
 
 
+def test_collect_ignores_node_ids_quoted_inside_a_warning(tmp_path):
+    """A warning that *mentions* a node id is prose, and prose is not a test.
+
+    `pytest --collect-only -q` prints the warnings summary on the same stream as
+    the ids, and pytest's own deprecation text quotes the offending node id in a
+    sentence: `Test: tests/test_zip.py::test_pairs, argvalues type: zip`. That
+    line contains `::` and starts with a letter, so a parser that keys on `::`
+    alone admits it — and the phantom id then reaches every strategy that selects
+    the whole suite, whose subset run dies on `pytest exit 4` and takes the rest
+    of the cycle's wall-clock table with it. httpie's suite emits exactly this
+    warning at the frozen pin, which is how it was found.
+    """
+    work = tmp_path / "zipwarn"
+    (work / "tests").mkdir(parents=True)
+    (work / "tests" / "test_zip.py").write_text(
+        "import pytest\n\n\n"
+        '@pytest.mark.parametrize("a,b", zip([1, 2], [3, 4]))\n'
+        "def test_pairs(a, b):\n"
+        "    assert a < b\n",
+        encoding="utf-8",
+    )
+
+    ids = collect(work)
+
+    assert all(i.split("::")[0].endswith(".py") for i in ids), ids
+    assert all(" " not in i.split("::")[0] for i in ids), ids
+    assert set(ids) == {"tests/test_zip.py::test_pairs[1-3]", "tests/test_zip.py::test_pairs[2-4]"}
+
+
 # --- the three run modes ----------------------------------------------------
 
 

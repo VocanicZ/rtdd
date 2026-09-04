@@ -260,6 +260,21 @@ def _cached_uncovered(
     )
 
 
+def _xdist_workers() -> str:
+    """How wide the ground-truth run may go, as a pytest-xdist ``-n`` value.
+
+    ``auto`` takes every core, which is right on a dedicated box and hostile on a
+    shared one — this benchmark runs for hours, and a developer's own machine has to
+    stay usable while it does. ``RTDD_BENCH_XDIST_N`` caps it. Only *this* run is
+    capped: the ``xdist`` baseline's own ``-n auto`` is a published measurement and
+    is never touched by this knob.
+
+    A capped run is still not a quiet-box run. Nothing here makes a contended
+    machine safe to take timings on; this run simply publishes none.
+    """
+    return os.environ.get("RTDD_BENCH_XDIST_N", "auto")
+
+
 def _cached_coverage_truth(
     cache: Cache,
     key: str,
@@ -275,7 +290,17 @@ def _cached_coverage_truth(
     """
 
     def build() -> dict:
-        run_full(work, python=python, instrumented=True, source_globs=source_globs)
+        # The dominant cost of a cycle, and the last full run still serial after #182.
+        # Per-test contexts survive `-n auto` (the xdist column already relies on it,
+        # and SysmonContextError would catch a drop), and this run's wall-clock is
+        # never published — only its covered set — so the flags cost no number.
+        run_full(
+            work,
+            python=python,
+            instrumented=True,
+            source_globs=source_globs,
+            exec_args=("-n", _xdist_workers()),
+        )
         truth = read_coverage(work / ".coverage", work)
         return {"covered": sorted([f, line] for f, line in truth.covered)}
 
@@ -402,9 +427,30 @@ def replay_repo(
                     python=python,
                     base_tests=base_tests,
                 )
+                unpreparable = None
                 for sid in order:
                     if getattr(sbase.get(sid), "needs_parent_state", False):
-                        _prepare_state(sid, seed_ctx, cache, spec.id, base_sha)
+                        try:
+                            _prepare_state(sid, seed_ctx, cache, spec.id, base_sha)
+                        except rtddio.RtddError as exc:
+                            # The tool under test refuses a base tree whose suite
+                            # will not collect, and a cycle with no parent state
+                            # has no comparable base for *any* map-based strategy.
+                            # It is this cycle's loss and not the walk's: aborting
+                            # here would throw away every later commit, which is
+                            # how a corpus repo ends up with no published table.
+                            unpreparable = {
+                                "repo_id": spec.id,
+                                "commit": point.commit,
+                                "variant": variant,
+                                "strategy": sid,
+                                "reason": "parent-state-unavailable",
+                                "detail": str(exc)[:500],
+                            }
+                            break
+                if unpreparable is not None:
+                    out.skipped.append(unpreparable)
+                    continue
 
                 if variant == "natural":
                     materialise_natural(work, repo, point)

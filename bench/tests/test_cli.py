@@ -95,8 +95,9 @@ def stub_replay(monkeypatch):
         seen["spec_commits"] = spec.replay_commits
         return ReplayOutput()
 
-    def fake_write_results(out_dir, output, cfg, hw, strategy_ids, drift=None):
+    def fake_write_results(out_dir, output, cfg, hw, strategy_ids, drift=None, **kw):
         seen["written"] = pathlib.Path(out_dir)
+        seen["write_results_kwargs"] = kw
         return {"n_commits": 3}
 
     monkeypatch.setattr(cli, "clone_pinned", fake_clone)
@@ -419,3 +420,17 @@ def test_session_does_not_overwrite_the_replay_config_that_produced_the_table(
     # overwriting somebody else's.
     assert drift["config"]["replay_commits"] == 4
     assert drift["hardware"]
+
+
+def test_the_cache_can_outlive_the_checkout(monkeypatch, tmp_path):
+    """The fleet reaps its worktree on every claim; a cache inside it dies with it."""
+    import importlib
+
+    monkeypatch.setenv("RTDD_BENCH_CACHE", str(tmp_path / "durable"))
+    reloaded = importlib.reload(cli)
+    try:
+        assert reloaded.CACHE == tmp_path / "durable"
+        monkeypatch.delenv("RTDD_BENCH_CACHE")
+        assert importlib.reload(cli).CACHE == reloaded.BENCH / "cache"
+    finally:
+        importlib.reload(cli)
