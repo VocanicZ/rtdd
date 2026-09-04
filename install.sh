@@ -86,7 +86,10 @@ ARCH="$(detect_arch)"
 VERSION="${RTDD_VERSION:-}"
 if [ -z "$VERSION" ]; then
 	log "resolving the latest rtdd release..."
-	VERSION="$(fetch_stdout "$API_URL" | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')"
+	# -n plus an explicit "p": sed without -n echoes a non-matching line verbatim, so an
+	# unparseable payload would leave VERSION set to raw JSON, defeat the guard below, and
+	# only fail later on a malformed download URL. Print nothing unless the tag matched.
+	VERSION="$(fetch_stdout "$API_URL" | grep -m1 '"tag_name"' | sed -n -E 's/.*"tag_name": *"([^"]+)".*/\1/p')"
 	[ -n "$VERSION" ] || die "could not resolve the latest release version from $API_URL"
 fi
 
