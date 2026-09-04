@@ -23,6 +23,7 @@ usage:
   rtdd which  [--base <ref>] [--json] [--adapter <path>]
   rtdd explain <file>
   rtdd doctor [--limit <n>]
+  rtdd --version
 
 exit codes:
   0  success - an empty selection is a signal, not a failure
@@ -58,6 +59,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "-h", "--help", "help":
 		fmt.Fprint(stdout, usage)
 		return 0
+	case "--version", "version":
+		return cmdVersion(stdout)
 	default:
 		fmt.Fprintf(stderr, "rtdd: unknown command %q\n\n%s", args[0], usage)
 		return 2
