@@ -227,3 +227,20 @@ func TestFilesReturnsTheEmbeddedGeneratedFrontEnds(t *testing.T) {
 		}
 	}
 }
+
+// TestEmbeddedProtocolMatchesTheSource pins internal/install/protocol.md to
+// protocol/PROTOCOL.md. The embed is what `rtdd init` writes, so a stale copy
+// ships a stale protocol; until now the only thing reading the two files
+// against each other was a single step in .github/workflows/ci.yml, which no
+// local run of the suite exercises.
+func TestEmbeddedProtocolMatchesTheSource(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "protocol", "PROTOCOL.md"))
+	if err != nil {
+		t.Fatalf("read protocol/PROTOCOL.md: %v", err)
+	}
+	if embeddedProtocol != string(src) {
+		t.Errorf("internal/install/protocol.md (%d bytes) differs from protocol/PROTOCOL.md (%d bytes); "+
+			"copy the source over the embed and commit the result",
+			len(embeddedProtocol), len(src))
+	}
+}

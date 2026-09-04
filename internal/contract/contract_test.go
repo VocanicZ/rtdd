@@ -279,6 +279,14 @@ var ciCommands = []string{
 	"go vet ./...",
 	"gofmt -l .",
 	"go test ./... -count=1",
+	// The generated front-ends: check catches drift from PROTOCOL.md, verify
+	// catches a dist/ file that is wrong for its target, and the diff catches
+	// an embedded protocol copy that `rtdd init` would ship stale. ci.yml ran
+	// all three while ci-local.sh ran none, so a green local gate did not imply
+	// a green CI — the parity this list exists to enforce.
+	"go run ./cmd/rtdd-gen check",
+	"go run ./cmd/rtdd-gen verify",
+	"diff -u protocol/PROTOCOL.md internal/install/protocol.md",
 	"CGO_ENABLED=0 go build -o /tmp/rtdd ./cmd/rtdd",
 	"statically linked",
 }

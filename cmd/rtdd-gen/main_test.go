@@ -245,3 +245,119 @@ func TestVerifyCatchesMissingFile(t *testing.T) {
 		t.Errorf("stdout = %q, want it to name dist/AGENTS.md", stdout)
 	}
 }
+
+// TestVerifyCatchesEmptyAgentsFile reproduces, at the CLI, the first failure
+// the review found: a dist/AGENTS.md holding nothing but "hello" — no markers,
+// no content — exited 0. verify exists precisely to fail this.
+func TestVerifyCatchesEmptyAgentsFile(t *testing.T) {
+	dir := newProtoRepo(t)
+	if code, _, stderr := rtddgen(t, dir, "render"); code != 0 {
+		t.Fatalf("render: code = %d, stderr = %s", code, stderr)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "dist", "AGENTS.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, _ := rtddgen(t, dir, "verify")
+	if code == 0 {
+		t.Fatalf("verify: code = 0, want non-zero on an AGENTS.md with no rtdd block")
+	}
+	if !strings.Contains(stdout, "agents") {
+		t.Errorf("stdout = %q, want it to name the agents target", stdout)
+	}
+}
+
+// TestVerifyCatchesOverBudgetMDC reproduces the second: the whole SKILL body
+// with .mdc frontmatter grafted on, far over the .mdc budget, exited 0 because
+// no validator read the budget of a file on disk.
+func TestVerifyCatchesOverBudgetMDC(t *testing.T) {
+	dir := newProtoRepo(t)
+	if code, _, stderr := rtddgen(t, dir, "render"); code != 0 {
+		t.Fatalf("render: code = %d, stderr = %s", code, stderr)
+	}
+	rendered := wantRendered(t, dir)
+	skillBody := rendered["dist/SKILL.md"]
+	frontmatter := "---\ndescription: " + protocol.MdcDescription +
+		"\nglobs: " + protocol.MdcGlobs + "\nalwaysApply: false\n---\n\n"
+	grafted := frontmatter + strings.SplitN(skillBody, "\n---\n\n", 2)[1]
+	mdcPath := filepath.Join(dir, "dist", "cursor", "rules", "rtdd.mdc")
+	if err := os.WriteFile(mdcPath, []byte(grafted), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mdc, ok := protocol.TargetByName("mdc")
+	if !ok {
+		t.Fatal("mdc target not registered")
+	}
+	if len(grafted) <= mdc.MaxBytes {
+		t.Fatalf("fixture is %d bytes, not over the %d-byte budget it must breach", len(grafted), mdc.MaxBytes)
+	}
+	code, stdout, _ := rtddgen(t, dir, "verify")
+	if code == 0 {
+		t.Fatalf("verify: code = 0, want non-zero on an over-budget .mdc")
+	}
+	if !strings.Contains(stdout, "mdc") {
+		t.Errorf("stdout = %q, want it to name the mdc target", stdout)
+	}
+}
+
+// TestVerifyCatchesTruncatedAgentsBlock: markers intact, content gone. A byte
+// comparison would call this stale; verify must call it invalid on its own.
+func TestVerifyCatchesTruncatedAgentsBlock(t *testing.T) {
+	dir := newProtoRepo(t)
+	if code, _, stderr := rtddgen(t, dir, "render"); code != 0 {
+		t.Fatalf("render: code = %d, stderr = %s", code, stderr)
+	}
+	truncated := protocol.BeginMarker + "\n## rtdd\n\n" + protocol.EndMarker + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "dist", "AGENTS.md"), []byte(truncated), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, _ := rtddgen(t, dir, "verify")
+	if code == 0 {
+		t.Fatalf("verify: code = 0, want non-zero on a truncated AGENTS.md block")
+	}
+	if !strings.Contains(stdout, "agents") {
+		t.Errorf("stdout = %q, want it to name the agents target", stdout)
+	}
+}
+
+// TestVerifyCatchesAgentsSwallowingANonAgentsSection covers the widened
+// containment check against a file on disk: a section shared by skill and mdc
+// is no more welcome in AGENTS.md than a skill-only one.
+func TestVerifyCatchesAgentsSwallowingANonAgentsSection(t *testing.T) {
+	dir := newProtoRepo(t)
+	if code, _, stderr := rtddgen(t, dir, "render"); code != 0 {
+		t.Fatalf("render: code = %d, stderr = %s", code, stderr)
+	}
+	src, err := os.ReadFile(filepath.Join(dir, "protocol", "PROTOCOL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := protocol.Parse(string(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body string
+	for _, s := range doc.Sections {
+		if !s.HasTarget("agents") && len(s.Targets) > 1 {
+			body = s.BodyFor(s.Targets[0])
+			break
+		}
+	}
+	if body == "" {
+		t.Skip("PROTOCOL.md has no multi-target non-agents section to swallow")
+	}
+	agentsPath := filepath.Join(dir, "dist", "AGENTS.md")
+	raw, err := os.ReadFile(agentsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(agentsPath, append(raw, []byte(body+"\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, _ := rtddgen(t, dir, "verify")
+	if code == 0 {
+		t.Fatalf("verify: code = 0, want non-zero when AGENTS.md swallows a non-agents section")
+	}
+	if !strings.Contains(stdout, "agents") {
+		t.Errorf("stdout = %q, want it to name the agents target", stdout)
+	}
+}
