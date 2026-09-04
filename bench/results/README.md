@@ -50,3 +50,50 @@ that rather than the run being repeated with different settings: the `natural`
 population had no detecting commits at this length, so the pre-registered criterion is
 undecided there, and on the `probe` upper bound RTDD wins recall but not at equal or
 better selected duration, which is what the criterion asks for.
+
+## Re-freezing the corpus without orphaning what is already published
+
+`corpus.yaml` is content-addressed: `corpus.lock` holds the sha256 of its bytes, and
+`load_corpus` refuses to run against a file that has drifted from it. Every result here
+stamps that digest in its `config.json`, so editing the corpus once meant invalidating
+every published number — which is why v1 shipped a repo it should not have and could
+not cheaply take it back (#184).
+
+The lock is now a **history**, one line per version, and superseded versions are kept
+verbatim under `bench/corpus.d/`:
+
+```
+# corpus.lock
+1 95cd1505766b560d0a595ee874531eb98e95522efdd06fdf6a6a1680c40a9381
+2 6145ea8f568d1c4d02b576f1d4d73058688a81f670ba1669088b36f4714fa432
+```
+
+A result published under an older digest stays reproducible against the corpus it was
+produced under:
+
+```bash
+cd bench && uv run python -m replay.cli replay --repo flask --replay-commits 25 \
+  --wallclock-sample 10 --corpus-version 1
+```
+
+To amend the corpus:
+
+1. `cp bench/corpus.yaml bench/corpus.d/v<current>.yaml` — **before** editing. A version
+   that is not archived at its exact bytes is a version whose results cannot be checked.
+2. Edit `corpus.yaml` and bump its `corpus_version`.
+3. Re-freeze: `freeze()` appends the new version to the lock and keeps every prior line.
+   Deleting a line orphans every result published under it.
+4. `uv run python -m replay.cli audit` — it must exit 0. A repo that misses a threshold
+   in `admission:` fails the command; it does not warn.
+5. `uv run python -m replay.cli report` to regenerate `aggregate.md` for the new corpus.
+
+`tests/test_audit.py` asserts the contract end to end, including that every
+`config.json` in this tree still names a digest the lock knows.
+
+## Results for repos the corpus no longer admits
+
+`results/sqlfluff/` is published under corpus v1 and is **kept**: deleting a number that
+was published is worse than superseding it. It is not weighed in `aggregate.md`, which
+spans the current corpus, and `replay.cli report` skips any results directory the corpus
+does not admit. Why it was dropped, and what dropping it did to the aggregate, is in
+[`docs/results/axis2-corpus-admission.md`](../../docs/results/axis2-corpus-admission.md).

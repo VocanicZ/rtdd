@@ -4,11 +4,11 @@ Per spec §10 recall is **never pooled** across repos. The rows below weight eac
 
 | strategy | duration-weighted selected fraction | repos |
 |---|---|---|
-| full | 1.000 | 3 |
-| importgraph | 0.141 | 3 |
-| lf | 0.007 | 3 |
-| path | 0.011 | 3 |
-| random | 0.067 | 3 |
-| rtdd | 0.064 | 3 |
-| testmon | 0.096 | 3 |
-| xdist | 1.000 | 3 |
+| full | 1.000 | 2 |
+| importgraph | 0.417 | 2 |
+| lf | 0.019 | 2 |
+| path | 0.033 | 2 |
+| random | 0.199 | 2 |
+| rtdd | 0.190 | 2 |
+| testmon | 0.238 | 2 |
+| xdist | 1.000 | 2 |

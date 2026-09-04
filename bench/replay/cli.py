@@ -20,7 +20,7 @@ from collections.abc import Sequence
 from replay import rtddio
 from replay.cache import Cache
 from replay.config import TRACKED_TOOLS, RunConfig, canonical_json, tool_versions
-from replay.corpus import CorpusError, load_corpus
+from replay.corpus import CorpusError, audit, load_corpus
 from replay.envsetup import EnvError, activate, provision, tool_versions_for, with_source_path
 from replay.gitwork import add_worktree, clone_pinned, remove_worktree, replay_points
 from replay.hardware import CIWallClockRefused, Hardware, probe, require_wallclock
@@ -63,8 +63,8 @@ EXIT_GUARD = 2
 EXIT_ENV = 3
 
 
-def _corpus():
-    return load_corpus(CORPUS, LOCK)
+def _corpus(version: int | None = None):
+    return load_corpus(CORPUS, LOCK, version=version)
 
 
 def _config(
@@ -118,15 +118,22 @@ def cmd_doctor(args) -> int:
     try:
         corpus = _corpus()
         digest, ids, excluded = corpus.digest, corpus.ids(), len(corpus.excluded)
+        version_of = corpus.version
+        breaches = audit(corpus)
     except CorpusError as exc:
         print(f"corpus: ERROR — {exc}")
-        digest, ids, excluded = "unavailable", (), 0
+        digest, ids, excluded, version_of, breaches = "unavailable", (), 0, "?", ()
         blockers.append("the corpus is not frozen or cannot be read")
     print(f"hardware: {hw.cpu_model}, {hw.cpu_count} cores, {hw.mem_total_kb // 1024} MiB")
     print(f"platform: {hw.platform} · Python {hw.python_version}")
     print(f"wall-clock: {'SUPPRESSED (CI: ' + hw.ci + ')' if hw.ci else 'permitted'}")
-    print(f"corpus digest: {digest}")
+    print(f"corpus digest: {digest} (version {version_of})")
     print(f"corpus repos: {', '.join(ids) or '(none)'} · excluded entries: {excluded}")
+    print(f"corpus admission: {'CLEAN' if not breaches else str(len(breaches)) + ' breach(es)'}")
+    for f in breaches:
+        print(f"  breach: {f}")
+    if breaches:
+        blockers.append("an admitted repo breaches the corpus's own admission criteria")
     print(f"strategies: {', '.join(strategy_order(DEFAULT_STRATEGIES))}")
     try:
         version = rtddio.rtdd_version(args.rtdd_binary)
@@ -151,7 +158,7 @@ def cmd_doctor(args) -> int:
 
 def cmd_replay(args) -> int:
     hw = probe()
-    corpus = _corpus()
+    corpus = _corpus(getattr(args, "corpus_version", None))
     try:
         spec = corpus.require(args.repo)
     except CorpusError as exc:
@@ -272,16 +279,35 @@ def cmd_session(args) -> int:
 
 
 def cmd_report(args) -> int:
+    # Only the repos the corpus currently admits. A results directory for a repo a
+    # later version dropped is kept — it was published, and deleting a published
+    # number is worse than superseding it — but it is not weighed here, or the
+    # aggregate would span a corpus that no longer exists.
+    ids = set(_corpus().ids())
     summaries = []
     for d in sorted(RESULTS.iterdir()) if RESULTS.exists() else []:
         f = d / "summary.json"
-        if f.exists():
+        if d.name in ids and f.exists():
             summaries.append(json.loads(f.read_text(encoding="utf-8")))
     if not summaries:
         print("no per-repo summaries found; run `replay` first", file=sys.stderr)
         return EXIT_GUARD
     (RESULTS / "aggregate.md").write_text(render_aggregate(summaries), encoding="utf-8")
     print(f"wrote {RESULTS / 'aggregate.md'} from {len(summaries)} repos")
+    return EXIT_OK
+
+
+def cmd_audit(args) -> int:
+    """Check the corpus against its own admission criteria. Fails; never warns."""
+    corpus = _corpus(getattr(args, "corpus_version", None))
+    findings = audit(corpus)
+    print(f"corpus version {corpus.version} · digest {corpus.digest[:12]} · repos {', '.join(corpus.ids())}")
+    for f in findings:
+        print(f"BREACH {f}")
+    if findings:
+        print(f"{len(findings)} breach(es) — the corpus does not meet its own criteria")
+        return EXIT_GUARD
+    print("clean — every admitted repo meets every criterion a threshold can decide")
     return EXIT_OK
 
 
@@ -308,6 +334,16 @@ def build_parser() -> argparse.ArgumentParser:
             "the number used is published in config.json and summary.md"
         ),
     )
+    r.add_argument(
+        "--corpus-version",
+        type=int,
+        default=None,
+        dest="corpus_version",
+        help=(
+            "replay against a superseded corpus version kept in bench/corpus.d/ — "
+            "how a result published under an older corpus_digest is reproduced"
+        ),
+    )
     r.add_argument("--no-wallclock", action="store_true")
     r.add_argument("--seed", type=int, default=1)
     r.set_defaults(func=cmd_replay)
@@ -317,6 +353,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--cycles", type=int, default=25)
     s.add_argument("--seed", type=int, default=1)
     s.set_defaults(func=cmd_session)
+
+    au = sub.add_parser("audit", help="check the corpus against its own admission criteria")
+    au.add_argument("--corpus-version", type=int, default=None, dest="corpus_version")
+    au.set_defaults(func=cmd_audit)
 
     rep = sub.add_parser("report", help="regenerate aggregate.md from committed summaries")
     rep.set_defaults(func=cmd_report)

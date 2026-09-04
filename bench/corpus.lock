@@ -1,1 +1,5 @@
-95cd1505766b560d0a595ee874531eb98e95522efdd06fdf6a6a1680c40a9381
+# corpus.lock — one line per frozen corpus version: <version> <sha256 of that
+# version's yaml>. History, not a pointer: a result published under an older
+# digest stays verifiable against the version it was produced under.
+1 95cd1505766b560d0a595ee874531eb98e95522efdd06fdf6a6a1680c40a9381
+2 6145ea8f568d1c4d02b576f1d4d73058688a81f670ba1669088b36f4714fa432

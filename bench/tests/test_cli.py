@@ -24,8 +24,13 @@ from replay.replay import ReplayOutput
 CORPUS_YAML = textwrap.dedent(
     """
     frozen_at: "2026-01-01"
+    corpus_version: 1
     criteria:
       - "synthetic"
+    admission:
+      min_collected_tests: 400
+      max_uninstrumented_full_suite_seconds: 600
+      max_compiled_extensions_on_import_path: 0
     repos:
       - id: synth
         url: https://example.invalid/synth.git
@@ -34,6 +39,25 @@ CORPUS_YAML = textwrap.dedent(
         python: "3.12"
         source_globs: ["src/**/*.py"]
         test_globs: ["tests/**/*.py"]
+        measured:
+          on_hardware: "synthetic"
+          collected_tests: 900
+          uninstrumented_full_suite_seconds: 12
+          compiled_extensions_on_import_path: 0
+          replay_commits_ceiling: 3
+      - id: synth2
+        url: https://example.invalid/synth2.git
+        pin: "9876543210987654321098765432109876543210"
+        replay_commits: 3
+        python: "3.12"
+        source_globs: ["src/**/*.py"]
+        test_globs: ["tests/**/*.py"]
+        measured:
+          on_hardware: "synthetic"
+          collected_tests: 900
+          uninstrumented_full_suite_seconds: 12
+          compiled_extensions_on_import_path: 0
+          replay_commits_ceiling: 3
     excluded:
       - id: rejected
         reason: "not hermetic"
@@ -109,11 +133,11 @@ def stub_replay(monkeypatch):
 # --- the four subcommands ------------------------------------------------
 
 
-def test_the_parser_exposes_exactly_the_four_documented_subcommands():
+def test_the_parser_exposes_exactly_the_five_documented_subcommands():
     parser = cli.build_parser()
     actions = [a for a in parser._actions if a.dest == "cmd"]
     assert actions, "the parser has no subcommand slot"
-    assert set(actions[0].choices) == {"replay", "session", "report", "doctor"}
+    assert set(actions[0].choices) == {"replay", "session", "report", "doctor", "audit"}
 
 
 # --- the corpus guards ---------------------------------------------------
@@ -247,7 +271,10 @@ def test_report_refuses_when_no_per_repo_summary_has_been_committed(bench, capsy
 
 def test_report_regenerates_the_aggregate_from_committed_summaries(bench, capsys):
     results = pathlib.Path(cli.RESULTS)
-    for repo_id in ("alpha", "beta"):
+    # The aggregate spans the frozen corpus, so the summaries it weighs must be the
+    # corpus's own repos — a directory for a repo the corpus does not admit is kept
+    # but not weighed (#184).
+    for repo_id in ("synth", "synth2"):
         d = results / repo_id
         d.mkdir(parents=True)
         (d / "summary.json").write_text(
@@ -266,6 +293,56 @@ def test_report_regenerates_the_aggregate_from_committed_summaries(bench, capsys
     aggregate = (results / "aggregate.md").read_text(encoding="utf-8")
     assert "| rtdd |" in aggregate
     assert "from 2 repos" in capsys.readouterr().out
+
+
+def test_report_keeps_but_does_not_weigh_a_result_the_corpus_no_longer_admits(bench, capsys):
+    """`sqlfluff`'s case (#184): dropped from the corpus, its published result kept.
+
+    Deleting a number that was published is worse than superseding it, so the
+    directory stays — but weighing it would make the aggregate span a corpus that no
+    longer exists, and `results/aggregate.md` is the one cross-repo claim there is.
+    """
+    results = pathlib.Path(cli.RESULTS)
+    for repo_id in ("synth", "synth2", "dropped"):
+        d = results / repo_id
+        d.mkdir(parents=True)
+        (d / "summary.json").write_text(
+            json.dumps(
+                {
+                    "repo_id": repo_id,
+                    "strategies": {
+                        "rtdd": {"selected_duration_fraction": {"num": 1.0, "den": 4.0}}
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+    assert cli.main(["report"]) == cli.EXIT_OK
+    assert "from 2 repos" in capsys.readouterr().out
+    assert (results / "dropped" / "summary.json").exists(), "a published result is never deleted"
+
+
+def test_audit_passes_on_a_corpus_that_meets_its_own_criteria(bench, capsys):
+    assert cli.main(["audit"]) == cli.EXIT_OK
+    assert "clean" in capsys.readouterr().out
+
+
+def test_audit_fails_and_names_the_repo_that_breaches(bench, monkeypatch, capsys):
+    """A validator that warns is a validator nothing obeys — it must exit non-zero."""
+    corpus = pathlib.Path(cli.CORPUS)
+    corpus.write_text(
+        corpus.read_text(encoding="utf-8").replace(
+            "uninstrumented_full_suite_seconds: 12",
+            "uninstrumented_full_suite_seconds: 1450",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    freeze(corpus, pathlib.Path(cli.LOCK))
+    assert cli.main(["audit"]) == cli.EXIT_GUARD
+    out = capsys.readouterr().out
+    assert "BREACH synth: uninstrumented full suite" in out
+    assert "1450 s" in out and "600 s" in out
 
 
 # --- exit codes ----------------------------------------------------------

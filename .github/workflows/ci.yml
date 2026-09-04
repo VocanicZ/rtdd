@@ -69,3 +69,14 @@ jobs:
       - name: arm-driver dry run
         run: uv run python run_arm.py --dry-run
         working-directory: bench/swebench
+
+      # #184: the corpus's admission criteria were prose nothing read, so a repo
+      # 2.4x over its own budget sat in the frozen corpus through three published
+      # results. This is what reads them. It exits non-zero on a breach.
+      - name: corpus admission gate
+        run: uv run python -m replay.cli audit
+        working-directory: bench
+
+      - name: corpus and audit tests
+        run: uv run pytest tests/test_audit.py tests/test_corpus.py tests/test_results_corpus_coverage.py -q
+        working-directory: bench
