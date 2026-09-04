@@ -24,6 +24,20 @@ case "$(basename "$wd")" in
   *)          model=opus   ;;
 esac
 
+# The benchmark's ground truth costs hours per corpus repo and is cached by
+# (repo, commit, variant, strategy, config digest). That cache used to live in
+# bench/cache/ inside the worktree — which this fleet reaps and recreates on every
+# claim and every resume, so every claim re-paid it. Point it somewhere the reap
+# cannot reach; the config digest in the key keeps a long-lived store honest.
+cache="$HOME/.cache/rtdd-bench"
+mkdir -p "$cache"
+
 mkdir -p "$wd/.claude"
-printf '{\n  "model": "%s"\n}\n' "$model" > "$wd/.claude/settings.local.json"
-echo "worktree-hook: model=$model for $wd"
+# This box is somebody's daily driver — game, browser, chat all live here. `-n auto`
+# on the ground-truth run would take all twenty cores and stall the desktop. Six
+# keeps the benchmark moving while leaving the machine usable; raise it when idle.
+xdist="${RTDD_BENCH_XDIST_N:-6}"
+
+printf '{\n  "model": "%s",\n  "env": {\n    "RTDD_BENCH_CACHE": "%s",\n    "RTDD_BENCH_XDIST_N": "%s"\n  }\n}\n' \
+  "$model" "$cache" "$xdist" > "$wd/.claude/settings.local.json"
+echo "worktree-hook: model=$model cache=$cache xdist=$xdist for $wd"
