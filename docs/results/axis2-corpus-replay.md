@@ -1,5 +1,13 @@
 # Axis 2, corpus-wide: what the pre-registered criterion says once all three repos have run
 
+> **Superseded in part by #184 (2026-09-04).** `sqlfluff` was found to breach the corpus's
+> own criterion 4 — ~24 min uninstrumented against a 10-minute budget, the same ground that
+> excluded `pandas` — and was removed at `corpus_version: 2`. `bench/results/aggregate.md`
+> now reads `repos | 2` and its duration weights moved accordingly. Everything below is the
+> record of the run as it was performed under corpus v1, including
+> `bench/results/sqlfluff/`, which is kept and stays reproducible with `--corpus-version 1`.
+> See [`axis2-corpus-admission.md`](axis2-corpus-admission.md).
+
 `docs/results/axis2-first-replay.md` recorded the outcome for `flask` alone, at the depth
 that first run reached, and flagged that deciding the criterion on `natural` needed either
 the corpus's own `replay_commits: 200` or a repo whose history lands red more often. This

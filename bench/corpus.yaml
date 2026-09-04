@@ -1,4 +1,9 @@
 frozen_at: "2026-08-26"
+corpus_version: 2
+# v2 (2026-09-04) removes `sqlfluff`, which v1 admitted in breach of criterion 4, and
+# records per-repo measurements so `replay.cli audit` can check the criteria instead of
+# trusting the prose. v1 is kept verbatim at `corpus.d/v1.yaml` — every result published
+# under digest 95cd1505766b still reproduces against it. See `results/README.md`.
 criteria:
   - "Pure Python; no compiled extension on the import path (so coverage tracing is complete)."
   - "pytest is the repo's own test runner, invoked with no non-default plugins required."
@@ -7,37 +12,62 @@ criteria:
   - "At least 200 commits in the last 12 months touching a source file, so replay has material."
   - "Hermetic: no network, no database, no container required for a green run."
   - "OSI-licensed and publicly clonable at a fixed commit."
+# The machine-readable half of criteria 1, 3 and 4. The prose above is what a reader
+# checks; this is what `audit` checks, and the two must not drift apart. A criterion
+# with no threshold here is one a validator cannot decide — it stays a review duty.
+admission:
+  min_collected_tests: 400
+  max_uninstrumented_full_suite_seconds: 600
+  max_compiled_extensions_on_import_path: 0
 repos:
   - id: httpie
     url: https://github.com/httpie/cli.git
     pin: 5b604c37c6c67e18e7c3e9aee6c88a8c22b98345
-    replay_commits: 200
+    # Measured, not declared. v1 said 200 here for every repo; no repo could reach it.
+    # 17 is where this one stops: older trees than `3524ccf` will not seed, because the
+    # suite still required `pytest.lazy_fixture`, which its pinned pytest has dropped.
+    replay_commits: 17
     python: "3.12"
     install:
       - "uv pip install -e .[test]"
     source_globs: ["httpie/**/*.py"]
     test_globs: ["tests/**/*.py"]
+    measured:
+      on_hardware: "65b8fad78747d6ef"
+      collected_tests: 1028
+      uninstrumented_full_suite_seconds: 124
+      compiled_extensions_on_import_path: 0
+      replay_commits_ceiling: 17
+      ceiling_reason: "older trees than 3524ccf will not seed (pytest.lazy_fixture dropped)"
   - id: flask
     url: https://github.com/pallets/flask.git
     pin: d318b683471101618febed18996405ad26462110
-    replay_commits: 200
+    replay_commits: 25
     python: "3.12"
     install:
       - "uv pip install -e ."
       - "uv pip install asgiref 'pytest<9' python-dotenv"
     source_globs: ["src/flask/**/*.py"]
     test_globs: ["tests/**/*.py"]
-  - id: sqlfluff
-    url: https://github.com/sqlfluff/sqlfluff.git
-    pin: 6166dcc5059d7d74b8329c38dd49828f22da4b05
-    replay_commits: 200
-    python: "3.12"
-    install:
-      - "uv pip install -e ."
-      - "uv pip install -r requirements_dev.txt"
-    source_globs: ["src/sqlfluff/**/*.py"]
-    test_globs: ["test/**/*.py"]
+    measured:
+      on_hardware: "65b8fad78747d6ef"
+      collected_tests: 490
+      uninstrumented_full_suite_seconds: 3
+      compiled_extensions_on_import_path: 0
+      replay_commits_ceiling: 25
+      ceiling_reason: "deepest walk published; 25 is the measured depth, not a declared one"
 excluded:
+  - url: https://github.com/sqlfluff/sqlfluff.git
+    reason: >-
+      Full suite runs ~1450 s (24 min) uninstrumented on the disclosed hardware
+      (fingerprint 65b8fad78747d6ef, 13463 collected tests) — 2.4x over the 10-minute
+      budget in criterion 4, the identical ground on which pandas is excluded below.
+      Admitted in error at the 2026-08-26 freeze because no code read the criteria;
+      removed at corpus_version 2 once `audit` did. The exclusion is on a
+      pre-registered criterion, so it does not depend on how its replay came out: that
+      replay is published in full at `results/sqlfluff/` and in
+      `docs/results/axis2-corpus-admission.md` regardless. Reachable depth was 2
+      commits against a declared 200, at ~4.5 h per commit pair.
   - url: https://github.com/psf/requests.git
     reason: "Test suite requires a live httpbin server; not hermetic."
   - url: https://github.com/numpy/numpy.git
