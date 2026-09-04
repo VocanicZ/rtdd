@@ -31,7 +31,7 @@ var Targets = []Target{
 		MaxBytes: skillMaxBytes,
 		Required: []string{"what", "which", "run", "uncovered", "empty", "json", "commands", "limits", "map"},
 		Render:   renderSkill,
-		Validate: noValidate,
+		Validate: validateSkill,
 	},
 	{
 		Name:     "agents",
@@ -39,7 +39,7 @@ var Targets = []Target{
 		MaxBytes: agentsMaxBytes,
 		Required: []string{"what", "which", "run", "uncovered", "empty"},
 		Render:   renderAgents,
-		Validate: noValidate,
+		Validate: validateAgents,
 	},
 	{
 		Name:     "mdc",
@@ -47,7 +47,7 @@ var Targets = []Target{
 		MaxBytes: mdcMaxBytes,
 		Required: []string{"what", "which", "run", "uncovered", "empty", "limits"},
 		Render:   renderMDC,
-		Validate: noValidate,
+		Validate: validateMDC,
 	},
 }
 
