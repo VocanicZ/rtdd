@@ -8,7 +8,22 @@ permissions:
   contents: write
 
 jobs:
+  # Guards against shipping a competitor if the negative branch (issue #200,
+  # spec §15) is ever activated: docs/outcomes/SELECTED is the single source of
+  # truth for which outcome README is live. See docs/outcomes/README.md for the
+  # human steps that flip it.
+  check-outcome:
+    runs-on: ubuntu-latest
+    outputs:
+      selected: ${{ steps.read.outputs.selected }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: read
+        run: echo "selected=$(cat docs/outcomes/SELECTED | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
+
   goreleaser:
+    needs: check-outcome
+    if: needs.check-outcome.outputs.selected != 'negative'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
