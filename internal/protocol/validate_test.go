@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -166,5 +167,138 @@ func TestValidateAgentsFailsWhenItSwallowsTheSkillBody(t *testing.T) {
 	corrupted := out + skillOnlyBody + "\n"
 	if err := validateAgents(d, tgt, corrupted); err == nil {
 		t.Fatal("validateAgents: want error when output contains a skill-only section's body")
+	}
+}
+
+// TestValidateSkillFailsWhenOverBudget pins the budget to the validator, not
+// only to RenderAll: `rtdd-gen verify` reads a file off disk and never renders
+// it, so a budget checked only at render time cannot see an over-budget file.
+func TestValidateSkillFailsWhenOverBudget(t *testing.T) {
+	d := sampleDoc(t)
+	tgt := skillTarget(t)
+	out, err := tgt.Render(d)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	bloated := out + strings.Repeat("x", tgt.MaxBytes)
+	err = validateSkill(d, tgt, bloated)
+	if err == nil {
+		t.Fatal("validateSkill: want error for an over-budget SKILL.md")
+	}
+	if !errors.Is(err, ErrOverBudget) {
+		t.Errorf("validateSkill error = %v, want it to wrap ErrOverBudget", err)
+	}
+}
+
+// TestValidateMDCFailsWhenOverBudget is the second failure the review
+// reproduced: the whole skill body with .mdc frontmatter grafted on, far over
+// the .mdc budget, passing verify with exit 0.
+func TestValidateMDCFailsWhenOverBudget(t *testing.T) {
+	d := sampleDoc(t)
+	tgt := mdcTarget(t)
+	out, err := tgt.Render(d)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	bloated := out + strings.Repeat("x", tgt.MaxBytes)
+	err = validateMDC(d, tgt, bloated)
+	if err == nil {
+		t.Fatal("validateMDC: want error for an over-budget .mdc")
+	}
+	if !errors.Is(err, ErrOverBudget) {
+		t.Errorf("validateMDC error = %v, want it to wrap ErrOverBudget", err)
+	}
+}
+
+func TestValidateAgentsFailsWhenOverBudgetWrapsErrOverBudget(t *testing.T) {
+	d := sampleDoc(t)
+	tgt := agentsTarget(t)
+	err := validateAgents(d, tgt, strings.Repeat("x", tgt.MaxBytes+1))
+	if err == nil {
+		t.Fatal("validateAgents: want error for an oversized AGENTS.md")
+	}
+	if !errors.Is(err, ErrOverBudget) {
+		t.Errorf("validateAgents error = %v, want it to wrap ErrOverBudget", err)
+	}
+}
+
+// TestValidateAgentsFailsWhenBeginMarkerMissing: the block AGENTS.md carries is
+// marker-delimited because `rtdd init` only ever rewrites what is between the
+// markers. A file that lost them is wrong for the target.
+func TestValidateAgentsFailsWhenBeginMarkerMissing(t *testing.T) {
+	d := sampleDoc(t)
+	tgt := agentsTarget(t)
+	out, err := tgt.Render(d)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	corrupted := strings.Replace(out, BeginMarker+"\n", "", 1)
+	if err := validateAgents(d, tgt, corrupted); err == nil {
+		t.Fatal("validateAgents: want error when the begin marker is missing")
+	}
+}
+
+func TestValidateAgentsFailsWhenEndMarkerMissing(t *testing.T) {
+	d := sampleDoc(t)
+	tgt := agentsTarget(t)
+	out, err := tgt.Render(d)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	corrupted := strings.Replace(out, EndMarker+"\n", "", 1)
+	if err := validateAgents(d, tgt, corrupted); err == nil {
+		t.Fatal("validateAgents: want error when the end marker is missing")
+	}
+}
+
+// TestValidateAgentsFailsWhenEmpty is the first failure the review reproduced:
+// a dist/AGENTS.md holding nothing but "hello" passed verify with exit 0.
+func TestValidateAgentsFailsWhenEmpty(t *testing.T) {
+	d := sampleDoc(t)
+	tgt := agentsTarget(t)
+	if err := validateAgents(d, tgt, "hello\n"); err == nil {
+		t.Fatal("validateAgents: want error for an AGENTS.md with no rtdd block at all")
+	}
+}
+
+// TestValidateAgentsFailsWhenRequiredSectionContentMissing covers the
+// truncated-block case: markers intact, bodies gone.
+func TestValidateAgentsFailsWhenRequiredSectionContentMissing(t *testing.T) {
+	d := sampleDoc(t)
+	tgt := agentsTarget(t)
+	empty := BeginMarker + "\n## rtdd\n\n" + EndMarker + "\n"
+	err := validateAgents(d, tgt, empty)
+	if err == nil {
+		t.Fatal("validateAgents: want error when a required section's content is absent")
+	}
+	if !strings.Contains(err.Error(), tgt.Required[0]) {
+		t.Errorf("error = %v, want it to name the missing section %q", err, tgt.Required[0])
+	}
+}
+
+// TestValidateAgentsFailsWhenItSwallowsASharedSection widens the containment
+// check: a section shared by skill and mdc (never targeted at agents) swallowed
+// into AGENTS.md is just as wrong as a skill-only one, and the old
+// `Targets == ["skill"]` test could not see it.
+func TestValidateAgentsFailsWhenItSwallowsASharedSection(t *testing.T) {
+	d := sampleDoc(t)
+	tgt := agentsTarget(t)
+	out, err := tgt.Render(d)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	var shared Section
+	for _, s := range d.Sections {
+		if !s.HasTarget("agents") && len(s.Targets) > 1 {
+			shared = s
+			break
+		}
+	}
+	if shared.ID == "" {
+		t.Fatal("test fixture has no multi-target non-agents section to swallow")
+	}
+	corrupted := out + shared.BodyFor(shared.Targets[0]) + "\n"
+	if err := validateAgents(d, tgt, corrupted); err == nil {
+		t.Fatalf("validateAgents: want error when output contains section %q, which is not targeted at agents", shared.ID)
 	}
 }

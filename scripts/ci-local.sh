@@ -24,6 +24,15 @@ fi
 echo "==> go test ./... -count=1"
 go test ./... -count=1
 
+echo "==> rtdd-gen check"
+go run ./cmd/rtdd-gen check
+
+echo "==> rtdd-gen verify"
+go run ./cmd/rtdd-gen verify
+
+echo "==> embedded protocol copy must match the source"
+diff -u protocol/PROTOCOL.md internal/install/protocol.md
+
 echo "==> prereg gate"
 scripts/ci-prereg.sh
 
