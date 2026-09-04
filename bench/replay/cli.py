@@ -193,7 +193,14 @@ def cmd_replay(args) -> int:
         ),
         corpus=corpus,
     )
-    summary = write_results(RESULTS / spec.id, output, cfg, hw, strategy_order(strategies))
+    summary = write_results(
+        RESULTS / spec.id,
+        output,
+        cfg,
+        hw,
+        strategy_order(strategies),
+        wallclock_enabled=wallclock_enabled,
+    )
     print(
         f"wrote {RESULTS / spec.id} — {summary['n_commits']} commits, "
         f"{len(output.skipped)} skipped"

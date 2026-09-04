@@ -189,6 +189,19 @@ def test_isolation_violations_survive_the_ci_wallclock_refusal():
     assert "isolation violations" in md
 
 
+def test_wallclock_suppressed_when_operator_withholds_it():
+    """`--no-wallclock` on a contended box is an operator choice, not a CI refusal —
+    the report must say so in words, not just print an empty table."""
+    md = render_markdown(
+        build_summary(_out(), ("rtdd", "path"), HW, wallclock_enabled=False), CFG, HW
+    )
+    section = md.split("## Wall-clock", 1)[1].split("## By variant", 1)[0]
+    assert "Suppressed" in section
+    assert "GITHUB_ACTIONS" not in section
+    assert "full uninstrumented" not in section
+    assert "isolation violations" in md
+
+
 def test_variants_get_separate_tables_and_probe_is_labelled_on_the_number_line():
     s = build_summary(_out(("natural", "probe")), ("rtdd", "path"), HW)
     md = render_markdown(s, CFG, HW)

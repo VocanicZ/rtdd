@@ -95,8 +95,9 @@ def stub_replay(monkeypatch):
         seen["spec_commits"] = spec.replay_commits
         return ReplayOutput()
 
-    def fake_write_results(out_dir, output, cfg, hw, strategy_ids, drift=None):
+    def fake_write_results(out_dir, output, cfg, hw, strategy_ids, drift=None, **kw):
         seen["written"] = pathlib.Path(out_dir)
+        seen["write_results_kwargs"] = kw
         return {"n_commits": 3}
 
     monkeypatch.setattr(cli, "clone_pinned", fake_clone)
