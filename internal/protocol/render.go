@@ -18,7 +18,7 @@ type Target struct {
 	MaxBytes int
 	Required []string
 	Render   func(d *Doc) (string, error)
-	Validate func(out string) error
+	Validate func(d *Doc, t Target, out string) error
 }
 
 // Generated marks every output so a reader knows where to edit.
@@ -90,10 +90,6 @@ func renderMDC(d *Doc) (string, error) {
 	return strings.TrimRight(b.String(), "\n") + "\n", nil
 }
 
-// noValidate is the placeholder Target.Validate until issue #194 (per-target
-// validity assertions) wires in the real validateSkill/validateAgents/validateMDC.
-func noValidate(string) error { return nil }
-
 // RenderAll renders every target, enforcing required sections, byte budgets, and
 // per-target validity. A budget overflow is an error, never a truncation.
 func RenderAll(d *Doc) (map[string]string, error) {
@@ -111,7 +107,7 @@ func RenderAll(d *Doc) (map[string]string, error) {
 				"%w: %s is %d bytes, budget %d — shorten the target's variants, do not raise the budget",
 				ErrOverBudget, t.OutPath, len(body), t.MaxBytes)
 		}
-		if err := t.Validate(body); err != nil {
+		if err := t.Validate(d, t, body); err != nil {
 			return nil, fmt.Errorf("validate %s: %w", t.OutPath, err)
 		}
 		out[t.OutPath] = body
