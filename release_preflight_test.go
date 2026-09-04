@@ -32,6 +32,14 @@ case "$prog" in
       esac
     fi
     if [ "$1" = "test" ]; then
+      # The release-artifact linkage check is the only go test the script runs with
+      # -run, so it gets its own exit control: a repo can have a green suite and still
+      # produce a dynamically linked artifact, and the report has to say so separately.
+      for arg in "$@"; do
+        if [ "$arg" = "-run" ]; then
+          exit "${STUB_LINKAGE_EXIT:-0}"
+        fi
+      done
       exit "${STUB_GOTEST_EXIT:-0}"
     fi
     exit 0
@@ -215,6 +223,7 @@ func TestReleasePreflightReportsFullyGreenRepo(t *testing.T) {
 		"Kill criterion:":       "MET",
 		"Front-end checks:":     "pass",
 		"Test suite:":           "pass",
+		"Release binaries:":     "pass",
 		"Pre-registration tag:": "prereg-m4 -> " + headSHA + " " + prereqCommitDate,
 		"Current visibility:":   "public",
 	}
@@ -223,6 +232,37 @@ func TestReleasePreflightReportsFullyGreenRepo(t *testing.T) {
 		if !strings.Contains(line, mustContain) {
 			t.Errorf("line %q: want to contain %q", line, mustContain)
 		}
+	}
+}
+
+// TestReleasePreflightFailsOnAnUnverifiedReleaseArtifact is issue #212's half of the
+// pre-flight: the script is meant to be a pre-flight for the binaries, so an artifact that
+// is not self-contained has to stop it and be named in the decision block, even when every
+// other check is green.
+func TestReleasePreflightFailsOnAnUnverifiedReleaseArtifact(t *testing.T) {
+	repo, _ := buildFixtureRepo(t, "", "positive", true)
+	out, code := runPreflight(t, repo, map[string]string{
+		"STUB_CHECK_EXIT":     "0",
+		"STUB_VERIFY_EXIT":    "0",
+		"STUB_GOTEST_EXIT":    "0",
+		"STUB_LINKAGE_EXIT":   "1",
+		"STUB_PYTEST_EXIT":    "0",
+		"STUB_PREFLIGHT_EXIT": "0",
+		"STUB_GH_VISIBILITY":  "PUBLIC",
+	})
+
+	if code == 0 {
+		t.Fatalf("expected nonzero exit when a release artifact is not statically linked, got 0. stdout:\n%s", out)
+	}
+	line := findLine(t, out, "Release binaries:")
+	if !strings.Contains(line, "fail") {
+		t.Errorf("line %q: want to contain %q", line, "fail")
+	}
+	// The failure must be attributed to the artifacts, not blamed on the test suite, which
+	// is green here.
+	line = findLine(t, out, "Test suite:")
+	if !strings.Contains(line, "pass") {
+		t.Errorf("line %q: want to contain %q", line, "pass")
 	}
 }
 

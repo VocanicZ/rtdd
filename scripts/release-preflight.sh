@@ -49,7 +49,21 @@ else
   fail=1
 fi
 
-# --- 3. bench/swebench: pytest, then the pre-registration launch gate ------
+# --- 3. release artifacts: every published binary is self-contained --------
+# PRD #6 acceptance criterion 5. The check lives in a Go test so it needs no extra
+# tooling and gives the same verdict here as in CI; it is reported on its own line
+# because a repo can have a green suite and still produce an artifact that will not
+# run on a user's machine.
+banner "go test -run TestReleaseArtifactsAreStaticallyLinked"
+if go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' .; then
+  linkage_status=pass
+else
+  echo "FAIL: release artifacts are not all statically linked" >&2
+  linkage_status=fail
+  fail=1
+fi
+
+# --- 4. bench/swebench: pytest, then the pre-registration launch gate ------
 pytest_status=pass
 preflight_status=pass
 if ! command -v uv >/dev/null 2>&1; then
@@ -86,7 +100,7 @@ else
   test_suite_status=pass
 fi
 
-# --- 4. placeholder grep ----------------------------------------------------
+# --- 5. placeholder grep ----------------------------------------------------
 banner "placeholder grep"
 placeholder_hits="$(grep -rn -E 'TBD|TODO|FIXME|REPLACE_WITH' README.md protocol/PROTOCOL.md dist/ bench/PREREGISTRATION.md 2>/dev/null || true)"
 if [ -n "$placeholder_hits" ]; then
@@ -96,7 +110,7 @@ else
   echo "no placeholders"
 fi
 
-# --- 5. prereg-m4 tag: sha and date -----------------------------------------
+# --- 6. prereg-m4 tag: sha and date -----------------------------------------
 banner "prereg-m4 tag"
 if tag_line="$(git log -1 --format='%h %ad' --date=short prereg-m4 2>/dev/null)"; then
   prereg_tag_status="prereg-m4 -> $tag_line"
@@ -106,7 +120,7 @@ else
   echo "$prereg_tag_status (no such tag)"
 fi
 
-# --- 6. current repository visibility ---------------------------------------
+# --- 7. current repository visibility ---------------------------------------
 banner "repo visibility"
 if visibility_raw="$(gh repo view VocanicZ/rtdd --json visibility -q .visibility 2>/dev/null)"; then
   visibility_status="$(printf '%s' "$visibility_raw" | tr '[:upper:]' '[:lower:]')"
@@ -116,7 +130,7 @@ else
   visibility_status=unknown
 fi
 
-# --- 7. kill criterion, from the M4 tables if they exist --------------------
+# --- 8. kill criterion, from the M4 tables if they exist --------------------
 tables_md="bench/results/swebench/tables.md"
 if [ -f "$tables_md" ]; then
   kc_line="$(grep -oE 'Result: \*\*(MET|NOT MET)\*\*' "$tables_md" | head -1)"
@@ -129,7 +143,7 @@ else
   kill_status="unknown (no $tables_md — the M4 run has not completed)"
 fi
 
-# --- 8. which branch Task 14 selected ---------------------------------------
+# --- 9. which branch Task 14 selected ---------------------------------------
 if [ -f docs/outcomes/SELECTED ]; then
   branch_taken="$(tr -d '[:space:]' < docs/outcomes/SELECTED)"
 else
@@ -146,6 +160,7 @@ Branch taken at Task 14: $branch_taken
 Kill criterion:        $kill_status
 Front-end checks:      $frontend_status
 Test suite:            $test_suite_status
+Release binaries:      $linkage_status
 Placeholders:          ${placeholder_hits:-none}
 Pre-registration tag:  $prereg_tag_status
 Current visibility:    $visibility_status

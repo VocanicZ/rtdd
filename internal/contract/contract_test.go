@@ -289,6 +289,12 @@ var ciCommands = []string{
 	"diff -u protocol/PROTOCOL.md internal/install/protocol.md",
 	"CGO_ENABLED=0 go build -o /tmp/rtdd ./cmd/rtdd",
 	"statically linked",
+	// The host build above proves one of the four released artifacts is static. Issue
+	// #212: the other three (linux/arm64, darwin/amd64, darwin/arm64) are only ever
+	// inspected by this test, which cross-builds the whole .goreleaser.yaml matrix. It
+	// runs inside `go test ./...` too; naming it as its own step means a red build points
+	// straight at the release artifacts instead of at the suite in general.
+	"go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' .",
 }
 
 func TestLocalCIEntrypointIsExecutableAndRunsTheSameChecks(t *testing.T) {

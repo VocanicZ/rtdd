@@ -40,6 +40,10 @@ archives:
       - goos: windows
         formats: [zip]
     files:
+      # Plan Task 20: the tarball ships the license and the README alongside the
+      # generated front-ends. Without LICENSE the redistribution terms travel nowhere.
+      - README.md
+      - LICENSE
       - dist/SKILL.md
       - dist/AGENTS.md
       - dist/cursor/rules/rtdd.mdc
