@@ -807,6 +807,7 @@ def test_the_instrumented_ground_truth_run_is_parallel(monkeypatch, tmp_path, ca
     """
     from replay import replay as replay_mod
 
+    monkeypatch.delenv("RTDD_BENCH_XDIST_N", raising=False)
     seen: list[tuple[str, ...]] = []
 
     def fake_run_full(work, python=None, instrumented=False, source_globs=(), **kw):

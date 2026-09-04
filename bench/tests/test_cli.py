@@ -169,6 +169,32 @@ def test_replay_refuses_an_unfrozen_corpus_before_doing_any_work(
     assert "cloned" not in stub_replay
 
 
+# --- the random/peer ordering guard --------------------------------------
+
+
+def test_replay_refuses_random_without_its_peer_before_any_clone(bench, stub_replay, capsys):
+    """`random` is ratio-matched against `rtdd`'s selection size (#189).
+
+    Asking for it alone used to blow up mid-run inside the strategy itself; the
+    combination is a usage error and must be rejected before any clone happens.
+    """
+    rc = cli.main(["replay", "--repo", "synth", "--strategies", "path,random"])
+    assert rc == cli.EXIT_GUARD
+    err = capsys.readouterr().err
+    assert "random" in err
+    assert "rtdd" in err
+    assert "cloned" not in stub_replay
+
+
+def test_replay_allows_random_when_its_peer_is_in_the_same_run(bench, stub_replay, monkeypatch):
+    _no_ci(monkeypatch)
+    rc = cli.main(
+        ["--rtdd-binary", _fake_rtdd(bench), "replay", "--repo", "synth", "--strategies", "rtdd,random"]
+    )
+    assert rc == cli.EXIT_OK
+    assert "cloned" in stub_replay
+
+
 # --- the CI wall-clock guard ---------------------------------------------
 
 
@@ -497,6 +523,61 @@ def test_session_does_not_overwrite_the_replay_config_that_produced_the_table(
     # overwriting somebody else's.
     assert drift["config"]["replay_commits"] == 4
     assert drift["hardware"]
+
+
+# --- --corpus-version on session and report (#189) -----------------------
+
+
+def test_session_threads_corpus_version_through_to_the_loader(
+    bench, stub_provision, monkeypatch
+):
+    """`session --repo x --corpus-version N` used to ignore N entirely (#189)."""
+    _no_ci(monkeypatch)
+    calls: list[int | None] = []
+    original = cli._corpus
+
+    def spy(version=None):
+        calls.append(version)
+        return original(version)
+
+    monkeypatch.setattr(cli, "_corpus", spy)
+
+    def fake_clone(url, pin, dest):
+        dest.mkdir(parents=True, exist_ok=True)
+        return dest
+
+    class _Point:
+        parent = "p"
+
+    monkeypatch.setattr(cli, "clone_pinned", fake_clone)
+    monkeypatch.setattr(cli, "replay_points", lambda repo, pin, n: [_Point()])
+    monkeypatch.setattr(cli, "add_worktree", lambda repo, sha, work: None)
+    monkeypatch.setattr(cli, "remove_worktree", lambda repo, work: None)
+    monkeypatch.setattr(cli.rtddio, "seed", lambda work, binary="rtdd": None)
+
+    from replay.session import DriftCurve
+
+    monkeypatch.setattr(cli, "run_drift", lambda *a, **kw: DriftCurve("synth", "p", ()))
+    rc = cli.main(
+        ["--rtdd-binary", _fake_rtdd(bench), "session", "--repo", "synth", "--cycles", "1",
+         "--corpus-version", "1"]
+    )
+    assert rc == cli.EXIT_OK
+    assert calls == [1]
+
+
+def test_report_threads_corpus_version_through_to_the_loader(bench, capsys, monkeypatch):
+    """`report --corpus-version N` used to ignore N entirely (#189)."""
+    calls: list[int | None] = []
+    original = cli._corpus
+
+    def spy(version=None):
+        calls.append(version)
+        return original(version)
+
+    monkeypatch.setattr(cli, "_corpus", spy)
+    cli.main(["report", "--corpus-version", "1"])
+    assert calls == [1]
 
 
 def test_the_cache_can_outlive_the_checkout(monkeypatch, tmp_path):
