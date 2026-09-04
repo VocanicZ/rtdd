@@ -44,6 +44,32 @@ under half the duration on this sample.
 No stratified `|F_full| == 1` table is shown: zero detecting commits occurred at any
 `|F_full|` in `natural`, in any repo, at the depth reached.
 
+## Wall-clock, uninstrumented: the distribution, never a bare mean
+
+Source: the `## Wall-clock` tables in `bench/results/{flask,httpie}/summary.md`, re-derived
+from the per-cycle samples in each repo's `commits.jsonl` with
+`uv run python -m replay.cli report --rebuild`.
+
+The population is bimodal — a cycle whose strategy selected nothing costs almost nothing, a
+cycle that selected the hub costs nearly a full run — so a mean falls between the two modes
+and describes neither half. `p50`, `p90` and `worst` are nearest-rank, so each is a cycle
+that really ran.
+
+| repo | strategy | n | mean | p50 | p90 | worst |
+|---|---|---|---|---|---|---|
+| flask | rtdd | 24 | 1284 ms | 0 ms | 3109 ms | 4045 ms |
+| flask | testmon | 24 | 1103 ms | 959 ms | 2905 ms | 2970 ms |
+| flask | path | 24 | 255 ms | 0 ms | 1064 ms | 1680 ms |
+| flask | full | 24 | 3133 ms | 3081 ms | 3558 ms | 4761 ms |
+| httpie | rtdd | 18 | 25423 ms | 0 ms | 96666 ms | 171039 ms |
+| httpie | testmon | 18 | 26377 ms | 946 ms | 86517 ms | 198967 ms |
+| httpie | path | 18 | 443 ms | 0 ms | 0 ms | 7971 ms |
+| httpie | full | 18 | 89957 ms | 83994 ms | 106813 ms | 114537 ms |
+
+`sqlfluff` withheld its wall-clock rows (`--no-wallclock`, contended host) rather than
+publish inflated timings, and was dropped at `corpus_version: 2`; its published files are
+left as they were.
+
 ## Duration-weighted aggregate (never pooled for recall, ordering only)
 
 Source: `bench/results/aggregate.md`.

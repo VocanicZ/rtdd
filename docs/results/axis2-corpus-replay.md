@@ -113,6 +113,14 @@ written into the durable cache, silently reused forever after. `bench/results/sq
 states this in its own Wall-clock section rather than omitting the rows silently. Taking
 that measurement on a quiet box is tracked in #185, blocked on #184.
 
+Every wall-clock row is published as `mean`, `p50`, `p90` and `worst`, never as a mean
+alone (#214). The population is bimodal — a cycle whose strategy selected nothing costs
+almost nothing, a cycle that selected the hub costs nearly a full run — so a mean falls
+between the two modes and describes neither. The percentiles are nearest-rank over the
+per-cycle samples committed in each repo's `commits.jsonl`, and
+`uv run python -m replay.cli report --rebuild` re-derives the tables from those samples
+without re-running the benchmark.
+
 ## What this does not say
 
 Three repos at these depths is not the `replay_commits: 200` the plan asks for, and the

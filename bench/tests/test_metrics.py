@@ -4,6 +4,7 @@ import subprocess
 
 import pytest
 
+from replay import metrics
 from replay.metrics import (
     PoolingError,
     assert_single_repo,
@@ -251,3 +252,26 @@ def test_metrics_match_hand_computed_numbers_on_the_synthetic_repo(synth):
     # both single-failure commits land in the |F_full| == 1 stratum
     assert list(by_stratum(b)) == ["1"]
     assert by_stratum(b)["1"] and len(by_stratum(b)["1"]) == 2
+
+
+# --- the wall-clock distribution ----------------------------------------
+
+
+def test_percentile_is_nearest_rank_and_never_interpolates():
+    """A published p90 must be a millisecond figure that was actually measured.
+
+    Interpolating between two samples invents a cycle that never ran, and the
+    wall-clock population is bimodal — a cycle that selects nothing costs ~0 ms
+    and a cycle that selects the hub costs a full run — so a midpoint between the
+    two modes is the one number no cycle ever produced.
+    """
+    xs = [10, 20, 30, 40]
+    assert metrics.percentile(xs, 0.5) == 20
+    assert metrics.percentile(xs, 0.9) == 40
+    assert metrics.percentile(xs, 1.0) == 40
+    assert metrics.percentile([7], 0.5) == 7
+    assert metrics.percentile([], 0.5) is None
+
+
+def test_percentile_sorts_its_input():
+    assert metrics.percentile([40, 10, 30, 20], 0.5) == 20

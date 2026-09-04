@@ -76,6 +76,18 @@ class Hardware:
             "fingerprint": self.fingerprint(),
         }
 
+    @classmethod
+    def from_dict(cls, d: dict) -> Hardware:
+        """Read back a disclosed-hardware block. `fingerprint` is derived, never stored."""
+        return cls(
+            cpu_model=d["cpu_model"],
+            cpu_count=int(d["cpu_count"]),
+            mem_total_kb=int(d["mem_total_kb"]),
+            platform=d["platform"],
+            python_version=d["python_version"],
+            ci=d["ci"],
+        )
+
     def fingerprint(self) -> str:
         raw = (
             f"{self.cpu_model}|{self.cpu_count}|{self.mem_total_kb}|"

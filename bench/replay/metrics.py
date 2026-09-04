@@ -31,6 +31,7 @@ The false-signal metrics live in ``replay.falsesignal``.
 from __future__ import annotations
 
 import dataclasses
+import math
 from collections.abc import Sequence
 
 from replay.records import STRATA, CommitRecord, StrategyRecord
@@ -146,6 +147,24 @@ def selected_duration_fraction(pairs: Pairs) -> Ratio:
     num = sum(sum(c.durations_ms.get(t, 0) for t in s.selected) for c, s in pairs)
     den = sum(c.total_duration_ms() for c, s in pairs)
     return Ratio(num=num, den=den)
+
+
+def percentile(samples: Sequence[int], q: float) -> int | None:
+    """The nearest-rank percentile of ``samples`` — a value that was measured.
+
+    Nearest rank rather than interpolation, deliberately. A wall-clock population
+    here is bimodal: a cycle that selects nothing costs ~0 ms and a cycle that
+    selects the hub costs nearly a full suite run, so a value interpolated
+    between the two modes is the one number no cycle ever produced. Every
+    published percentile is therefore a real cycle's real duration.
+
+    Returns ``None`` for an empty population, which is what `n/a` renders from.
+    """
+    if not samples:
+        return None
+    ordered = sorted(samples)
+    rank = math.ceil(q * len(ordered))
+    return ordered[min(max(rank, 1), len(ordered)) - 1]
 
 
 def escalation_rate(strategy_records: Sequence[StrategyRecord]) -> Ratio:
