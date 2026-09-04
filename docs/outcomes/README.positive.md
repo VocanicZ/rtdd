@@ -179,9 +179,52 @@ the duration on this sample.
 
 **Verdict: the pre-registered criterion is not met on `probe`, and remains undecided on
 `natural`.** No stratified `|F_full| == 1` table is shown: zero detecting commits occurred at
-any `|F_full|` in `natural`, in any repo, at the depth reached. Wall-clock is from disclosed
-hardware in each repo's own `config.json`, never from a CI runner; `sqlfluff`'s wall-clock
-rows are withheld (`--no-wallclock`, contended host) rather than published inflated.
+any `|F_full|` in `natural`, in any repo, at the depth reached.
+
+#### Wall-clock: the distribution, never a bare mean
+
+Wall-clock is from disclosed hardware in each repo's own `config.json`, never from a CI
+runner; `sqlfluff`'s wall-clock rows are withheld (`--no-wallclock`, contended host) rather
+than published inflated.
+
+What one cycle costs to *execute* the selection, uninstrumented. The population is bimodal —
+a cycle whose strategy selected nothing costs almost nothing, a cycle that selected the hub
+costs nearly a full run — so the mean falls between the two modes and describes neither half.
+`p50`, `p90` and `worst` are nearest-rank over the committed per-cycle samples in
+`bench/results/<repo>/commits.jsonl`, so every figure below is a cycle that really ran.
+
+**flask** — full suite, uninstrumented: mean 3127 ms · p50 3001 ms · p90 4294 ms · worst 4486 ms.
+
+| strategy | n | mean | p50 | p90 | worst |
+|---|---|---|---|---|---|
+| rtdd | 24 | 1284 ms | 0 ms | 3109 ms | 4045 ms |
+| testmon | 24 | 1103 ms | 959 ms | 2905 ms | 2970 ms |
+| path | 24 | 255 ms | 0 ms | 1064 ms | 1680 ms |
+| lf | 24 | 2496 ms | 2790 ms | 3523 ms | 4994 ms |
+| importgraph | 24 | 171 ms | 0 ms | 1063 ms | 1150 ms |
+| xdist | 24 | 6593 ms | 6655 ms | 7091 ms | 7357 ms |
+| random | 24 | 1201 ms | 0 ms | 2857 ms | 2969 ms |
+| full | 24 | 3133 ms | 3081 ms | 3558 ms | 4761 ms |
+
+**httpie** — full suite, uninstrumented: mean 88694 ms · p50 84531 ms · p90 102994 ms · worst 108210 ms.
+
+| strategy | n | mean | p50 | p90 | worst |
+|---|---|---|---|---|---|
+| rtdd | 18 | 25423 ms | 0 ms | 96666 ms | 171039 ms |
+| testmon | 18 | 26377 ms | 946 ms | 86517 ms | 198967 ms |
+| path | 18 | 443 ms | 0 ms | 0 ms | 7971 ms |
+| lf | 18 | 932 ms | 895 ms | 1042 ms | 1210 ms |
+| importgraph | 18 | 49603 ms | 7962 ms | 97522 ms | 173053 ms |
+| xdist | 18 | 20964 ms | 19748 ms | 25135 ms | 32619 ms |
+| random | 18 | 20880 ms | 0 ms | 97273 ms | 109040 ms |
+| full | 18 | 89957 ms | 83994 ms | 106813 ms | 114537 ms |
+
+Read the `rtdd` rows against their own means. On flask the mean of 1284 ms is 41% of the p90
+and 32% of the worst, and the median cycle costs nothing at all; the worst cycle costs more
+than the whole suite's mean run. On httpie the mean of 25.4 s hides a worst cycle of 171 s —
+close to twice the full suite. A reader given only the mean would take RTDD for a strategy
+that steadily costs a fraction of a run. It is a strategy that usually costs nothing and
+occasionally costs more than running everything, and the two halves are the finding.
 
 Duration-weighted aggregate (ordering only — recall is never pooled), from
 `bench/results/aggregate.md`:

@@ -17,12 +17,16 @@ from __future__ import annotations
 import json
 import subprocess
 
+import pytest
+
 from replay.config import RunConfig
 from replay.hardware import Hardware
 from replay.records import CommitRecord, StrategyRecord, UncoveredRecord, WallClockRecord
 from replay.replay import ReplayOutput
 from replay.report import (
     FAILURE_WORDING,
+    ReportError,
+    assert_distribution_beside_mean,
     build_summary,
     fmt,
     render_aggregate,
@@ -383,3 +387,120 @@ def test_the_summary_publishes_the_cycles_where_rtdd_run_refused():
     assert s["rtdd_run_errors"] == 1
     md = render_markdown(s, CFG, HW)
     assert "`rtdd run` refused on 1 of" in md
+
+
+# --- the wall-clock distribution (#214) ----------------------------------
+
+
+def _spread_out():
+    """A bimodal wall-clock population, which is what the real ones are.
+
+    Six cycles: four that selected nothing and cost ~0 ms, one mid, one that
+    selected the hub and cost nearly a full run. The mean of that is a number no
+    cycle produced, which is the whole reason this issue exists.
+    """
+    o = _out()
+    o.wallclocks = [
+        WallClockRecord(
+            "synth", f"c{i}", "natural", "rtdd", HW.fingerprint(), 4000, s * 2, s, False
+        )
+        for i, s in enumerate((0, 0, 0, 0, 600, 3000))
+    ]
+    return o
+
+
+def test_wallclock_rows_carry_the_distribution_beside_every_mean():
+    wc = build_summary(_spread_out(), ("rtdd", "path"), HW)["wallclock"]
+    row = wc["rows"]["rtdd"]
+    assert row["n"] == 6
+    # nearest-rank over (0, 0, 0, 0, 600, 3000): p50 is the 3rd sample, p90 the 6th.
+    assert row["mean_subset_uninstrumented_ms"] == 600
+    assert row["p50_subset_uninstrumented_ms"] == 0
+    assert row["p90_subset_uninstrumented_ms"] == 3000
+    assert row["worst_subset_uninstrumented_ms"] == 3000
+    assert row["p50_subset_instrumented_ms"] == 0
+    assert row["worst_subset_instrumented_ms"] == 6000
+    assert row["p50_full_uninstrumented_ms"] == 4000
+    assert row["worst_full_uninstrumented_ms"] == 4000
+
+
+def test_every_published_mean_has_a_p50_p90_and_worst_beside_it():
+    """The criterion (PRD #6, AC 9) is per column, not per table."""
+    row = build_summary(_spread_out(), ("rtdd", "path"), HW)["wallclock"]["rows"]["rtdd"]
+    for column in (
+        "full_uninstrumented_ms",
+        "subset_instrumented_ms",
+        "subset_uninstrumented_ms",
+    ):
+        assert f"mean_{column}" in row
+        for stat in ("p50", "p90", "worst"):
+            assert f"{stat}_{column}" in row, f"{column} publishes a mean with no {stat}"
+
+
+def test_the_wallclock_markdown_table_publishes_the_distribution():
+    md = render_markdown(build_summary(_spread_out(), ("rtdd", "path"), HW), CFG, HW)
+    section = md.split("## Wall-clock", 1)[1].split("## By variant", 1)[0]
+    header = next(line for line in section.splitlines() if line.startswith("| strategy"))
+    for cell in ("mean", "p50", "p90", "worst"):
+        assert cell in header, f"the wall-clock table has no {cell} column"
+    assert "| 3000 ms |" in section, "the worst cycle is never rounded away into the mean"
+
+
+def test_a_wallclock_table_that_cites_only_a_mean_is_refused():
+    """The guard is a text check on the rendered document, like the Axis 1 one:
+    it sees what a reader sees, so it survives whatever the renderer grows into."""
+    doc = (
+        "## Wall-clock\n\n"
+        "| strategy | n | mean full uninstrumented |\n"
+        "|---|---|---|\n"
+        "| rtdd | 24 | 1283 ms |\n"
+    )
+    with pytest.raises(ReportError) as exc:
+        assert_distribution_beside_mean(doc)
+    assert "p50" in str(exc.value)
+
+
+def test_a_wallclock_table_with_no_mean_at_all_is_still_refused():
+    """A bare column of averages that never says the word `mean` is the exact
+    table this issue found in `bench/results/*/summary.md`."""
+    doc = (
+        "## Wall-clock\n\n"
+        "| strategy | n | full uninstrumented |\n"
+        "|---|---|---|\n"
+        "| rtdd | 24 | 1283 ms |\n"
+    )
+    with pytest.raises(ReportError):
+        assert_distribution_beside_mean(doc)
+
+
+def test_a_mean_outside_the_wallclock_section_needs_its_distribution_too():
+    doc = "| strategy | mean latency |\n|---|---|\n| rtdd | 12 ms |\n"
+    with pytest.raises(ReportError):
+        assert_distribution_beside_mean(doc)
+
+
+def test_the_distribution_guard_accepts_the_real_rendered_report():
+    md = render_markdown(build_summary(_spread_out(), ("rtdd", "path"), HW), CFG, HW)
+    assert_distribution_beside_mean(md)
+
+
+def test_the_suppressed_wallclock_section_has_no_table_to_guard():
+    """A refusal is not a mean, and must not be turned into one to pass the guard."""
+    md = render_markdown(
+        build_summary(_spread_out(), ("rtdd", "path"), HW, wallclock_enabled=False), CFG, HW
+    )
+    assert_distribution_beside_mean(md)
+
+
+def test_render_markdown_refuses_to_return_a_document_the_guard_rejects(monkeypatch):
+    """`render_markdown` runs the guard on its own output — a future edit that
+    drops the distribution columns fails at render time, not at review time."""
+    import replay.report as report_mod
+
+    monkeypatch.setattr(
+        report_mod,
+        "_wallclock_header",
+        lambda: ["| strategy | measurement | n | mean |", "|---|---|---|---|"],
+    )
+    with pytest.raises(ReportError):
+        render_markdown(build_summary(_spread_out(), ("rtdd", "path"), HW), CFG, HW)

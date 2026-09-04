@@ -17,8 +17,15 @@ import textwrap
 import pytest
 
 from replay import cli
+from replay.config import RunConfig
 from replay.corpus import freeze
-from replay.hardware import CI_ENV_VARS
+from replay.hardware import CI_ENV_VARS, Hardware
+from replay.records import (
+    CommitRecord,
+    StrategyRecord,
+    WallClockRecord,
+    to_jsonl_lines,
+)
 from replay.replay import ReplayOutput
 
 CORPUS_YAML = textwrap.dedent(
@@ -592,3 +599,164 @@ def test_the_cache_can_outlive_the_checkout(monkeypatch, tmp_path):
         assert importlib.reload(cli).CACHE == reloaded.BENCH / "cache"
     finally:
         importlib.reload(cli)
+
+
+# --- rebuilding a published summary from its own records (#214) ----------
+
+
+def _published_repo(results: pathlib.Path, repo_id: str) -> pathlib.Path:
+    """A results directory as `replay` leaves it: records plus the run's config."""
+    d = results / repo_id
+    d.mkdir(parents=True)
+    all_tests = ("a", "b")
+    dur = {"a": 100, "b": 100}
+    records = [
+        CommitRecord(repo_id, "c1", "c0", "natural", all_tests, dur, ("a",), (), ("src/a.py",)),
+        StrategyRecord(repo_id, "c1", "natural", "rtdd", ("a",), False, "T0", 2),
+        StrategyRecord(repo_id, "c1", "natural", "path", ("a",), False, "sib", 1),
+    ]
+    records += [
+        WallClockRecord(repo_id, f"c{i}", "natural", "rtdd", "fp", 4000, s * 2, s, False)
+        for i, s in enumerate((0, 0, 0, 600, 3000))
+    ]
+    (d / "commits.jsonl").write_text("".join(to_jsonl_lines(records)), encoding="utf-8")
+    cfg = RunConfig(
+        "cd" * 32,
+        "rtdd 1.2.3",
+        (("pytest", "8.3.3"),),
+        ("rtdd", "path"),
+        ("natural",),
+        3,
+        5,
+        1,
+    )
+    hw = Hardware("Ryzen 9 7950X", 32, 65536000, "Linux-6.8", "3.12.4", None)
+    (d / "config.json").write_text(
+        json.dumps(
+            {
+                "config": cfg.to_dict(),
+                "config_digest": cfg.digest(),
+                "hardware": hw.to_dict(),
+            }
+        ),
+        encoding="utf-8",
+    )
+    return d
+
+
+def test_report_rebuilds_a_summary_from_the_committed_records(bench, capsys):
+    """Publishing a distribution must not require re-running the benchmark.
+
+    Every per-cycle sample is already committed in `commits.jsonl`; before #214
+    nothing could read them back into a summary, so a change to the aggregation
+    meant re-measuring wall-clock on hardware that no longer exists.
+    """
+    results = pathlib.Path(cli.RESULTS)
+    d = _published_repo(results, "synth")
+    assert cli.main(["report", "--rebuild"]) == cli.EXIT_OK
+
+    summary = json.loads((d / "summary.json").read_text(encoding="utf-8"))
+    assert summary["repo_id"] == "synth"
+    row = summary["wallclock"]["rows"]["rtdd"]
+    assert row["p50_subset_uninstrumented_ms"] == 0
+    assert row["p90_subset_uninstrumented_ms"] == 3000
+    assert row["worst_subset_uninstrumented_ms"] == 3000
+    md = (d / "summary.md").read_text(encoding="utf-8")
+    assert "p90" in md.split("## Wall-clock", 1)[1]
+    assert "rebuilt synth" in capsys.readouterr().out
+
+
+def test_rebuild_leaves_the_run_config_that_stamped_the_result_untouched(bench):
+    """`config.json` stamps the run that produced the numbers, not the rebuild."""
+    results = pathlib.Path(cli.RESULTS)
+    d = _published_repo(results, "synth")
+    before = (d / "config.json").read_text(encoding="utf-8")
+    assert cli.main(["report", "--rebuild"]) == cli.EXIT_OK
+    assert (d / "config.json").read_text(encoding="utf-8") == before
+
+
+def test_rebuild_does_not_touch_a_repo_the_corpus_no_longer_admits(bench):
+    """`sqlfluff`'s case: dropped at `corpus_version: 2`, its published files frozen."""
+    results = pathlib.Path(cli.RESULTS)
+    dropped = _published_repo(results, "dropped")
+    (dropped / "summary.json").write_text('{"repo_id": "dropped"}', encoding="utf-8")
+    (dropped / "summary.md").write_text("frozen\n", encoding="utf-8")
+    _published_repo(results, "synth")
+    assert cli.main(["report", "--rebuild"]) == cli.EXIT_OK
+    assert (dropped / "summary.md").read_text(encoding="utf-8") == "frozen\n"
+
+
+def test_rebuild_refuses_a_results_directory_with_no_records(bench, capsys):
+    results = pathlib.Path(cli.RESULTS)
+    (results / "synth").mkdir(parents=True)
+    assert cli.main(["report", "--rebuild"]) == cli.EXIT_GUARD
+    assert "no per-repo records found" in capsys.readouterr().err
+
+
+def test_rebuild_keeps_an_operator_wallclock_refusal_refused(bench):
+    """`--no-wallclock` was an operator's judgement about the host that ran it;
+    a rebuild on another box must not quietly publish the withheld timings."""
+    results = pathlib.Path(cli.RESULTS)
+    d = _published_repo(results, "synth")
+    (d / "summary.json").write_text(
+        json.dumps(
+            {
+                "repo_id": "synth",
+                "wallclock": {
+                    "suppressed": True,
+                    "reason": "withheld by operator (--no-wallclock)",
+                    "rows": {},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert cli.main(["report", "--rebuild"]) == cli.EXIT_OK
+    summary = json.loads((d / "summary.json").read_text(encoding="utf-8"))
+    assert summary["wallclock"]["suppressed"] is True
+    assert "--no-wallclock" in summary["wallclock"]["reason"]
+
+
+def test_rebuild_preserves_what_the_records_do_not_carry(bench):
+    """`skipped` and `rtdd_run_errors` live only in `summary.json`.
+
+    A commit the harness could not replay leaves no record in `commits.jsonl` by
+    construction — there was nothing to record. Re-deriving a summary from the
+    records alone would therefore silently republish the run as having skipped
+    nothing and refused nothing, which is the one direction a rebuild must never
+    move a published number.
+    """
+    results = pathlib.Path(cli.RESULTS)
+    d = _published_repo(results, "synth")
+    skipped = [
+        {"repo_id": "synth", "commit": "c9", "variant": "natural", "reason": "collect-error"}
+    ]
+    (d / "summary.json").write_text(
+        json.dumps({"repo_id": "synth", "skipped": skipped, "rtdd_run_errors": 2}),
+        encoding="utf-8",
+    )
+    assert cli.main(["report", "--rebuild"]) == cli.EXIT_OK
+    summary = json.loads((d / "summary.json").read_text(encoding="utf-8"))
+    assert summary["skipped"] == skipped
+    assert summary["rtdd_run_errors"] == 2
+    assert "refused on 2 of" in (d / "summary.md").read_text(encoding="utf-8")
+
+
+def test_rebuild_publishes_strategies_in_the_order_the_run_did(bench):
+    """`rtdd` first, `random` then `full` last — the order the tables were published
+    in, and the order the strategies actually ran in. Re-deriving must not reorder
+    a committed table into a diff nobody asked for."""
+    results = pathlib.Path(cli.RESULTS)
+    d = _published_repo(results, "synth")
+    assert cli.main(["report", "--rebuild"]) == cli.EXIT_OK
+    # `summary.json` is canonical (sorted keys) by design; the published *table*
+    # is where run order is visible, so that is what this asserts.
+    md = (d / "summary.md").read_text(encoding="utf-8")
+    rows = [
+        line.split("|")[1].strip()
+        for line in md.splitlines()
+        if line.startswith(("| rtdd |", "| path |"))
+    ]
+    assert rows[0] == "rtdd", (
+        f"the published table leads with {rows[0]}, not the strategy that ran first"
+    )

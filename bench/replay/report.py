@@ -49,6 +49,86 @@ than per table.
 
 UPPER_BOUND_LABEL = "upper bound (map seeded at the child commit)"
 
+WALLCLOCK_COLUMNS: tuple[str, ...] = (
+    "full_uninstrumented_ms",
+    "subset_instrumented_ms",
+    "subset_uninstrumented_ms",
+)
+"""The three timings every wall-clock row publishes, in table order.
+
+Named once so the aggregation, the markdown table and the audit cannot drift
+apart — a column added here without a percentile beside it fails
+:func:`assert_distribution_beside_mean` on the renderer's own output.
+"""
+
+WALLCLOCK_COLUMN_LABELS: dict[str, str] = {
+    "full_uninstrumented_ms": "full uninstrumented",
+    "subset_instrumented_ms": "subset instrumented",
+    "subset_uninstrumented_ms": "subset uninstrumented",
+}
+
+#: The spread a published mean is worthless without. PRD #6 acceptance criterion 9
+#: asks for exactly these three beside every wall-clock figure.
+_DISTRIBUTION_HEADERS: tuple[str, ...] = ("p50", "p90", "worst")
+
+
+class ReportError(RuntimeError):
+    """The document the renderer produced is not publishable as written."""
+
+
+def _tables(text: str) -> list[list[list[str]]]:
+    """Every markdown table in ``text``, as lists of cell lists."""
+    out: list[list[list[str]]] = []
+    current: list[list[str]] | None = None
+    for line in text.splitlines():
+        if line.startswith("|"):
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            current = [cells] if current is None else [*current, cells]
+        elif current is not None:
+            out.append(current)
+            current = None
+    if current is not None:
+        out.append(current)
+    return out
+
+
+def _is_wallclock_header(header: Sequence[str]) -> bool:
+    labels = WALLCLOCK_COLUMN_LABELS.values()
+    return any(label in cell.lower() for cell in header for label in labels)
+
+
+def assert_distribution_beside_mean(text: str) -> None:
+    """Refuse any table that publishes a wall-clock figure without its spread.
+
+    Two tables are caught, because two ways of hiding the spread exist. A table
+    whose header says `mean` and stops there is the obvious one. The subtler one
+    — and the one this repo actually shipped — is a column headed `subset
+    uninstrumented` whose cells are means that never say so: `rtdd`'s mean of
+    1283 ms sat beside a p50 of 545 ms and a worst of 4045 ms, and a reader had
+    no way to see it.
+
+    A text check on purpose, like the Axis 1 resolution audit: it sees what a
+    reader sees, so the guarantee survives whatever the renderer grows into
+    rather than holding only for the tables it emits today.
+    """
+    for table in _tables(text):
+        header = table[0]
+        cites_mean = any("mean" in cell.lower() for cell in header)
+        if not cites_mean and not _is_wallclock_header(header):
+            continue
+        missing = [
+            h for h in _DISTRIBUTION_HEADERS if not any(h in cell.lower() for cell in header)
+        ]
+        if missing:
+            raise ReportError(
+                f"table with header {header} publishes a wall-clock mean with no "
+                f"{', '.join(missing)} beside it — the population is bimodal, so a "
+                "mean describes neither half and a reader takes it for a typical "
+                "cycle (PRD #6 acceptance criterion 9)"
+            )
+
+
+
 FAILURE_WORDING = (
     "rtdd does NOT clearly beat the naive path heuristic — per the pre-registered "
     "criterion in docs/plans/04-m3-replay-benchmark.md the map is not justified and this "
@@ -125,6 +205,7 @@ def wallclock_table(output, hw: Hardware, *, wallclock_enabled: bool = True) -> 
             "rows": {},
         }
     rows: dict[str, dict] = {}
+    samples: dict[str, dict[str, list[int]]] = {}
     for w in output.wallclocks:
         row = rows.setdefault(
             w.strategy,
@@ -136,16 +217,24 @@ def wallclock_table(output, hw: Hardware, *, wallclock_enabled: bool = True) -> 
                 "isolation_violations": 0,
             },
         )
+        seen = samples.setdefault(w.strategy, {c: [] for c in WALLCLOCK_COLUMNS})
         row["n"] += 1
-        row["full_uninstrumented_ms"] += w.full_uninstrumented_ms or 0
-        row["subset_instrumented_ms"] += w.subset_instrumented_ms or 0
-        row["subset_uninstrumented_ms"] += w.subset_uninstrumented_ms or 0
+        for column in WALLCLOCK_COLUMNS:
+            value = getattr(w, column) or 0
+            row[column] += value
+            seen[column].append(value)
         row["isolation_violations"] += 1 if w.isolation_violation else 0
-    for row in rows.values():
+    for strategy, row in rows.items():
         n = max(row["n"], 1)
-        row["mean_full_uninstrumented_ms"] = round(row["full_uninstrumented_ms"] / n)
-        row["mean_subset_instrumented_ms"] = round(row["subset_instrumented_ms"] / n)
-        row["mean_subset_uninstrumented_ms"] = round(row["subset_uninstrumented_ms"] / n)
+        for column in WALLCLOCK_COLUMNS:
+            # The mean stays — it is the one number that answers "what did the
+            # whole sample cost" — but it is never emitted alone. A bimodal
+            # population (a cycle that selects nothing against one that selects
+            # the hub) has a mean no cycle produced, so the spread ships beside it.
+            row[f"mean_{column}"] = round(row[column] / n)
+            row[f"p50_{column}"] = metrics.percentile(samples[strategy][column], 0.5)
+            row[f"p90_{column}"] = metrics.percentile(samples[strategy][column], 0.9)
+            row[f"worst_{column}"] = metrics.percentile(samples[strategy][column], 1.0)
     return {"suppressed": False, "reason": "", "rows": dict(sorted(rows.items()))}
 
 
@@ -348,17 +437,17 @@ def render_markdown(summary: dict, cfg: RunConfig, hw: Hardware) -> str:
         )
         lines.append(f"Suppressed: {wc['reason']}.{note}")
     else:
+        lines += _wallclock_header()
+        lines += _wallclock_rows(wc)
+        lines.append("")
         lines.append(
-            "| strategy | n | full uninstrumented | subset instrumented "
-            "| subset uninstrumented | isolation violations |"
+            "One row per measurement rather than one cell: the population is bimodal — a "
+            "cycle whose strategy selected nothing costs almost nothing, a cycle that "
+            "selected the hub costs nearly a full run — so the mean sits between two modes "
+            "and describes neither. `p50`, `p90` and `worst` are nearest-rank over the "
+            "per-cycle samples in `commits.jsonl`, so each is a cycle that really ran. "
+            "Isolation violations are per strategy and published above, under `## Isolation`."
         )
-        lines.append("|---|---|---|---|---|---|")
-        for sid, row in wc["rows"].items():
-            lines.append(
-                f"| {sid} | {row['n']} | {row['mean_full_uninstrumented_ms']} ms | "
-                f"{row['mean_subset_instrumented_ms'] or 'n/a'} ms | "
-                f"{row['mean_subset_uninstrumented_ms']} ms | {row['isolation_violations']} |"
-            )
         lines.append("")
         lines.append(
             "A strategy that carries `Selection.exec_args` — `xdist` is the only one in the "
@@ -393,7 +482,39 @@ def render_markdown(summary: dict, cfg: RunConfig, hw: Hardware) -> str:
                 f"{fmt(s['selected_duration_fraction'])} | {bound} |"
             )
     lines.append("")
-    return "\n".join(lines) + "\n"
+    text = "\n".join(lines) + "\n"
+    # The renderer audits its own output, so the guarantee holds for whatever
+    # render_markdown grows into rather than only for the tables it emits today.
+    assert_distribution_beside_mean(text)
+    return text
+
+
+def _wallclock_header() -> list[str]:
+    """The wall-clock table's header, built from the columns it must publish.
+
+    Assembled rather than typed out so a stat cannot be dropped from the header
+    while the rows still carry it, or the reverse.
+    """
+    stats = " | ".join(("mean", *_DISTRIBUTION_HEADERS))
+    cells = 4 + len(_DISTRIBUTION_HEADERS)
+    return [f"| strategy | measurement | n | {stats} |", "|" + "---|" * cells]
+
+
+def _wallclock_rows(wc: dict) -> list[str]:
+    """One markdown row per (strategy, measurement), mean and spread together."""
+    out: list[str] = []
+    for sid, row in wc["rows"].items():
+        for column in WALLCLOCK_COLUMNS:
+            cells = " | ".join(
+                _ms(row.get(f"{stat}_{column}")) for stat in ("mean", "p50", "p90", "worst")
+            )
+            out.append(f"| {sid} | {WALLCLOCK_COLUMN_LABELS[column]} | {row['n']} | {cells} |")
+    return out
+
+
+def _ms(value: object) -> str:
+    """A millisecond cell. `0` is a measurement — only a missing sample is `n/a`."""
+    return "n/a" if value is None else f"{value} ms"
 
 
 def render_aggregate(summaries: Sequence[dict]) -> str:

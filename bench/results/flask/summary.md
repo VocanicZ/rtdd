@@ -50,16 +50,34 @@ A subset run that does not reproduce `F_full ∩ selected` is a finding, not a t
 
 ## Wall-clock
 
-| strategy | n | full uninstrumented | subset instrumented | subset uninstrumented | isolation violations |
-|---|---|---|---|---|---|
-| full | 24 | 3127 ms | 4860 ms | 3133 ms | 0 |
-| importgraph | 24 | 3127 ms | 286 ms | 171 ms | 0 |
-| lf | 24 | 3127 ms | 4125 ms | 2496 ms | 0 |
-| path | 24 | 3127 ms | 360 ms | 255 ms | 0 |
-| random | 24 | 3127 ms | 1958 ms | 1201 ms | 0 |
-| rtdd | 24 | 3127 ms | 12357 ms | 1284 ms | 0 |
-| testmon | 24 | 3127 ms | 1778 ms | 1103 ms | 0 |
-| xdist | 24 | 3127 ms | 8489 ms | 6593 ms | 0 |
+| strategy | measurement | n | mean | p50 | p90 | worst |
+|---|---|---|---|---|---|---|
+| full | full uninstrumented | 24 | 3127 ms | 3001 ms | 4294 ms | 4486 ms |
+| full | subset instrumented | 24 | 4860 ms | 4717 ms | 5537 ms | 5845 ms |
+| full | subset uninstrumented | 24 | 3133 ms | 3081 ms | 3558 ms | 4761 ms |
+| importgraph | full uninstrumented | 24 | 3127 ms | 3001 ms | 4294 ms | 4486 ms |
+| importgraph | subset instrumented | 24 | 286 ms | 0 ms | 1356 ms | 2357 ms |
+| importgraph | subset uninstrumented | 24 | 171 ms | 0 ms | 1063 ms | 1150 ms |
+| lf | full uninstrumented | 24 | 3127 ms | 3001 ms | 4294 ms | 4486 ms |
+| lf | subset instrumented | 24 | 4125 ms | 4663 ms | 6174 ms | 6621 ms |
+| lf | subset uninstrumented | 24 | 2496 ms | 2790 ms | 3523 ms | 4994 ms |
+| path | full uninstrumented | 24 | 3127 ms | 3001 ms | 4294 ms | 4486 ms |
+| path | subset instrumented | 24 | 360 ms | 0 ms | 1577 ms | 2323 ms |
+| path | subset uninstrumented | 24 | 255 ms | 0 ms | 1064 ms | 1680 ms |
+| random | full uninstrumented | 24 | 3127 ms | 3001 ms | 4294 ms | 4486 ms |
+| random | subset instrumented | 24 | 1958 ms | 0 ms | 4554 ms | 4936 ms |
+| random | subset uninstrumented | 24 | 1201 ms | 0 ms | 2857 ms | 2969 ms |
+| rtdd | full uninstrumented | 24 | 3127 ms | 3001 ms | 4294 ms | 4486 ms |
+| rtdd | subset instrumented | 24 | 12357 ms | 14675 ms | 25102 ms | 26730 ms |
+| rtdd | subset uninstrumented | 24 | 1284 ms | 0 ms | 3109 ms | 4045 ms |
+| testmon | full uninstrumented | 24 | 3127 ms | 3001 ms | 4294 ms | 4486 ms |
+| testmon | subset instrumented | 24 | 1778 ms | 1300 ms | 4419 ms | 6163 ms |
+| testmon | subset uninstrumented | 24 | 1103 ms | 959 ms | 2905 ms | 2970 ms |
+| xdist | full uninstrumented | 24 | 3127 ms | 3001 ms | 4294 ms | 4486 ms |
+| xdist | subset instrumented | 24 | 8489 ms | 8460 ms | 9832 ms | 10751 ms |
+| xdist | subset uninstrumented | 24 | 6593 ms | 6655 ms | 7091 ms | 7357 ms |
+
+One row per measurement rather than one cell: the population is bimodal — a cycle whose strategy selected nothing costs almost nothing, a cycle that selected the hub costs nearly a full run — so the mean sits between two modes and describes neither. `p50`, `p90` and `worst` are nearest-rank over the per-cycle samples in `commits.jsonl`, so each is a cycle that really ran. Isolation violations are per strategy and published above, under `## Isolation`.
 
 A strategy that carries `Selection.exec_args` — `xdist` is the only one in the shipped set — runs **both** subset columns with those flags (`pytest -n auto`); per-test coverage contexts survive the parallel instrumented run, so that column is not silently serial either. The `full uninstrumented` column is always the serial full suite, which is what makes the two directly comparable.
 

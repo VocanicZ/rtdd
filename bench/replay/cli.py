@@ -24,8 +24,15 @@ from replay.corpus import CorpusError, audit, load_corpus
 from replay.envsetup import EnvError, activate, provision, tool_versions_for, with_source_path
 from replay.gitwork import add_worktree, clone_pinned, remove_worktree, replay_points
 from replay.hardware import CIWallClockRefused, Hardware, probe, require_wallclock
-from replay.replay import ReplayOptions, replay_repo, strategy_order
-from replay.report import render_aggregate, write_results
+from replay.replay import ReplayOptions, ReplayOutput, replay_repo, strategy_order
+from replay.records import (
+    CommitRecord,
+    StrategyRecord,
+    UncoveredRecord,
+    WallClockRecord,
+    parse_jsonl_lines,
+)
+from replay.report import build_summary, render_aggregate, render_markdown, write_results
 from replay.session import run_drift
 from replay.strategies import base as sbase
 from replay.strategies import (  # noqa: F401  side-effect registration
@@ -289,7 +296,84 @@ def cmd_session(args) -> int:
     return EXIT_OK
 
 
+def _rebuild_repo(d: pathlib.Path) -> dict:
+    """Re-derive one repo's `summary.json`/`summary.md` from its committed records.
+
+    Every per-cycle sample the benchmark ever measured is already in
+    `commits.jsonl`; before this existed, changing how they are aggregated meant
+    re-running the benchmark on hardware that may no longer exist, which in
+    practice meant the aggregation was frozen forever. This reads the records and
+    the run's own `config.json` back and re-renders — it re-derives, it never
+    re-measures, and `config.json` itself is left exactly as the run wrote it.
+    """
+    records = parse_jsonl_lines((d / "commits.jsonl").read_text(encoding="utf-8").splitlines())
+    stamp = json.loads((d / "config.json").read_text(encoding="utf-8"))
+    cfg = RunConfig.from_dict(stamp["config"])
+    hw = Hardware.from_dict(stamp["hardware"])
+
+    out = ReplayOutput()
+    for rec in records:
+        if isinstance(rec, CommitRecord):
+            out.commits.append(rec)
+        elif isinstance(rec, StrategyRecord):
+            out.strategies.append(rec)
+        elif isinstance(rec, WallClockRecord):
+            out.wallclocks.append(rec)
+        elif isinstance(rec, UncoveredRecord):
+            out.uncovered.append(rec)
+
+    summary_path = d / "summary.json"
+    prior = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.exists() else {}
+
+    # A commit the harness could not replay, and a cycle where `rtdd run` refused,
+    # leave nothing in `commits.jsonl` — there was no measurement to record. They
+    # are carried across from the published summary rather than re-derived, or a
+    # rebuild would quietly republish the run as having skipped and refused nothing.
+    out.skipped = list(prior.get("skipped", ()))
+    out.rtdd_run_errors = [{}] * int(prior.get("rtdd_run_errors", 0))
+
+    # `--no-wallclock` was a judgement about the host that ran the benchmark — a
+    # contended box whose timings would be inflated. A rebuild elsewhere has no
+    # standing to overturn it, so a published refusal stays refused.
+    wc = prior.get("wallclock", {})
+    wallclock_enabled = not (wc.get("suppressed") and "--no-wallclock" in wc.get("reason", ""))
+
+    summary = build_summary(
+        out, strategy_order(cfg.strategies), hw, wallclock_enabled=wallclock_enabled
+    )
+    summary_path.write_text(canonical_json(summary), encoding="utf-8")
+    (d / "summary.md").write_text(render_markdown(summary, cfg, hw), encoding="utf-8")
+    return summary
+
+
+def cmd_rebuild(args) -> int:
+    """`report --rebuild`: re-derive every admitted repo's summary from its records."""
+    ids = set(_corpus(getattr(args, "corpus_version", None)).ids())
+    rebuilt = []
+    for d in sorted(RESULTS.iterdir()) if RESULTS.exists() else []:
+        if d.name not in ids or not (d / "commits.jsonl").exists():
+            continue
+        if not (d / "config.json").exists():
+            print(
+                f"{d.name}: commits.jsonl with no config.json — refusing to guess "
+                "the run that produced it",
+                file=sys.stderr,
+            )
+            return EXIT_GUARD
+        _rebuild_repo(d)
+        rebuilt.append(d.name)
+        print(f"rebuilt {d.name} from {d / 'commits.jsonl'}")
+    if not rebuilt:
+        print("no per-repo records found; run `replay` first", file=sys.stderr)
+        return EXIT_GUARD
+    return EXIT_OK
+
+
 def cmd_report(args) -> int:
+    if getattr(args, "rebuild", False):
+        rc = cmd_rebuild(args)
+        if rc != EXIT_OK:
+            return rc
     # Only the repos the corpus currently admits. A results directory for a repo a
     # later version dropped is kept — it was published, and deleting a published
     # number is worse than superseding it — but it is not weighed here, or the
@@ -381,6 +465,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     rep = sub.add_parser("report", help="regenerate aggregate.md from committed summaries")
     rep.add_argument("--corpus-version", type=int, default=None, dest="corpus_version")
+    rep.add_argument(
+        "--rebuild",
+        action="store_true",
+        help=(
+            "first re-derive each admitted repo's summary.json/summary.md from its own "
+            "committed commits.jsonl and config.json — how a published table is "
+            "re-rendered without re-running the benchmark"
+        ),
+    )
     rep.set_defaults(func=cmd_report)
     return p
 

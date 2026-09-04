@@ -111,7 +111,17 @@ uv run python -m replay.cli doctor          # must print `publishable: yes`
 uv run python -m replay.cli replay --repo flask --replay-commits 25 --wallclock-sample 10
 uv run python -m replay.cli session --repo flask --cycles 25   # drift.json
 uv run python -m replay.cli report                             # aggregate.md
+uv run python -m replay.cli report --rebuild                   # summary.{json,md} too
 ```
+
+`report --rebuild` re-derives each admitted repo's `summary.json` and `summary.md` from
+that repo's own committed `commits.jsonl` and `config.json` before writing the aggregate.
+Every per-cycle sample the benchmark ever measured is in `commits.jsonl`, so a change to
+how they are aggregated — the wall-clock percentiles in #214 were the first — is a
+re-render, not a re-measurement on hardware that may no longer exist. It re-derives and
+never re-measures: `config.json` is left exactly as the run wrote it, an operator's
+`--no-wallclock` refusal stays refused, and `skipped` and `rtdd_run_errors` (which leave
+no record behind, by construction) are carried across from the published summary.
 
 `doctor` needs the binary under test on `PATH`, which is the same static build the CI
 gate produces:
