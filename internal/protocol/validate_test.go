@@ -302,3 +302,121 @@ func TestValidateAgentsFailsWhenItSwallowsASharedSection(t *testing.T) {
 		t.Fatalf("validateAgents: want error when output contains section %q, which is not targeted at agents", shared.ID)
 	}
 }
+
+// guttedBodies returns out with the body of every section this target renders
+// deleted, leaving the frontmatter and the bare "## " headings behind. It is
+// the on-disk mutation from issue #223: a heading-only check passes on it.
+func guttedBodies(d *Doc, t Target, out string) string {
+	gutted := out
+	for _, s := range d.For(t.Name) {
+		gutted = strings.Replace(gutted, s.BodyFor(t.Name)+"\n", "", 1)
+	}
+	return gutted
+}
+
+// TestValidateSkillFailsWhenRequiredSectionBodyMissing pins validateSkill to
+// the package contract `verify` advertises: it must catch content that is wrong
+// even when the headings all survive. A SKILL.md reduced to its frontmatter
+// plus bare "## " headings passed verify with exit 0 before this.
+func TestValidateSkillFailsWhenRequiredSectionBodyMissing(t *testing.T) {
+	d := sampleDoc(t)
+	tgt := skillTarget(t)
+	out, err := tgt.Render(d)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	gutted := guttedBodies(d, tgt, out)
+	err = validateSkill(d, tgt, gutted)
+	if err == nil {
+		t.Fatal("validateSkill: want error when every required section's body is deleted")
+	}
+	if !strings.Contains(err.Error(), tgt.Required[0]) {
+		t.Errorf("error = %v, want it to name the missing section %q", err, tgt.Required[0])
+	}
+}
+
+// TestValidateMDCFailsWhenRequiredSectionBodyMissing is the .mdc half of the
+// same gap: headings intact, bodies gone.
+func TestValidateMDCFailsWhenRequiredSectionBodyMissing(t *testing.T) {
+	d := sampleDoc(t)
+	tgt := mdcTarget(t)
+	out, err := tgt.Render(d)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	gutted := guttedBodies(d, tgt, out)
+	err = validateMDC(d, tgt, gutted)
+	if err == nil {
+		t.Fatal("validateMDC: want error when every required section's body is deleted")
+	}
+	if !strings.Contains(err.Error(), tgt.Required[0]) {
+		t.Errorf("error = %v, want it to name the missing section %q", err, tgt.Required[0])
+	}
+}
+
+// TestValidateMDCFailsWhenItSwallowsASkillOnlySection is the "swallowed the
+// skill body" failure mode wearing the mdc target: appending the skill-only
+// `map` section keeps the file under the 4000-byte budget, so nothing else
+// caught it.
+func TestValidateMDCFailsWhenItSwallowsASkillOnlySection(t *testing.T) {
+	d := sampleDoc(t)
+	tgt := mdcTarget(t)
+	out, err := tgt.Render(d)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	var foreign Section
+	for _, s := range d.Sections {
+		if !s.HasTarget("mdc") {
+			foreign = s
+			break
+		}
+	}
+	if foreign.ID == "" {
+		t.Fatal("test fixture has no non-mdc section to swallow")
+	}
+	corrupted := out + foreign.BodyFor(foreign.Targets[0]) + "\n"
+	err = validateMDC(d, tgt, corrupted)
+	if err == nil {
+		t.Fatalf("validateMDC: want error when output contains section %q, which is not targeted at mdc", foreign.ID)
+	}
+	if !strings.Contains(err.Error(), foreign.ID) {
+		t.Errorf("error = %v, want it to name the foreign section %q", err, foreign.ID)
+	}
+}
+
+// skillForeignSample is renderSample plus one section targeted at mdc alone.
+// Every section of the real protocol/PROTOCOL.md targets skill, so the
+// foreign-section scan for skill cannot be exercised by sampleDoc — it needs a
+// purpose-built Doc. The scan still belongs on validateSkill: it guards the
+// first non-skill section anyone adds.
+const skillForeignSample = renderSample + `
+<!-- rtdd:section id=cursoronly title="Cursor only" targets=mdc order=100 -->
+cursor only body
+<!-- rtdd:endsection -->
+`
+
+// TestValidateSkillFailsWhenItSwallowsAnMDCOnlySection covers the skill half of
+// the foreign-section scan.
+func TestValidateSkillFailsWhenItSwallowsAnMDCOnlySection(t *testing.T) {
+	d, err := Parse(skillForeignSample)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	tgt := skillTarget(t)
+	out, err := tgt.Render(d)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if err := validateSkill(d, tgt, out); err != nil {
+		t.Fatalf("validateSkill on a correct render of the purpose-built doc: %v", err)
+	}
+	corrupted := out + "cursor only body\n"
+	err = validateSkill(d, tgt, corrupted)
+	if err == nil {
+		t.Fatal(`validateSkill: want error when output contains section "cursoronly", which is not targeted at skill`)
+	}
+	if !strings.Contains(err.Error(), "cursoronly") {
+		t.Errorf("error = %v, want it to name the foreign section %q", err, "cursoronly")
+	}
+}

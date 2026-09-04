@@ -64,6 +64,28 @@ func requiredBodiesPresent(d *Doc, t Target, out string) error {
 	return nil
 }
 
+// noForeignSections asserts that out carries no section the source does not
+// target at t. It is the "AGENTS.md swallowed the skill body" failure mode
+// generalised: a .mdc that grew a skill-only section, or a SKILL.md that grew
+// an mdc-only one, is the same bug wearing a different target — and a section
+// shared by two other targets is just as wrong here as a single-target one.
+//
+// It compares against the offending target's own body because per-target
+// variants mean one section has several distinct body strings.
+func noForeignSections(d *Doc, t Target, out string) error {
+	for _, s := range d.Sections {
+		if s.HasTarget(t.Name) {
+			continue
+		}
+		for _, target := range s.Targets {
+			if body := s.BodyFor(target); body != "" && strings.Contains(out, body) {
+				return fmt.Errorf("output contains section %q, which is not targeted at %s", s.ID, t.Name)
+			}
+		}
+	}
+	return nil
+}
+
 // requiredHeadingsPresent asserts that every one of t.Required's sections is
 // present as a "## <title>" heading in out. A section can be present in the
 // Doc (requireSections already checked that) yet still be dropped from the
@@ -86,8 +108,12 @@ func requiredHeadingsPresent(d *Doc, t Target, out string) error {
 	return nil
 }
 
-// validateSkill fails when the skill frontmatter is missing or when a
-// required section's heading did not make it into the rendered output.
+// validateSkill fails when the skill frontmatter is missing, when a required
+// section's heading or body did not make it into the rendered output, or when
+// the output carries a section not targeted at skill. The body and
+// foreign-section checks are what make `verify` more than a heading census: a
+// SKILL.md gutted to its frontmatter plus bare "## " headings kept every
+// heading and none of the content.
 func validateSkill(d *Doc, t Target, out string) error {
 	if err := withinBudget(t, out); err != nil {
 		return fmt.Errorf("SKILL.md: %w", err)
@@ -95,11 +121,23 @@ func validateSkill(d *Doc, t Target, out string) error {
 	if err := hasFrontmatter(out, "name: rtdd", "description: "); err != nil {
 		return fmt.Errorf("SKILL.md: %w", err)
 	}
-	return requiredHeadingsPresent(d, t, out)
+	if err := requiredHeadingsPresent(d, t, out); err != nil {
+		return fmt.Errorf("SKILL.md: %w", err)
+	}
+	if err := requiredBodiesPresent(d, t, out); err != nil {
+		return fmt.Errorf("SKILL.md: %w", err)
+	}
+	if err := noForeignSections(d, t, out); err != nil {
+		return fmt.Errorf("SKILL.md: %w", err)
+	}
+	return nil
 }
 
 // validateMDC fails when the frontmatter block is missing or lacks globs /
-// alwaysApply, or when a required section's heading is missing.
+// alwaysApply, when a required section's heading or body is missing, or when
+// the output carries a section not targeted at mdc — a skill-only section
+// appended to the rule file still fits under the mdc budget, so nothing else
+// sees it.
 func validateMDC(d *Doc, t Target, out string) error {
 	if err := withinBudget(t, out); err != nil {
 		return fmt.Errorf(".mdc: %w", err)
@@ -107,7 +145,16 @@ func validateMDC(d *Doc, t Target, out string) error {
 	if err := hasFrontmatter(out, "description: ", "globs: ", "alwaysApply: "); err != nil {
 		return fmt.Errorf(".mdc: %w", err)
 	}
-	return requiredHeadingsPresent(d, t, out)
+	if err := requiredHeadingsPresent(d, t, out); err != nil {
+		return fmt.Errorf(".mdc: %w", err)
+	}
+	if err := requiredBodiesPresent(d, t, out); err != nil {
+		return fmt.Errorf(".mdc: %w", err)
+	}
+	if err := noForeignSections(d, t, out); err != nil {
+		return fmt.Errorf(".mdc: %w", err)
+	}
+	return nil
 }
 
 // validateAgents fails when the output exceeds the agents byte budget, when the
@@ -133,18 +180,8 @@ func validateAgents(d *Doc, t Target, out string) error {
 	if err := requiredBodiesPresent(d, t, out[begin:begin+end]); err != nil {
 		return fmt.Errorf("AGENTS.md: %w", err)
 	}
-	// Any section the source does not target at agents is wrong here, not only
-	// a skill-only one: a section shared by skill and mdc swallowed into
-	// AGENTS.md is the same bug wearing a second target.
-	for _, s := range d.Sections {
-		if s.HasTarget("agents") {
-			continue
-		}
-		for _, target := range s.Targets {
-			if body := s.BodyFor(target); body != "" && strings.Contains(out, body) {
-				return fmt.Errorf("AGENTS.md contains section %q, which is not targeted at agents", s.ID)
-			}
-		}
+	if err := noForeignSections(d, t, out); err != nil {
+		return fmt.Errorf("AGENTS.md: %w", err)
 	}
 	return nil
 }
