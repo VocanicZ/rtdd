@@ -6,38 +6,27 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/VocanicZ/rtdd/internal/initrepo"
+	"github.com/VocanicZ/rtdd/internal/install"
+	"github.com/VocanicZ/rtdd/internal/protocol"
 )
 
 func TestRenderInit(t *testing.T) {
-	acts := []initrepo.Action{
-		{Path: ".gitattributes", Kind: "created"},
-		{Path: ".rtdd/config.yaml", Kind: "created"},
-		{Path: "AGENTS.md", Kind: "created"},
-		{Path: "CLAUDE.md", Kind: "updated"},
-		{Path: ".cursor/rules/rtdd.mdc", Kind: "unchanged"},
+	steps := []install.Step{
+		{Path: ".gitattributes", Action: install.Create},
+		{Path: ".rtdd/config.yaml", Action: install.Create},
+		{Path: "AGENTS.md", Action: install.Create},
+		{Path: "CLAUDE.md", Action: install.AppendBlock},
+		{Path: ".cursor/rules/rtdd.mdc", Action: install.Skip, Note: "already current"},
 	}
-	got := RenderInit(acts)
+	got := RenderInit(steps)
 	want := "" +
-		"rtdd init\n" +
-		"  created    .gitattributes\n" +
-		"  created    .rtdd/config.yaml\n" +
-		"  created    AGENTS.md\n" +
-		"  updated    CLAUDE.md\n" +
-		"  unchanged  .cursor/rules/rtdd.mdc\n" +
-		"\n" +
-		"Next: run `rtdd seed` once to build .rtdd/map.jsonl, then commit it.\n"
+		"create         .gitattributes\n" +
+		"create         .rtdd/config.yaml\n" +
+		"create         AGENTS.md\n" +
+		"append-block   CLAUDE.md\n" +
+		"skip           .cursor/rules/rtdd.mdc  — already current\n"
 	if got != want {
 		t.Fatalf("RenderInit()\n got:\n%s\nwant:\n%s", got, want)
-	}
-}
-
-func TestInitBlockDocumentsTheThreeClasses(t *testing.T) {
-	b := initrepo.Block()
-	for _, needle := range []string{"import-time", "uncovered", "covered", "This is not a gap"} {
-		if !strings.Contains(b, needle) {
-			t.Fatalf("agent front-end block is missing %q:\n%s", needle, b)
-		}
 	}
 }
 
@@ -50,7 +39,7 @@ func TestInitInstallsIntoTheWorkingDirectory(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
-	for _, want := range []string{".gitattributes", ".rtdd/config.yaml", "AGENTS.md", "CLAUDE.md", ".cursor/rules/rtdd.mdc"} {
+	for _, want := range []string{".gitattributes", ".rtdd/config.yaml", "AGENTS.md", ".cursor/rules/rtdd.mdc", ".claude/skills/rtdd/SKILL.md"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("init output is missing %q:\n%s", want, stdout)
 		}
@@ -60,20 +49,88 @@ func TestInitInstallsIntoTheWorkingDirectory(t *testing.T) {
 	if !strings.HasPrefix(agents, "# AGENTS\n\nHouse rules.\n") {
 		t.Errorf("the host repo's AGENTS.md was clobbered:\n%s", agents)
 	}
-	if !strings.Contains(agents, initrepo.BeginMarker) {
+	if !strings.Contains(agents, protocol.BeginMarker) {
 		t.Errorf("AGENTS.md did not gain the managed block:\n%s", agents)
 	}
 	if got := readRepoFileForTest(t, dir, ".gitattributes"); !strings.Contains(got, ".rtdd/map.jsonl merge=union") {
 		t.Errorf(".gitattributes = %q, want the union merge driver", got)
 	}
+	// The host repo never had a CLAUDE.md, so init must not introduce one — the
+	// generated Claude Code skill under .claude/skills/rtdd/ is the right surface.
+	if _, err := os.Stat(filepath.Join(dir, "CLAUDE.md")); err == nil {
+		t.Error("init must not create CLAUDE.md when the host repo has none")
+	}
 
-	// Re-running reports unchanged for every file.
+	// Re-running reports skip for every step.
 	code, stdout, stderr = rtdd(t, dir, "init")
 	if code != 0 {
 		t.Fatalf("second init exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
-	if strings.Contains(stdout, "created") || strings.Contains(stdout, "updated") {
-		t.Errorf("re-running init must report unchanged for every file:\n%s", stdout)
+	if strings.Contains(stdout, "create") || strings.Contains(stdout, "replace-block") || strings.Contains(stdout, "append-block") {
+		t.Errorf("re-running init must report skip for every file:\n%s", stdout)
+	}
+}
+
+// A host repo that already has a CLAUDE.md gets the block merged into it, same as
+// AGENTS.md.
+func TestInitMergesClaudeMdWhenTheHostRepoAlreadyHasOne(t *testing.T) {
+	dir := newTestRepo(t)
+	writeFile(t, dir, "CLAUDE.md", "# Our Claude notes\n\nDo not touch prod.\n")
+
+	code, _, stderr := rtdd(t, dir, "init")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	claude := readRepoFileForTest(t, dir, "CLAUDE.md")
+	if !strings.HasPrefix(claude, "# Our Claude notes\n\nDo not touch prod.\n") {
+		t.Errorf("the host repo's CLAUDE.md was clobbered:\n%s", claude)
+	}
+	if !strings.Contains(claude, protocol.BeginMarker) {
+		t.Errorf("CLAUDE.md did not gain the managed block:\n%s", claude)
+	}
+}
+
+func TestInitDryRunPrintsThePlanAndWritesNothing(t *testing.T) {
+	dir := newTestRepo(t)
+
+	code, stdout, stderr := rtdd(t, dir, "init", "--dry-run")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	if !strings.Contains(stdout, "AGENTS.md") {
+		t.Errorf("dry-run output is missing the plan:\n%s", stdout)
+	}
+	for _, rel := range []string{".gitattributes", ".rtdd/config.yaml", "AGENTS.md", ".cursor/rules/rtdd.mdc", ".claude/skills/rtdd/SKILL.md"} {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err == nil {
+			t.Errorf("--dry-run must not write %s", rel)
+		}
+	}
+}
+
+// A whole-file target that exists and differs is a conflict, and init refuses to
+// write anything until --force is passed.
+func TestInitConflictsOnAHandEditedSkillFileAndForceOverridesIt(t *testing.T) {
+	dir := newTestRepo(t)
+	skillDir := filepath.Join(dir, ".claude", "skills", "rtdd")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, ".claude/skills/rtdd/SKILL.md", "hand written, not ours\n")
+
+	code, _, stderr := rtdd(t, dir, "init")
+	if code != 2 {
+		t.Fatalf("exit code = %d, want 2 on conflict (stderr: %s)", code, stderr)
+	}
+	if got := readRepoFileForTest(t, dir, ".claude/skills/rtdd/SKILL.md"); got != "hand written, not ours\n" {
+		t.Errorf("conflicting file was written without --force: %q", got)
+	}
+
+	code, _, stderr = rtdd(t, dir, "init", "--force")
+	if code != 0 {
+		t.Fatalf("--force exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	if got := readRepoFileForTest(t, dir, ".claude/skills/rtdd/SKILL.md"); got == "hand written, not ours\n" {
+		t.Error("--force did not overwrite the conflicting file")
 	}
 }
 
@@ -130,7 +187,7 @@ func TestInitInstallsAtTheRepoRootFromASubdirectory(t *testing.T) {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
 
-	for _, rel := range []string{".gitattributes", ".rtdd/config.yaml", "AGENTS.md", "CLAUDE.md", ".cursor/rules/rtdd.mdc"} {
+	for _, rel := range []string{".gitattributes", ".rtdd/config.yaml", "AGENTS.md", ".cursor/rules/rtdd.mdc", ".claude/skills/rtdd/SKILL.md"} {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
 			t.Errorf("%s was not installed at the repo root: %v", rel, err)
 		}
@@ -155,7 +212,7 @@ func TestInitFallsBackToTheWorkingDirectoryOutsideAGitRepository(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
-	for _, rel := range []string{".gitattributes", ".rtdd/config.yaml", "AGENTS.md", "CLAUDE.md", ".cursor/rules/rtdd.mdc"} {
+	for _, rel := range []string{".gitattributes", ".rtdd/config.yaml", "AGENTS.md", ".cursor/rules/rtdd.mdc", ".claude/skills/rtdd/SKILL.md"} {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
 			t.Errorf("%s was not installed into the working directory: %v", rel, err)
 		}

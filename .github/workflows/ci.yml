@@ -38,6 +38,9 @@ jobs:
       - name: rtdd-gen verify
         run: go run ./cmd/rtdd-gen verify
 
+      - name: embedded protocol copy must match the source
+        run: diff -u protocol/PROTOCOL.md internal/install/protocol.md
+
       - name: static binary
         run: |
           CGO_ENABLED=0 go build -o /tmp/rtdd ./cmd/rtdd
