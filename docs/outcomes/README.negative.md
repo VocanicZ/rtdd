@@ -80,11 +80,13 @@ rather than less.
 - **[Ekstazi](https://users.ece.utexas.edu/~gligoric/papers/GligoricETAL15Ekstazi.pdf)**
   (2015) — the reference result for file-level regression test selection, and the source of
   the 32%-end-to-end-reduction figure that should temper anyone's expectations here.
-- **SonarQube's new-code coverage gate**, Codecov's patch status, and `diff-cover` — prior art
-  for "changed code that no test covers is a problem".
+- **[SonarQube's new-code coverage gate](https://docs.sonarsource.com/sonarqube-server/latest/user-guide/clean-as-you-code/)**,
+  Codecov's patch status, and `diff-cover` — prior art for "changed code that no test covers
+  is a problem".
 
-Also in the lineage: Bazel, Google TAP, Azure DevOps TIA, `jest --findRelatedTests`, NCrunch,
-Meta's predictive test selection.
+Also in the lineage: [Bazel](https://bazel.build/query/guide), Google TAP, Azure DevOps TIA,
+`jest --findRelatedTests`, NCrunch,
+[Meta's predictive test selection](https://arxiv.org/abs/1810.05286).
 
 ## Documentation
 
