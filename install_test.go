@@ -75,10 +75,19 @@ func sha256Hex(b []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// apiPath is where serveFixture publishes its "latest release" payload, standing in for
+// GitHub's /repos/<owner>/<repo>/releases/latest endpoint.
+const apiPath = "/releases/latest"
+
 // serveFixture starts a server that serves /<version>/<file>, exactly like GitHub release
-// asset download URLs, for the one archive+checksums pair given.
-func serveFixture(t *testing.T, archiveFilename string, archive []byte, checksums string) string {
+// asset download URLs, for the one archive+checksums pair given. When apiBody is supplied,
+// it is also served at apiPath, so a single server can back both RTDD_BASE_URL and
+// RTDD_API_URL for the unpinned (latest-release resolution) path.
+func serveFixture(t *testing.T, archiveFilename string, archive []byte, checksums string, apiBody ...string) string {
 	t.Helper()
+	if len(apiBody) > 1 {
+		t.Fatalf("serveFixture: at most one apiBody, got %d", len(apiBody))
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/"+testVersion+"/"+archiveFilename, func(w http.ResponseWriter, r *http.Request) {
 		w.Write(archive)
@@ -86,6 +95,12 @@ func serveFixture(t *testing.T, archiveFilename string, archive []byte, checksum
 	mux.HandleFunc("/"+testVersion+"/checksums.txt", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(checksums))
 	})
+	if len(apiBody) == 1 {
+		body := apiBody[0]
+		mux.HandleFunc(apiPath, func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(body))
+		})
+	}
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv.URL
@@ -210,5 +225,103 @@ func TestInstallAbortsOnACorruptedChecksum(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(installDir, "rtdd")); err == nil {
 		t.Errorf("rtdd was installed at %s despite a corrupted checksum", installDir)
+	}
+}
+
+// runUnpinnedInstall drives install.sh down the latest-release resolution branch: it serves
+// the given API payload alongside the archive fixture and clears RTDD_VERSION, which the
+// script's "${RTDD_VERSION:-}" treats as unset. exec.Cmd keeps the last value for a
+// duplicate key, so this overrides runInstall's pinned default.
+func runUnpinnedInstall(t *testing.T, apiBody string) (code int, output, installDir, archiveFilename string) {
+	t.Helper()
+	osName, arch := fixtureOSArch(t)
+	bin := buildFixtureBinary(t, t.TempDir())
+	archiveFilename = archiveName(osName, arch)
+	archive := buildArchive(t, bin)
+	checksums := sha256Hex(archive) + "  " + archiveFilename + "\n"
+
+	baseURL := serveFixture(t, archiveFilename, archive, checksums, apiBody)
+
+	code, output, installDir = runInstall(t,
+		"RTDD_BASE_URL="+baseURL,
+		"RTDD_API_URL="+baseURL+apiPath,
+		"RTDD_VERSION=",
+	)
+	return code, output, installDir, archiveFilename
+}
+
+// TestInstallResolvesTheLatestReleaseWhenVersionIsUnset covers the branch every real
+// "curl … | sh" user takes: no RTDD_VERSION, so install.sh must read the tag off the
+// releases API and install that. Both of GitHub's JSON spacings must resolve identically.
+func TestInstallResolvesTheLatestReleaseWhenVersionIsUnset(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		apiBody string
+	}{
+		{
+			name:    "spaced",
+			apiBody: "{\n  \"id\": 1,\n  \"tag_name\": \"" + testVersion + "\",\n  \"name\": \"" + testVersion + "\"\n}\n",
+		},
+		{
+			name:    "compact",
+			apiBody: `{"id":1,"tag_name":"` + testVersion + `","name":"` + testVersion + `"}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code, output, installDir, archiveFilename := runUnpinnedInstall(t, tc.apiBody)
+			if code != 0 {
+				t.Fatalf("install.sh exited %d:\n%s", code, output)
+			}
+			if !strings.Contains(output, "resolving the latest rtdd release") {
+				t.Errorf("output = %q, want it to report resolving the latest release", output)
+			}
+			// The archive name is derived from the resolved tag, so naming it proves
+			// which version was resolved without re-implementing the parser here.
+			if !strings.Contains(output, "downloading "+archiveFilename+" ("+testVersion+")") {
+				t.Errorf("output = %q, want it to download %q for resolved tag %q", output, archiveFilename, testVersion)
+			}
+
+			installed := filepath.Join(installDir, "rtdd")
+			out, err := exec.Command(installed, "--version").CombinedOutput()
+			if err != nil {
+				t.Fatalf("%s --version failed: %v\n%s\ninstall output:\n%s", installed, err, out, output)
+			}
+			if !strings.Contains(string(out), versionNum()) {
+				t.Errorf("%s --version = %q, want it to name the resolved version %q", installed, out, versionNum())
+			}
+		})
+	}
+}
+
+// TestInstallFailsWhenTheLatestReleaseCannotBeResolved asserts the unpinned path dies with
+// the documented message, and installs nothing, for every API payload it cannot get a tag
+// out of -- including one that contains "tag_name" but does not match the extraction
+// pattern, which used to fall through with the raw JSON line as VERSION and only die later
+// on a malformed download URL.
+func TestInstallFailsWhenTheLatestReleaseCannotBeResolved(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		apiBody string
+	}{
+		{name: "no tag_name field", apiBody: `{"message":"Not Found","status":"404"}`},
+		{name: "tag_name present but unparseable", apiBody: `{"id":1,"tag_name" : "v0.1.0"}`},
+		{name: "empty body", apiBody: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code, output, installDir, _ := runUnpinnedInstall(t, tc.apiBody)
+			if code == 0 {
+				t.Fatalf("install.sh exited 0 on an unresolvable latest release:\n%s", output)
+			}
+			if !strings.Contains(output, "could not resolve the latest release version") {
+				t.Errorf("output = %q, want it to report that the latest release version could not be resolved", output)
+			}
+			// A garbage VERSION would show up here as a malformed archive name.
+			if strings.Contains(output, "downloading rtdd_{") {
+				t.Errorf("output = %q, want no download attempt with a garbage version", output)
+			}
+			if _, err := os.Stat(filepath.Join(installDir, "rtdd")); err == nil {
+				t.Errorf("rtdd was installed at %s despite an unresolvable latest release", installDir)
+			}
+		})
 	}
 }
