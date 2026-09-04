@@ -32,6 +32,12 @@ jobs:
       - name: test
         run: go test ./... -count=1
 
+      - name: rtdd-gen check
+        run: go run ./cmd/rtdd-gen check
+
+      - name: rtdd-gen verify
+        run: go run ./cmd/rtdd-gen verify
+
       - name: static binary
         run: |
           CGO_ENABLED=0 go build -o /tmp/rtdd ./cmd/rtdd
