@@ -134,3 +134,19 @@ Three things about the run are worth knowing before reading a table:
 - **`--replay-commits` bounds the walk** and the number it used is published in
   `config.json` and in `summary.md`'s header, so a bounded table always says how many
   commits produced it. Omit it to replay the corpus's own count.
+
+## Release pre-flight
+
+`scripts/release-preflight.sh` is the last thing an agent runs, at the end of plan Task 24,
+before handing off to a human. It runs `rtdd-gen check`, `rtdd-gen verify`, `go test ./...`,
+`bench/swebench`'s pytest suite and `preflight.py`, and a placeholder grep, then prints the
+`DECISION REQUIRED — repository visibility and release` block with every field filled in from
+what it just ran, and stops:
+
+```bash
+scripts/release-preflight.sh
+```
+
+It **never mutates repository state** — no `gh repo edit`, no `git tag`, no `git push`, no
+`gh release`. Going public and pushing a release tag are irreversible and stay a human call
+(plan Task 24); this script only informs it.
