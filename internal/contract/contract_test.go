@@ -872,3 +872,70 @@ func between(src, start, end string) (string, bool) {
 	}
 	return rest[:j], true
 }
+
+// Issue #222: scripts/release-preflight.sh was committed 100644 while its two siblings were
+// 100755, so the invocation DEVELOPMENT.md documents (`scripts/release-preflight.sh`, no
+// interpreter prefix) died with "Permission denied". Nothing caught it, because the one test
+// that execs the script chmods its own temp copy first.
+//
+// This guard therefore reads the mode of the files that are actually in the repository, and
+// globs scripts/*.sh so a script added tomorrow is covered without editing this list. Both
+// modes are asserted: the working-tree bit is what an operator's shell honours, and the git
+// index mode is what a fresh clone gets — a `chmod +x` that was never staged fixes only the
+// first.
+func TestEveryRepoScriptIsExecutable(t *testing.T) {
+	root := repoRoot(t)
+
+	scripts, err := filepath.Glob(filepath.Join(root, "scripts", "*.sh"))
+	if err != nil {
+		t.Fatalf("glob scripts/*.sh: %v", err)
+	}
+	if len(scripts) == 0 {
+		t.Fatalf("no scripts/*.sh found under %s", root)
+	}
+
+	for _, abs := range scripts {
+		rel := filepath.ToSlash(mustRel(t, root, abs))
+		info, err := os.Stat(abs)
+		if err != nil {
+			t.Errorf("stat %s: %v", rel, err)
+			continue
+		}
+		if info.Mode().Perm()&0o100 == 0 {
+			t.Errorf("%s must be executable, working-tree mode is %v; run `chmod +x %s`",
+				rel, info.Mode().Perm(), rel)
+		}
+	}
+
+	// internal/contract is exempt from TestOnlyGitctxShellsOutToGit, so the index mode -
+	// the mode a fresh clone materialises - can be read directly from git here.
+	out, err := exec.Command("git", "-C", root, "ls-files", "-s", "--", "scripts/*.sh").Output()
+	if err != nil {
+		t.Fatalf("git ls-files -s scripts/*.sh: %v", err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			t.Errorf("unparseable `git ls-files -s` line %q", line)
+			continue
+		}
+		mode, path := fields[0], fields[len(fields)-1]
+		if mode != "100755" {
+			t.Errorf("%s is committed with mode %s, want 100755; run `git update-index --chmod=+x %s`",
+				path, mode, path)
+		}
+	}
+}
+
+// mustRel is filepath.Rel with the test-fatal error handling every caller here wants.
+func mustRel(t *testing.T, base, target string) string {
+	t.Helper()
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		t.Fatalf("rel %s %s: %v", base, target, err)
+	}
+	return rel
+}

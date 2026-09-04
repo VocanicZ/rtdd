@@ -113,8 +113,15 @@ func buildFixtureRepo(t *testing.T, extraReadme string, selected string, taggedP
 		}
 	}
 
+	// Issue #222: the copy inherits the mode of the file it was read from. Chmodding it to
+	// 0o755 unconditionally manufactured the very bit the repo was missing, so these tests
+	// stayed green while `scripts/release-preflight.sh` was unrunnable in a fresh clone.
 	mustWrite("scripts/release-preflight.sh", string(scriptSrc))
-	if err := os.Chmod(filepath.Join(dir, "scripts", "release-preflight.sh"), 0o755); err != nil {
+	scriptInfo, err := os.Stat(filepath.Join(repoRoot, "scripts", "release-preflight.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(dir, "scripts", "release-preflight.sh"), scriptInfo.Mode().Perm()); err != nil {
 		t.Fatal(err)
 	}
 	mustWrite("README.md", "# rtdd\n"+extraReadme)
