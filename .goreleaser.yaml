@@ -1,0 +1,62 @@
+# .goreleaser.yaml
+version: 2
+
+project_name: rtdd
+
+# GoReleaser's default dist dir is ./dist, which collides with the tracked
+# generated-front-end tree (dist/SKILL.md, dist/AGENTS.md, dist/cursor/) that
+# `before.hooks` checks with rtdd-gen. GoReleaser cleans its dist dir before
+# running hooks, so it would wipe those tracked files first. Keep them apart.
+dist: build/dist
+
+before:
+  hooks:
+    - go mod tidy
+    - go run ./cmd/rtdd-gen check
+    - go run ./cmd/rtdd-gen verify
+    - go test ./...
+
+builds:
+  - id: rtdd
+    main: ./cmd/rtdd
+    binary: rtdd
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.FullCommit}} -X main.date={{.CommitDate}}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - id: rtdd
+    ids: [rtdd]
+    name_template: "rtdd_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - dist/SKILL.md
+      - dist/AGENTS.md
+      - dist/cursor/rules/rtdd.mdc
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+
+release:
+  draft: true
+  prerelease: auto

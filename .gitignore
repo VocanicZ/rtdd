@@ -1,5 +1,8 @@
 /rtdd
 /dist/bin/
+# GoReleaser output. Configured to build/dist (not /dist) because /dist is
+# the tracked generated-front-end tree (SKILL.md, AGENTS.md, cursor/).
+/build/
 .coverage
 __pycache__/
 *.pyc
