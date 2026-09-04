@@ -245,7 +245,7 @@ def _cached_uncovered(
     key: str,
     work: pathlib.Path,
     binary: str,
-) -> tuple[frozenset[tuple[str, int]], int]:
+) -> tuple[frozenset[tuple[str, int]], int, bool]:
     def build() -> dict:
         out = rtddio.run(work, binary=binary, base="HEAD")
         return {
@@ -253,10 +253,13 @@ def _cached_uncovered(
             "wall_ms": out.wall_ms,
         }
 
+    before = cache.stats()["hits"]
     payload = cache.json_or_build(key, build)
+    cached = cache.stats()["hits"] > before
     return (
         frozenset((f, int(line)) for f, line in payload["uncovered"]),
         int(payload["wall_ms"]),
+        cached,
     )
 
 
@@ -526,9 +529,10 @@ def replay_repo(
                     )
 
                 rtdd_wall_ms: int | None = None
+                rtdd_wall_cached = False
                 if "rtdd" in order:
                     try:
-                        reported, rtdd_wall_ms = _cached_uncovered(
+                        reported, rtdd_wall_ms, rtdd_wall_cached = _cached_uncovered(
                             cache,
                             cache.key(spec.id, point.commit, variant, "rtdd-run"),
                             work,
@@ -590,8 +594,9 @@ def replay_repo(
                         )
                         if sid == "rtdd" and rtdd_wall_ms is not None:
                             inst_ms: int | None = rtdd_wall_ms
+                            inst_cached = rtdd_wall_cached
                         else:
-                            inst_ms = cached_run(
+                            inst_res = cached_run(
                                 cache,
                                 run_key(
                                     cache,
@@ -611,7 +616,9 @@ def replay_repo(
                                     source_globs=spec.source_globs,
                                     exec_args=exec_args,
                                 ),
-                            ).wall_ms
+                            )
+                            inst_ms = inst_res.wall_ms
+                            inst_cached = inst_res.cached
                         out.wallclocks.append(
                             WallClockRecord(
                                 repo_id=spec.id,
@@ -619,9 +626,13 @@ def replay_repo(
                                 variant=variant,
                                 strategy=sid,
                                 hardware_fingerprint=hw.fingerprint(),
-                                full_uninstrumented_ms=gt.wall_ms,
-                                subset_instrumented_ms=inst_ms,
-                                subset_uninstrumented_ms=sub.wall_ms,
+                                # A cell replayed from cache was measured on whatever box
+                                # wrote that entry, not this one (#188) — publish no
+                                # timing for it rather than stamp it with this box's
+                                # fingerprint.
+                                full_uninstrumented_ms=None if gt.cached else gt.wall_ms,
+                                subset_instrumented_ms=None if inst_cached else inst_ms,
+                                subset_uninstrumented_ms=None if sub.cached else sub.wall_ms,
                                 isolation_violation=isolation_violation(
                                     sub.failing(), tests, f_full, pre_existing
                                 ),

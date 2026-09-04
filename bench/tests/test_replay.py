@@ -7,6 +7,7 @@ that table, never off a previous run of this code.
 
 from __future__ import annotations
 
+import dataclasses
 import sys
 
 import pytest
@@ -321,6 +322,62 @@ def test_wall_clock_is_suppressed_on_ci(synth, tmp_path, cache_root):
 
     assert out.wallclocks == []
     assert len(out.commits) == 1
+
+
+def test_a_cached_run_replayed_under_different_hardware_does_not_publish_borrowed_timing(
+    synth, tmp_path, cache_root
+):
+    """Two boxes sharing `RTDD_BENCH_CACHE` must not let box A's timing get
+    stamped with box B's fingerprint (#188). Box B's replay reuses box A's cache
+    entry for outcomes/durations but must publish no wall-clock for the cells it
+    never actually measured."""
+    cfg = _cfg(strategies=("full",), commits=1)
+    cache = Cache(cache_root, cfg.digest())
+    hw_a = probe({})
+
+    out_a = replay_repo(
+        repo=synth.path,
+        spec=_spec(synth, commits=1, pin_index=3),
+        cfg=cfg,
+        cache=cache,
+        hw=hw_a,
+        work_root=tmp_path / "work-a",
+        opts=ReplayOptions(
+            variants=("natural",),
+            strategy_ids=("full",),
+            wallclock_sample=1,
+            wallclock_enabled=True,
+        ),
+    )
+    rec_a = out_a.wallclocks[0]
+    assert rec_a.full_uninstrumented_ms is not None
+    assert rec_a.subset_uninstrumented_ms is not None
+
+    hw_b = dataclasses.replace(hw_a, cpu_model=hw_a.cpu_model + "-other-box")
+    assert hw_b.fingerprint() != hw_a.fingerprint()
+
+    out_b = replay_repo(
+        repo=synth.path,
+        spec=_spec(synth, commits=1, pin_index=3),
+        cfg=cfg,
+        cache=cache,
+        hw=hw_b,
+        work_root=tmp_path / "work-b",
+        opts=ReplayOptions(
+            variants=("natural",),
+            strategy_ids=("full",),
+            wallclock_sample=1,
+            wallclock_enabled=True,
+        ),
+    )
+    rec_b = out_b.wallclocks[0]
+
+    assert rec_b.hardware_fingerprint == hw_b.fingerprint()
+    assert rec_b.full_uninstrumented_ms is None
+    assert rec_b.subset_uninstrumented_ms is None
+    assert rec_b.subset_instrumented_ms is None
+    # Non-timing metrics still come from cache: the isolation check is unchanged.
+    assert rec_b.isolation_violation == rec_a.isolation_violation
 
 
 # --- guards and caching -----------------------------------------------------
