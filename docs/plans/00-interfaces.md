@@ -518,6 +518,33 @@ const MaxArgvBytes = 100_000 // conservative; Windows CMD is 8191 chars, Linux A
 
 func Chunk(tests []string, maxBytes int) [][]string
 
+// The placeholder map an invocation is expanded against is {log} and {out}, plus
+// {report} — and {report} ONLY when the adapter declares report_path, resolved once per
+// Run through report.NewReportPathFor. Expand's vocabulary IS the caller's map, so an
+// adapter naming {report} without report_path fails as an unresolved placeholder rather
+// than receiving an empty string and writing its report to "". {src} is absent by the
+// M1b amendment.
+//
+// readOutcomes is the one dispatch on the adapter's `report:` field, at the single place
+// the runner reads outcomes: "pytest-reportlog" reads the per-chunk {log} with
+// report.ReadReportLog, "junit-xml" reads report_path with report.ReadJUnitReport and
+// renders each case through id_template, and any other value is a named error rather
+// than a fallthrough to whichever parser is first. Both produce report.Outcome in one
+// vocabulary, so the existing last-invocation-wins de-duplication is unchanged.
+func readOutcomes(a *adapter.Adapter, logPath string, rp report.ReportPath) ([]report.Outcome, error)
+
+// report_path is CLEARED PER CHUNK, immediately before the invocation and beside the
+// stale-.coverage removal — not once per Run. It is a fixed, adapter-declared path, so
+// chunk i+1 overwrites chunk i's report; clearing once would let chunk i's cases be
+// re-read as chunk i+1's if chunk i+1 crashed before writing. Each chunk's outcomes are
+// therefore read and merged before the next invocation, exactly as the .coverage read
+// already is, and a chunk whose report is missing or unparseable fails the run with an
+// error naming the chunk rather than a silent partial result.
+//
+// The .coverage read is skipped entirely under coverage: none — a static adapter has no
+// store, and coverage.ReadSQLite against a file that does not exist is an error, not an
+// empty result.
+
 // ErrSysmonContext is returned when the run emitted coverage.py's
 // "no-sysmon-context" warning. Callers MUST exit 3. Never proceed with the map.
 // MEASURED: pytest prints this warning on STDOUT, in its warnings summary, and
