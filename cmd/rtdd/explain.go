@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/VocanicZ/rtdd/internal/adapter"
 	"github.com/VocanicZ/rtdd/internal/mapstore"
 	"github.com/VocanicZ/rtdd/internal/paths"
 )
@@ -21,14 +22,19 @@ const explainIDColumn = 25
 //
 // A file with zero covering tests is the import-time-only case as often as it is the
 // untested case, and the output says so rather than implying the file is untested.
-func RenderExplain(m *mapstore.Map, path string) string {
+//
+// detected is the DETECTED adapter set, read only by the empty-map branch: a repository
+// whose adapters all declare selection: static builds no map at all, so pointing at the
+// map — or at `rtdd seed` — describes a setup step that does not exist (issue #279). A nil
+// or coverage-only set renders the pre-existing text byte for byte.
+func RenderExplain(m *mapstore.Map, path string, detected []*adapter.Adapter) string {
 	ids := m.TestsCovering([]string{path})
 	var b strings.Builder
 
 	if len(ids) == 0 {
 		fmt.Fprintf(&b, "%s is covered by 0 tests.\n", path)
 		if m.Len() == 0 {
-			b.WriteString("  The map is empty. Run `rtdd seed` first.\n")
+			b.WriteString(emptyMapExplanation(detected))
 			return b.String()
 		}
 		b.WriteString("  No map row lists this file. Either nothing exercises it, or it only ever\n")
@@ -63,6 +69,36 @@ func RenderExplain(m *mapstore.Map, path string) string {
 		fmt.Fprintf(&b, "    %-*s%4dms  %s\n", width, r.T, r.D, r.S)
 	}
 	return b.String()
+}
+
+// emptyMapExplanation is what explain says when the map holds nothing, in the same three
+// cases as doctor's fan-out line and init's next step.
+//
+// The static-only branch does more than drop the seed advice: `explain` was asked which
+// tests touch a file, and for a static adapter that question HAS an answer — the
+// correspondence the adapter declares, and the importers its own scan reports. Saying
+// only "there is no map" leaves the caller with the impression that nothing can answer,
+// which is the same lie in the other direction.
+func emptyMapExplanation(detected []*adapter.Adapter) string {
+	static, coverage := selectionSplit(detected)
+	switch {
+	case len(static) == 0:
+		// Byte-identical to the pre-#279 line.
+		return "  The map is empty. Run `rtdd seed` first.\n"
+	case len(coverage) == 0:
+		out := fmt.Sprintf("  The map is empty, and stays empty. %s.\n", staticNothingRecorded(static))
+		// A skipped level is skipped (#275): an adapter that declares no importscan must
+		// not be described as consulting imports.
+		if ev := staticEvidence(static); ev != "" {
+			return out + fmt.Sprintf("  What selects this file is %s — run `rtdd which` to see it.\n", ev)
+		}
+		return out + "  It declares neither test_for templates nor an importscan, so nothing\n" +
+			"  narrower than the full suite can be selected for this file.\n"
+	default:
+		return fmt.Sprintf("  The map is empty. Run `rtdd seed` first to build it for %s. "+
+			"%s,\n  so seeding does not apply to %s.\n",
+			seedScope(coverage), staticClause(adapterNames(static)), pronoun(adapterNames(static)))
+	}
 }
 
 // plural picks the noun form for n.
@@ -111,6 +147,6 @@ func cmdExplain(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	fmt.Fprint(stdout, RenderExplain(e.m, rel))
+	fmt.Fprint(stdout, RenderExplain(e.m, rel, detectedAdapters(e.root)))
 	return 0
 }

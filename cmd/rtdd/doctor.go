@@ -19,11 +19,16 @@ const doctorDefaultLimit = 20
 // once per process is attributed to whichever test happened to run first.
 //
 // A limit of zero or less means no limit.
-func RenderDoctor(hubs []doctor.Hub, total, limit int) string {
+//
+// detected is the DETECTED adapter set, and it is read only by the empty-map branch: for a
+// repository whose adapters all declare selection: static an empty map is the steady
+// state, not a missing setup step, so the line must not send the caller to `rtdd seed`
+// (issue #279). A nil or coverage-only set renders the pre-existing line byte for byte.
+func RenderDoctor(hubs []doctor.Hub, total, limit int, detected []*adapter.Adapter) string {
 	var b strings.Builder
 
 	if len(hubs) == 0 {
-		b.WriteString("fan-out: the map is empty. Run `rtdd seed` first.\n")
+		b.WriteString(emptyFanOutLine(detected))
 		b.WriteString("\n")
 		b.WriteString(doctor.Caveat + "\n")
 		return b.String()
@@ -51,6 +56,31 @@ func RenderDoctor(hubs []doctor.Hub, total, limit int) string {
 	b.WriteString("\n")
 	b.WriteString(doctor.Caveat + "\n")
 	return b.String()
+}
+
+// emptyFanOutLine is what doctor says about an empty map, derived from the detected
+// adapters in the same three cases as RenderNextStep in init.go.
+//
+// The static-only line is why this exists: doctor already prints `coverage: none —
+// nothing is recorded` two blocks above, and then advised the one command whose only job
+// is to record. Contradicting itself inside one screen is worse than either line alone,
+// because a reader who follows the advice burns a cycle and comes back to the same
+// screen.
+func emptyFanOutLine(detected []*adapter.Adapter) string {
+	static, coverage := selectionSplit(detected)
+	switch {
+	case len(static) == 0:
+		// Byte-identical to the pre-#279 line, so every existing doctor test and every
+		// coverage repository sees exactly what it saw before.
+		return "fan-out: the map is empty. Run `rtdd seed` first.\n"
+	case len(coverage) == 0:
+		return fmt.Sprintf("fan-out: the map is empty, and stays empty. %s — `rtdd which` "+
+			"answers what a change selects.\n", staticNothingRecorded(static))
+	default:
+		return fmt.Sprintf("fan-out: the map is empty. Run `rtdd seed` first to build it for "+
+			"%s. %s, so seeding does not apply to %s.\n",
+			seedScope(coverage), staticClause(adapterNames(static)), pronoun(adapterNames(static)))
+	}
 }
 
 // FidelityRow is one DETECTED adapter as doctor reports it: where it came from, the
@@ -314,6 +344,6 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprint(stdout, RenderFidelity(fidelityRows(e.root, detected), invalid))
 	fmt.Fprint(stdout, RenderUndetected(fidelityRows(e.root, undetected(all, detected))))
 	fmt.Fprint(stdout, RenderRequirements(adapter.UnmetFindings(detected, lookPath)))
-	fmt.Fprint(stdout, RenderDoctor(doctor.Hubs(e.m), e.m.Len(), *limit))
+	fmt.Fprint(stdout, RenderDoctor(doctor.Hubs(e.m), e.m.Len(), *limit, detected))
 	return 0
 }

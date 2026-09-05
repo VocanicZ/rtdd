@@ -13,7 +13,7 @@ func TestRenderWhichRankedSelection(t *testing.T) {
 		Tests:  []string{"tests/test_new.py", "tests/test_it.py::test_logic"},
 		Reason: "",
 	}
-	got := RenderWhich(sel, nil)
+	got := RenderWhich(sel, nil, nil)
 	want := "" +
 		"  tier: T0  (2 tests selected, ranked)\n" +
 		"  direct: tests/test_new.py\n" +
@@ -26,7 +26,7 @@ func TestRenderWhichRankedSelection(t *testing.T) {
 
 func TestRenderWhichEmptySelectionIsExplicit(t *testing.T) {
 	sel := selector.Selection{Tier: selector.TierEmpty, Reason: "no map row intersects the changed set"}
-	got := RenderWhich(sel, nil)
+	got := RenderWhich(sel, nil, nil)
 	want := "" +
 		"  tier: empty  (0 tests selected, ranked)\n" +
 		"  reason: no map row intersects the changed set\n" +
@@ -39,7 +39,7 @@ func TestRenderWhichEmptySelectionIsExplicit(t *testing.T) {
 func TestRenderWhichNamesUnmappedFiles(t *testing.T) {
 	sel := selector.Selection{Tier: selector.TierT1, Tests: []string{"tests/test_it.py"},
 		Reason: "import-time-only change"}
-	got := RenderWhich(sel, []string{"src/constants.py"})
+	got := RenderWhich(sel, []string{"src/constants.py"}, nil)
 	want := "" +
 		"  tier: T1  (1 test selected, ranked)\n" +
 		"  reason: import-time-only change\n" +

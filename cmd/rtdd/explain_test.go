@@ -17,7 +17,7 @@ func explainFixture() *mapstore.Map {
 }
 
 func TestRenderExplainListsCoveringTests(t *testing.T) {
-	got := RenderExplain(explainFixture(), "src/hub.py")
+	got := RenderExplain(explainFixture(), "src/hub.py", nil)
 	want := "" +
 		"src/hub.py is covered by 2 tests:\n" +
 		"    tests/test_a.py::t1        12ms  fail\n" +
@@ -29,7 +29,7 @@ func TestRenderExplainListsCoveringTests(t *testing.T) {
 
 // One covering test is "1 test", not "1 tests": the count is read by humans.
 func TestRenderExplainSingularCount(t *testing.T) {
-	got := RenderExplain(explainFixture(), "src/a.py")
+	got := RenderExplain(explainFixture(), "src/a.py", nil)
 	want := "" +
 		"src/a.py is covered by 1 test:\n" +
 		"    tests/test_a.py::t1        12ms  fail\n"
@@ -45,7 +45,7 @@ func TestRenderExplainBreaksDurationTiesOnTestID(t *testing.T) {
 	m.Union(mapstore.Row{T: "tests/test_z.py::t", F: []string{"src/hub.py"}, C: "aaa", D: 7, S: "pass"}, keep)
 	m.Union(mapstore.Row{T: "tests/test_a.py::t", F: []string{"src/hub.py"}, C: "aaa", D: 7, S: "pass"}, keep)
 
-	got := RenderExplain(m, "src/hub.py")
+	got := RenderExplain(m, "src/hub.py", nil)
 	want := "" +
 		"src/hub.py is covered by 2 tests:\n" +
 		"    tests/test_a.py::t          7ms  pass\n" +
@@ -58,7 +58,7 @@ func TestRenderExplainBreaksDurationTiesOnTestID(t *testing.T) {
 // Zero covering tests is the import-time-only case as often as the untested case. The
 // output must never let a reader conclude "untested" on its own.
 func TestRenderExplainNoCoveringTests(t *testing.T) {
-	got := RenderExplain(explainFixture(), "src/constants.py")
+	got := RenderExplain(explainFixture(), "src/constants.py", nil)
 	want := "" +
 		"src/constants.py is covered by 0 tests.\n" +
 		"  No map row lists this file. Either nothing exercises it, or it only ever\n" +
@@ -73,7 +73,7 @@ func TestRenderExplainNoCoveringTests(t *testing.T) {
 }
 
 func TestRenderExplainEmptyMap(t *testing.T) {
-	got := RenderExplain(mapstore.New(), "src/hub.py")
+	got := RenderExplain(mapstore.New(), "src/hub.py", nil)
 	want := "" +
 		"src/hub.py is covered by 0 tests.\n" +
 		"  The map is empty. Run `rtdd seed` first.\n"
