@@ -298,6 +298,13 @@ type UnmetFinding struct {
     Req     Requirement
 }
 
+// UnmetFindings collects every unmet prerequisite of every adapter it is given, adapter
+// by adapter, each in declaration order. Callers pass the DETECTED adapters: a binary
+// only some other toolchain's adapter wants is not a finding about this repository.
+// It lives here rather than beside one renderer because spec §4.3 requires the same
+// finding at BOTH `doctor` and `init` time.
+func UnmetFindings(adapters []*Adapter, lookPath func(string) (string, error)) []UnmetFinding
+
 // Detect returns the adapter whose Detect globs match a file in repoRoot.
 // Exactly one match required; zero or multiple is an error (polyglot is out of scope in v1).
 func Detect(repoRoot string, adapters []*Adapter) (*Adapter, error)
@@ -1138,3 +1145,71 @@ stream a subprocess's progress, and both are asserted through their exit code an
 `.rtdd/` they leave behind. `cmdRun` calls `(*Map).Union` and never `(*Map).Replace` —
 only `cmdSeed` may shrink a row (spec §4, D11, audit A4), and
 `TestOnlySeedCallsMapstoreReplace` enforces it across the whole tree.
+
+---
+
+## M6a amendments — `init` reports what it detected and what it could not load
+
+Added by [`06-m6a-adapter-contract-v2.md`](06-m6a-adapter-contract-v2.md) Tasks 5 and 7.
+These are part of the contract.
+
+### internal/install
+
+```go
+// AdapterRecord is one DETECTED adapter as .rtdd/config.yaml records it. Fidelity is a
+// string, not adapter.Fidelity, so internal/install keeps depending on nothing: this
+// package renders text and never resolves an adapter.
+type AdapterRecord struct {
+    Name      string
+    Selection string
+    Fidelity  string
+}
+
+// ConfigWithAdapters renders .rtdd/config.yaml with a record of what `rtdd init`
+// detected (spec §5, the ≥1-adapter branch). The record is a HUMAN-READABLE trace of the
+// last first-install, never an input: nothing reads it back, and `rtdd doctor` re-derives
+// fidelity from .rtdd/adapters/ live and remains the source of truth. No records renders
+// the unchanged three-key default — an empty `adapters:` key would claim RTDD looked and
+// found none, which is a different thing from an install that made no such promise.
+func ConfigWithAdapters(recs []AdapterRecord) string
+
+// Plan gains the detected set. It is recorded into a NEWLY CREATED .rtdd/config.yaml and
+// ignored when one already exists, because an existing config is one someone tuned.
+func Plan(root string, files map[string]string, force bool, detected []AdapterRecord) ([]Step, error)
+```
+
+### cmd/rtdd — internal to `main`
+
+```go
+// lookPath resolves a prerequisite binary. A package variable rather than a direct
+// exec.LookPath call so tests fix what is installed: a guard that asked the real PATH
+// would pass on a laptop with node installed and fail on a minimal CI image.
+var lookPath = exec.LookPath
+
+// RenderRequirements moves out of doctor.go into requires.go, unchanged, because spec
+// §4.3 requires the block at BOTH `doctor` and `init` time and a copy in each is two
+// chances to drift apart. `doctor`'s private unmetFindings is replaced by the exported
+// adapter.UnmetFindings for the same reason.
+
+// adapterRecords derives the install.AdapterRecord set from the detected adapters:
+// name, declared selection, and the fidelity that selection derives.
+func adapterRecords(detected []*adapter.Adapter) []install.AdapterRecord
+
+// writeNoAdapterRefusal gains the invalid host adapters, and names each failing file and
+// field above the remedy text (PRD #229 AC5). "Write an adapter" is unusable advice to
+// someone who wrote one.
+func writeNoAdapterRefusal(stderr io.Writer, root string, invalid []adapter.Invalid)
+```
+
+`cmdInit` calls `adapter.AvailableReport` rather than `adapter.Available`, warns on every
+host adapter that did not load exactly as `which` and `run` do, and prints
+`RenderRequirements(adapter.UnmetFindings(detected, lookPath))` on **stderr** after a
+successful install — still exiting **0**. An unmet prerequisite is not the "no adapter
+detected" refusal: the repo has an adapter, so §5's gate is satisfied, and a binary
+missing from this machine is no reason to decline to install, because the CI that runs the
+suite may install it later.
+
+`adapter.AvailableReport` returns the `[]Invalid` it has already collected **alongside**
+the duplicate-host-name error. A repo can be wrong in two ways at once, and the duplicate
+must not swallow the malformed-file report — that report is the only thing naming the file
+and the field to edit.

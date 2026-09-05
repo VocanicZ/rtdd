@@ -321,3 +321,29 @@ func TestSrcIsNotADeclarableKey(t *testing.T) {
 		t.Errorf("err = %q, want it to name the unknown field", err)
 	}
 }
+
+// A repo can be wrong in two ways at once, and the second must not swallow the first.
+// AvailableReport collects `bad` before it ever reaches the duplicate-name check, so
+// erroring on the duplicate while discarding what it had already collected loses the
+// malformed-file report entirely — and that report is the only thing naming the file and
+// the field a user has to edit.
+func TestAvailableReportKeepsTheInvalidFilesWhenNamesCollide(t *testing.T) {
+	root := t.TempDir()
+	writeHostAdapter(t, root, "a-vitest.yaml", staticYAML)
+	writeHostAdapter(t, root, "z-vitest.yaml", staticYAML)
+	writeHostAdapter(t, root, "broken.yaml", brokenYAML)
+
+	_, bad, err := AvailableReport(root)
+	if err == nil {
+		t.Fatalf("AvailableReport accepted two host adapters named vitest")
+	}
+	if len(bad) != 1 {
+		t.Fatalf("AvailableReport returned %d invalid files alongside the error, want the broken one", len(bad))
+	}
+	if !strings.HasSuffix(filepath.ToSlash(bad[0].Path), ".rtdd/adapters/broken.yaml") {
+		t.Errorf("invalid[0].Path = %q, want .rtdd/adapters/broken.yaml", bad[0].Path)
+	}
+	if bad[0].Err == nil || !strings.Contains(bad[0].Err.Error(), "subset") {
+		t.Errorf("invalid[0].Err = %v, want it to name the failing subset field", bad[0].Err)
+	}
+}

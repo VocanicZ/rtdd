@@ -107,7 +107,10 @@ func AvailableReport(repoRoot string) ([]*Adapter, []Invalid, error) {
 	seen := map[string]string{}
 	for _, a := range host {
 		if prev, dup := seen[a.Name]; dup {
-			return nil, nil, fmt.Errorf("adapter: two host adapters are both named %q: %s and %s", a.Name, prev, a.Src)
+			// bad travels WITH the error. A repo can be wrong in two ways at once, and a
+			// duplicate name must not swallow the malformed-file report collected above:
+			// that report is the only thing naming the file and the field to edit.
+			return nil, bad, fmt.Errorf("adapter: two host adapters are both named %q: %s and %s", a.Name, prev, a.Src)
 		}
 		seen[a.Name] = a.Src
 		byName[a.Name] = a

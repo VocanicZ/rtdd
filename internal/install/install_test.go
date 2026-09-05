@@ -28,7 +28,7 @@ func stepFor(t *testing.T, steps []Step, path string) Step {
 
 func TestPlanOnACleanRepoCreatesEverything(t *testing.T) {
 	root := t.TempDir()
-	steps, err := Plan(root, fakeFiles(), false)
+	steps, err := Plan(root, fakeFiles(), false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestPlanMergesClaudeMdOnlyWhenHostAlreadyHasOne(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "CLAUDE.md"), []byte("# our claude notes\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	steps, err := Plan(root, fakeFiles(), false)
+	steps, err := Plan(root, fakeFiles(), false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestPlanSkipsWholeFileTargetsWhenContentIsUnchanged(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".claude", "skills", "rtdd", "SKILL.md"), []byte(files["dist/SKILL.md"]), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	steps, err := Plan(root, files, false)
+	steps, err := Plan(root, files, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestPlanConflictsOnADifferingWholeFileWithoutForce(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".claude", "skills", "rtdd", "SKILL.md"), []byte("hand-edited\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	steps, err := Plan(root, fakeFiles(), false)
+	steps, err := Plan(root, fakeFiles(), false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestPlanForceOverwritesADifferingWholeFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".claude", "skills", "rtdd", "SKILL.md"), []byte("hand-edited\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	steps, err := Plan(root, fakeFiles(), true)
+	steps, err := Plan(root, fakeFiles(), true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestPlanGitattributesAppendsTheUnionLineOnceThenSkips(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".gitattributes"), []byte("*.png binary\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	steps, err := Plan(root, fakeFiles(), false)
+	steps, err := Plan(root, fakeFiles(), false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestPlanGitattributesAppendsTheUnionLineOnceThenSkips(t *testing.T) {
 	if err := Apply(root, steps); err != nil {
 		t.Fatal(err)
 	}
-	again, err := Plan(root, fakeFiles(), false)
+	again, err := Plan(root, fakeFiles(), false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestPlanGitattributesAppendsTheUnionLineOnceThenSkips(t *testing.T) {
 
 func TestPlanConfigIsCreatedOnceThenNeverOverwritten(t *testing.T) {
 	root := t.TempDir()
-	steps, err := Plan(root, fakeFiles(), false)
+	steps, err := Plan(root, fakeFiles(), false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestPlanConfigIsCreatedOnceThenNeverOverwritten(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".rtdd", "config.yaml"), []byte("stale_commits: 999\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	again, err := Plan(root, fakeFiles(), false)
+	again, err := Plan(root, fakeFiles(), false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestPlanConfigIsCreatedOnceThenNeverOverwritten(t *testing.T) {
 
 func TestApplyIsANoOpOnAllSkipStepsAndWritesEverythingElse(t *testing.T) {
 	root := t.TempDir()
-	steps, err := Plan(root, fakeFiles(), false)
+	steps, err := Plan(root, fakeFiles(), false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestApplyIsANoOpOnAllSkipStepsAndWritesEverythingElse(t *testing.T) {
 		}
 	}
 
-	again, err := Plan(root, fakeFiles(), false)
+	again, err := Plan(root, fakeFiles(), false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
