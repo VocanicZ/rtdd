@@ -2,6 +2,7 @@ package report
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -247,6 +248,39 @@ func TestRenderIDIsDeterministic(t *testing.T) {
 		}
 		if got != first {
 			t.Fatalf("RenderID call %d = %q, want %q on every call", i, got, first)
+		}
+	}
+}
+
+// An id_template that names no placeholder renders ONE constant id for every case in the
+// report: de-duplication then collapses the whole suite to a single row whose status is
+// whichever case happened to be last, and a report whose first case failed is reported
+// green, exit 0. The realistic trigger is `id_template: "classname#name"` — the braces
+// simply forgotten — so the rejection has to happen before anything renders.
+//
+// An unterminated `{` is the same typo one keystroke earlier: a forgotten `}`, not a
+// runner selector that happens to contain a brace. Treating it as a literal produces the
+// identical silent failure, so it is rejected too.
+func TestRenderIDAndParseIDRejectATemplateThatNamesNoPlaceholder(t *testing.T) {
+	c := JUnitCase{Suite: "s", Classname: "calc.CalcTest", Name: "adds", File: "src/Calc.java"}
+	for _, tmpl := range []string{"classname#name", "{name", "prefix{", "", "{classname"} {
+		got, err := RenderID(tmpl, c)
+		if err == nil {
+			t.Errorf("RenderID(%q) = %q, nil error; every case in the report would render that same id", tmpl, got)
+		} else if !errors.Is(err, ErrNoPlaceholder) {
+			t.Errorf("RenderID(%q) error = %v, want errors.Is(_, ErrNoPlaceholder)", tmpl, err)
+		}
+
+		// RenderID and ParseID share splitTemplate precisely so they reject the same
+		// templates; a template one accepts and the other refuses is not an identifier.
+		if _, err := ParseID(tmpl, "calc.CalcTest#adds"); err == nil {
+			t.Errorf("ParseID(%q) = nil error; RenderID refuses it, so the reader must too", tmpl)
+		} else if !errors.Is(err, ErrNoPlaceholder) {
+			t.Errorf("ParseID(%q) error = %v, want errors.Is(_, ErrNoPlaceholder)", tmpl, err)
+		}
+
+		if tmpl != "" && !strings.Contains(fmt.Sprint(err), tmpl) {
+			t.Errorf("RenderID(%q) error %q does not quote the offending template", tmpl, err)
 		}
 	}
 }

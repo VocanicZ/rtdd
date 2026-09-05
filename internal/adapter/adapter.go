@@ -287,11 +287,46 @@ func (a *Adapter) validateTemplates() error {
 		if bad := unknownPlaceholder(a.IDTemplate, idTemplatePlaceholders); bad != "" {
 			return fmt.Errorf("id_template %q: unknown placeholder %s", a.IDTemplate, bad)
 		}
+		if err := validateIDTemplateNamesAPlaceholder(a.IDTemplate); err != nil {
+			return err
+		}
 	}
 	for i, tmpl := range a.TestFor {
 		if bad := unknownPlaceholder(tmpl, testForPlaceholders); bad != "" {
 			return fmt.Errorf("test_for[%d] %q: unknown placeholder %s", i, tmpl, bad)
 		}
+	}
+	return nil
+}
+
+// validateIDTemplateNamesAPlaceholder rejects an id_template that expands nothing. Unlike
+// test_for, whose entries may legitimately be a fixed path, an id_template renders ONE id
+// per <testcase>: a template naming no placeholder — `classname#name`, the braces simply
+// forgotten — renders the same constant string for every case in the report, de-duplication
+// collapses the whole suite to a single row whose status is whichever case happened to be
+// last, and a run whose first test failed reports that one outcome, green, exit 0. Nothing
+// downstream can notice, so it is rejected here (exit 2) alongside the vocabulary.
+//
+// An unterminated "{" is rejected on the same grounds rather than kept as a literal: it is
+// a typo for a placeholder, not a runner selector that happens to contain a brace, and it
+// fails exactly as silently. internal/report's splitTemplate refuses both templates too —
+// id_vocabulary_test.go asserts the two verdicts agree.
+func validateIDTemplateNamesAPlaceholder(tmpl string) error {
+	rest, named := tmpl, false
+	for {
+		open := strings.Index(rest, "{")
+		if open < 0 {
+			break
+		}
+		shut := strings.Index(rest[open:], "}")
+		if shut < 0 {
+			return fmt.Errorf("id_template %q: unterminated placeholder %q: every { must close, or the template renders one constant id for every test", tmpl, rest[open:])
+		}
+		named = true
+		rest = rest[open+shut+1:]
+	}
+	if !named {
+		return fmt.Errorf("id_template %q: names no placeholder; it must name at least one of {file}, {classname} or {name}, or every test in the report renders the same id", tmpl)
 	}
 	return nil
 }
