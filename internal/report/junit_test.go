@@ -1,0 +1,308 @@
+package report
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// writeXML materialises one report file and returns its path.
+func writeXML(t *testing.T, body string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "junit.xml")
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatalf("write %s: %v", p, err)
+	}
+	return p
+}
+
+// nestedXML is the shape Maven Surefire, Gradle and jest-junit all produce: a
+// <testsuites> root wrapping one or more <testsuite>, and — the case a flat reader gets
+// wrong — a <testsuite> nested inside another <testsuite>.
+const nestedXML = `<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="all" tests="4" failures="1" errors="1" skipped="1" time="0.75">
+  <testsuite name="outer" tests="2" time="0.5">
+    <testcase classname="outer.Alpha" name="passes" file="tests/alpha.ts" time="0.25"/>
+    <testsuite name="inner" tests="1" time="0.25">
+      <testcase classname="inner.Beta" name="fails" file="tests/beta.ts" time="0.25">
+        <failure message="expected 1 to be 2" type="AssertionError">at beta.ts:7</failure>
+      </testcase>
+    </testsuite>
+  </testsuite>
+  <testsuite name="second" tests="2" time="0.25">
+    <testcase classname="second.Gamma" name="errors" time="0.2">
+      <error message="boom" type="RuntimeError">stack</error>
+    </testcase>
+    <testcase classname="second.Delta" name="skipped">
+      <skipped message="not on this platform"/>
+    </testcase>
+  </testsuite>
+</testsuites>
+`
+
+func TestReadJUnitFileFlattensNestedSuitesInDocumentOrder(t *testing.T) {
+	cases, err := ReadJUnitFile(writeXML(t, nestedXML))
+	if err != nil {
+		t.Fatalf("ReadJUnitFile: %v", err)
+	}
+	want := []JUnitCase{
+		{Suite: "outer", Classname: "outer.Alpha", Name: "passes", File: "tests/alpha.ts", Status: "pass", DurationMS: 250},
+		{Suite: "inner", Classname: "inner.Beta", Name: "fails", File: "tests/beta.ts", Status: "fail", DurationMS: 250},
+		{Suite: "second", Classname: "second.Gamma", Name: "errors", Status: "error", DurationMS: 200},
+		{Suite: "second", Classname: "second.Delta", Name: "skipped", Status: "skip"},
+	}
+	if len(cases) != len(want) {
+		t.Fatalf("got %d cases, want %d: %+v", len(cases), len(want), cases)
+	}
+	for i := range want {
+		if cases[i] != want[i] {
+			t.Errorf("case %d = %+v, want %+v", i, cases[i], want[i])
+		}
+	}
+}
+
+// PRD #231 AC2: an <error> is a failure, not a skip. Both statuses already mean "this test
+// did not pass" to internal/runner, which is why they must never collapse into "skip".
+func TestReadJUnitFileMapsErrorToErrorAndNotSkip(t *testing.T) {
+	cases, err := ReadJUnitFile(writeXML(t, nestedXML))
+	if err != nil {
+		t.Fatalf("ReadJUnitFile: %v", err)
+	}
+	for _, c := range cases {
+		if c.Name == "errors" && c.Status != "error" {
+			t.Errorf("<error> case mapped to %q, want %q", c.Status, "error")
+		}
+		if c.Name == "skipped" && c.Status != "skip" {
+			t.Errorf("<skipped> case mapped to %q, want %q", c.Status, "skip")
+		}
+	}
+}
+
+// A single <testsuite> root with no <testsuites> wrapper is what pytest, PHPUnit and
+// RSpec write. It is not a special case in the XML; it must not be one in the reader.
+func TestReadJUnitFileAcceptsABareTestsuiteRoot(t *testing.T) {
+	const bare = `<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="only" tests="1" time="0.01">
+  <testcase classname="only.One" name="works" time="0.01"/>
+</testsuite>
+`
+	cases, err := ReadJUnitFile(writeXML(t, bare))
+	if err != nil {
+		t.Fatalf("ReadJUnitFile: %v", err)
+	}
+	if len(cases) != 1 || cases[0].Status != "pass" || cases[0].DurationMS != 10 {
+		t.Fatalf("got %+v, want one passing case of 10ms", cases)
+	}
+}
+
+// A testcase with no time= is not a zero-length test that ran; it is a runner that did not
+// say. Both render as 0, and the map has always carried 0 for "unknown" — but a MISSING
+// attribute must never become a parse error, because three of the six shipped fixtures
+// omit it on skipped cases.
+func TestReadJUnitFileTreatsAMissingTimeAsZero(t *testing.T) {
+	const noTime = `<testsuite name="s"><testcase classname="s.C" name="n"/></testsuite>`
+	cases, err := ReadJUnitFile(writeXML(t, noTime))
+	if err != nil {
+		t.Fatalf("ReadJUnitFile: %v", err)
+	}
+	if len(cases) != 1 || cases[0].DurationMS != 0 {
+		t.Fatalf("got %+v, want one case with DurationMS 0", cases)
+	}
+}
+
+// Flattening is DOCUMENT order, not "every case then every nested suite". Gradle writes a
+// nested <testsuite> ahead of the enclosing suite's own <testcase> children, and a reader
+// that drains the two child kinds separately reorders the run. The map's golden comparison
+// is a positional one, so a reordering is a diff on every line below the first move.
+func TestReadJUnitFileKeepsDocumentOrderWhenASuitePrecedesACase(t *testing.T) {
+	const interleaved = `<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="outer">
+  <testcase classname="outer.First" name="first" time="0.01"/>
+  <testsuite name="inner">
+    <testcase classname="inner.Second" name="second" time="0.01"/>
+  </testsuite>
+  <testcase classname="outer.Third" name="third" time="0.01"/>
+</testsuite>
+`
+	cases, err := ReadJUnitFile(writeXML(t, interleaved))
+	if err != nil {
+		t.Fatalf("ReadJUnitFile: %v", err)
+	}
+	var got []string
+	for _, c := range cases {
+		got = append(got, c.Name)
+	}
+	want := []string{"first", "second", "third"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v — the third case is written after the nested suite and must be read after it", got, want)
+		}
+	}
+}
+
+// Each of the three input failures — a report that is not there, one that is there and
+// empty, and one that is there and is not XML — is a DISTINCT sentinel, because a caller
+// diagnoses them differently: the first usually means the adapter's `requires` was unmet,
+// the second that the runner died before it wrote, the third that it wrote garbage. None
+// of them may return zero outcomes and a nil error: a silent zero-test success is
+// indistinguishable from a passing run of an empty suite.
+func TestReadJUnitFileNamesEachWayAReportCanBeUnreadable(t *testing.T) {
+	dir := t.TempDir()
+
+	empty := filepath.Join(dir, "empty.xml")
+	if err := os.WriteFile(empty, nil, 0o644); err != nil {
+		t.Fatalf("write empty: %v", err)
+	}
+	blank := filepath.Join(dir, "blank.xml")
+	if err := os.WriteFile(blank, []byte("   \n\t\n"), 0o644); err != nil {
+		t.Fatalf("write blank: %v", err)
+	}
+	torn := filepath.Join(dir, "torn.xml")
+	if err := os.WriteFile(torn, []byte(`<testsuite name="s"><testcase name="a"`), 0o644); err != nil {
+		t.Fatalf("write torn: %v", err)
+	}
+	wrongRoot := filepath.Join(dir, "wrong.xml")
+	if err := os.WriteFile(wrongRoot, []byte(`<?xml version="1.0"?><results><ok/></results>`), 0o644); err != nil {
+		t.Fatalf("write wrongRoot: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		path string
+		want error
+	}{
+		{"missing file", filepath.Join(dir, "absent.xml"), ErrNoReport},
+		{"zero bytes", empty, ErrEmptyReport},
+		{"whitespace only", blank, ErrEmptyReport},
+		{"truncated xml", torn, ErrMalformedReport},
+		{"root is not a junit root", wrongRoot, ErrMalformedReport},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ReadJUnitFile(tc.path)
+			if err == nil {
+				t.Fatalf("ReadJUnitFile(%s) = %v, nil error; a report that is not a report must never parse as zero tests", tc.path, got)
+			}
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("ReadJUnitFile(%s) error = %v, want errors.Is(_, %v)", tc.path, err, tc.want)
+			}
+			if !strings.Contains(err.Error(), filepath.Base(tc.path)) {
+				t.Errorf("error %q does not name the offending file", err)
+			}
+		})
+	}
+}
+
+// The three input failures must also be distinguishable from EACH OTHER: a caller that
+// only knows "something went wrong" cannot tell an uninstalled reporter from a crashed
+// runner, so each sentinel matches its own case and no other.
+func TestReadJUnitFileInputFailuresAreDistinctFromEachOther(t *testing.T) {
+	dir := t.TempDir()
+	empty := filepath.Join(dir, "empty.xml")
+	if err := os.WriteFile(empty, nil, 0o644); err != nil {
+		t.Fatalf("write empty: %v", err)
+	}
+	torn := filepath.Join(dir, "torn.xml")
+	if err := os.WriteFile(torn, []byte(`<testsuite`), 0o644); err != nil {
+		t.Fatalf("write torn: %v", err)
+	}
+
+	byPath := map[string]error{
+		filepath.Join(dir, "absent.xml"): ErrNoReport,
+		empty:                            ErrEmptyReport,
+		torn:                             ErrMalformedReport,
+	}
+	all := []error{ErrNoReport, ErrEmptyReport, ErrMalformedReport}
+	for path, want := range byPath {
+		_, err := ReadJUnitFile(path)
+		if err == nil {
+			t.Fatalf("ReadJUnitFile(%s) = nil error", path)
+		}
+		for _, other := range all {
+			if errors.Is(err, other) != errors.Is(want, other) {
+				t.Errorf("ReadJUnitFile(%s) error %v matches %v; the three input failures must not collapse into one", path, err, other)
+			}
+		}
+	}
+}
+
+// PRD #231 AC5: a suite-level <failure> with no <testcase> is the "the whole file blew up
+// at import time" report. Zero cases plus exit 0 would be a false green.
+func TestReadJUnitFileSurfacesASuiteLevelFailureWithNoTestcase(t *testing.T) {
+	const suiteFailed = `<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="tests/broken.ts" tests="0" failures="1">
+    <failure message="Cannot find module &#39;./missing&#39;" type="Error">at broken.ts:1</failure>
+  </testsuite>
+</testsuites>
+`
+	got, err := ReadJUnitFile(writeXML(t, suiteFailed))
+	if err == nil {
+		t.Fatalf("ReadJUnitFile = %v, nil error for a suite that failed before any test ran", got)
+	}
+	if !errors.Is(err, ErrSuiteFailure) {
+		t.Fatalf("error = %v, want errors.Is(_, ErrSuiteFailure)", err)
+	}
+	for _, want := range []string{"tests/broken.ts", "Cannot find module"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not carry %q — the suite name and the runner's own message are the only diagnosis available", err, want)
+		}
+	}
+}
+
+// A suite-level <error> with no cases is the same catastrophe as a suite-level <failure>:
+// Surefire writes <error> where jest-junit writes <failure> for a file that would not
+// load, and reading only one of the two drops half the collection crashes.
+func TestReadJUnitFileSurfacesASuiteLevelErrorWithNoTestcase(t *testing.T) {
+	const suiteErrored = `<testsuite name="broken/Suite" tests="0" errors="1">
+  <error message="ClassNotFoundException" type="Error">at Suite.java:1</error>
+</testsuite>`
+	got, err := ReadJUnitFile(writeXML(t, suiteErrored))
+	if err == nil {
+		t.Fatalf("ReadJUnitFile = %v, nil error for a suite that errored before any test ran", got)
+	}
+	if !errors.Is(err, ErrSuiteFailure) {
+		t.Fatalf("error = %v, want errors.Is(_, ErrSuiteFailure)", err)
+	}
+	if !strings.Contains(err.Error(), "broken/Suite") {
+		t.Errorf("error %q does not name the suite", err)
+	}
+}
+
+// A suite-level <failure> ALONGSIDE testcases is a summary, not a catastrophe: Surefire
+// writes one when a test failed, and the cases carry the detail. It must not error.
+func TestReadJUnitFileKeepsASuiteFailureThatAlsoHasTestcases(t *testing.T) {
+	const both = `<testsuite name="s" tests="1" failures="1">
+  <failure message="1 test failed"/>
+  <testcase classname="s.C" name="n" time="0.01"><failure message="nope"/></testcase>
+</testsuite>`
+	cases, err := ReadJUnitFile(writeXML(t, both))
+	if err != nil {
+		t.Fatalf("ReadJUnitFile: %v", err)
+	}
+	if len(cases) != 1 || cases[0].Status != "fail" {
+		t.Fatalf("got %+v, want one failing case", cases)
+	}
+}
+
+// An empty <testsuite> with no failure of its own is not an error: a runner writes one for
+// a file it collected and skipped entirely, and erroring on it would fail whole runs that
+// went fine.
+func TestReadJUnitFileAcceptsAnEmptySuiteThatDidNotFail(t *testing.T) {
+	const emptySuite = `<testsuites>
+  <testsuite name="nothing/here" tests="0"/>
+  <testsuite name="s" tests="1"><testcase classname="s.C" name="n" time="0.01"/></testsuite>
+</testsuites>`
+	cases, err := ReadJUnitFile(writeXML(t, emptySuite))
+	if err != nil {
+		t.Fatalf("ReadJUnitFile: %v", err)
+	}
+	if len(cases) != 1 || cases[0].Status != "pass" {
+		t.Fatalf("got %+v, want one passing case", cases)
+	}
+}
