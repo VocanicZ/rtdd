@@ -7,9 +7,32 @@ package report
 import (
 	"bytes"
 	"encoding/xml"
+	"errors"
+	"fmt"
 	"math"
 	"os"
 	"strconv"
+	"strings"
+)
+
+// The four ways a JUnit report can fail to be one. Each is a sentinel so a caller can
+// distinguish them with errors.Is, and each is WRAPPED with the offending path so a human
+// reading exit 1 knows which file to open. None of them is ever traded for zero outcomes
+// and a nil error: a silent zero-test success reads exactly like a passing run.
+var (
+	// ErrNoReport is a report_path that does not exist after the runner ran. It usually
+	// means the adapter's `requires` was unmet — the reporter package was never installed —
+	// which doctor and init already warn about.
+	ErrNoReport = errors.New("junit-xml: no report file")
+	// ErrEmptyReport is a zero-byte report: the runner created the file and wrote nothing.
+	ErrEmptyReport = errors.New("junit-xml: empty report file")
+	// ErrMalformedReport is XML that does not parse, or a root element that is neither
+	// <testsuites> nor <testsuite>.
+	ErrMalformedReport = errors.New("junit-xml: malformed report")
+	// ErrSuiteFailure is a <testsuite> carrying a suite-level <failure> or <error> and no
+	// <testcase>: a suite that could not run at all. Reporting zero tests from it would be
+	// a false green.
+	ErrSuiteFailure = errors.New("junit-xml: suite failed before any test ran")
 )
 
 // JUnitCase is one <testcase> as the runner wrote it, before any id rendering. It keeps
@@ -120,14 +143,24 @@ type junitDetail struct {
 func ReadJUnitFile(path string) ([]JUnitCase, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("report: %w: %s", ErrNoReport, path)
+		}
+		return nil, fmt.Errorf("report: reading %s: %w", path, err)
 	}
+	if len(bytes.TrimSpace(b)) == 0 {
+		return nil, fmt.Errorf("report: %w: %s", ErrEmptyReport, path)
+	}
+
 	dec := xml.NewDecoder(bytes.NewReader(b))
+	// The root is decided by the first StartElement rather than by decoding one shape and
+	// falling back to the other, so a document that is not a report at all produces
+	// ErrMalformedReport instead of a mislabelled empty parse.
 	var root xml.StartElement
 	for {
 		tok, err := dec.Token()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("report: %w: %s: %v", ErrMalformedReport, path, err)
 		}
 		if se, ok := tok.(xml.StartElement); ok {
 			root = se
@@ -141,26 +174,44 @@ func ReadJUnitFile(path string) ([]JUnitCase, error) {
 			Suites []junitSuite `xml:"testsuite"`
 		}
 		if err := dec.DecodeElement(&wrapper, &root); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("report: %w: %s: %v", ErrMalformedReport, path, err)
 		}
 		suites = wrapper.Suites
 	case "testsuite":
 		var s junitSuite
 		if err := dec.DecodeElement(&s, &root); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("report: %w: %s: %v", ErrMalformedReport, path, err)
 		}
 		suites = []junitSuite{s}
+	default:
+		return nil, fmt.Errorf("report: %w: %s: root element is <%s>, want <testsuites> or <testsuite>", ErrMalformedReport, path, root.Name.Local)
 	}
 
-	var out []JUnitCase
+	out := []JUnitCase{}
 	for i := range suites {
-		out = walkSuite(&suites[i], out)
+		out, err = walkSuite(&suites[i], path, out)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return out, nil
 }
 
 // walkSuite appends one suite's children depth first, in the order they were written.
-func walkSuite(s *junitSuite, out []JUnitCase) []JUnitCase {
+//
+// A suite with no children at all but a suite-level <failure> or <error> is the collection
+// crash: the run blew up before any test was named, and dropping it would read as "this
+// suite has no tests". A suite that is merely empty is not an error — a runner writes one
+// for a file it collected and skipped entirely.
+func walkSuite(s *junitSuite, path string, out []JUnitCase) ([]JUnitCase, error) {
+	if len(s.Children) == 0 {
+		if detail := s.Failure; detail != nil {
+			return nil, suiteFailure(path, s.Name, detail)
+		}
+		if detail := s.Error; detail != nil {
+			return nil, suiteFailure(path, s.Name, detail)
+		}
+	}
 	for _, child := range s.Children {
 		switch {
 		case child.Case != nil:
@@ -174,10 +225,24 @@ func walkSuite(s *junitSuite, out []JUnitCase) []JUnitCase {
 				DurationMS: secondsToMS(c.Time),
 			})
 		case child.Suite != nil:
-			out = walkSuite(child.Suite, out)
+			var err error
+			out, err = walkSuite(child.Suite, path, out)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
-	return out
+	return out, nil
+}
+
+// suiteFailure names the suite and repeats the runner's own message: with no testcase to
+// point at, those two strings are the whole diagnosis.
+func suiteFailure(path, suite string, detail *junitDetail) error {
+	msg := detail.Message
+	if msg == "" {
+		msg = strings.TrimSpace(detail.Text)
+	}
+	return fmt.Errorf("report: %w: %s: %s: %s", ErrSuiteFailure, path, suite, msg)
 }
 
 // caseStatus folds one <testcase>'s result children into the vocabulary reportlog.go
