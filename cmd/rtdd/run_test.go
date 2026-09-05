@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -36,7 +37,7 @@ func TestCmdRunUnionsAndNeverNarrows(t *testing.T) {
 	repo := realRepo(t)
 	chdir(t, repo)
 
-	if code := cmdSeed(nil); code != 1 {
+	if code := cmdSeed(nil, io.Discard, io.Discard); code != 1 {
 		t.Fatalf("cmdSeed = %d, want 1", code)
 	}
 
@@ -103,7 +104,7 @@ func TestCmdRunUnionsAndNeverNarrows(t *testing.T) {
 func TestCmdRunBumpsCyclesOnPassAndOnFail(t *testing.T) {
 	repo := realRepo(t)
 	chdir(t, repo)
-	if code := cmdSeed(nil); code != 1 {
+	if code := cmdSeed(nil, io.Discard, io.Discard); code != 1 {
 		t.Fatalf("cmdSeed = %d, want 1", code)
 	}
 	if m, _ := readMeta(repo); m.Cycles != 0 {
@@ -129,7 +130,7 @@ func TestCmdRunBumpsCyclesOnPassAndOnFail(t *testing.T) {
 func TestCmdRunEmptySelectionExitsZeroAndSaysSo(t *testing.T) {
 	repo := realRepo(t)
 	chdir(t, repo)
-	if code := cmdSeed(nil); code != 1 {
+	if code := cmdSeed(nil, io.Discard, io.Discard); code != 1 {
 		t.Fatalf("cmdSeed = %d, want 1", code)
 	}
 	// Nothing changed since the seed commit and nothing is untracked apart from
@@ -150,7 +151,7 @@ func TestCmdRunEmptySelectionExitsZeroAndSaysSo(t *testing.T) {
 func TestCmdRunFailingTestExitsOne(t *testing.T) {
 	repo := realRepo(t)
 	chdir(t, repo)
-	if code := cmdSeed(nil); code != 1 {
+	if code := cmdSeed(nil, io.Discard, io.Discard); code != 1 {
 		t.Fatalf("cmdSeed = %d, want 1", code)
 	}
 	// Change the file test_fail covers, so test_fail is selected.
@@ -163,7 +164,7 @@ func TestCmdRunFailingTestExitsOne(t *testing.T) {
 func TestCmdRunBadBaseIsAUsageError(t *testing.T) {
 	repo := realRepo(t)
 	chdir(t, repo)
-	if code := cmdSeed(nil); code != 1 {
+	if code := cmdSeed(nil, io.Discard, io.Discard); code != 1 {
 		t.Fatalf("cmdSeed = %d, want 1", code)
 	}
 	if code := cmdRun([]string{"--base", "no-such-ref-anywhere"}); code == 0 || code == 1 {
@@ -212,7 +213,7 @@ func TestRunIsDispatchedAndDocumented(t *testing.T) {
 func TestCmdRunEndToEndProducesUsableRows(t *testing.T) {
 	repo := realRepo(t)
 	chdir(t, repo)
-	if code := cmdSeed(nil); code != 1 {
+	if code := cmdSeed(nil, io.Discard, io.Discard); code != 1 {
 		t.Fatalf("cmdSeed = %d, want 1", code)
 	}
 	touchLogic(t, repo)
@@ -284,7 +285,7 @@ func TestCmdRunExitsZeroWithANonEmptyUncoveredReport(t *testing.T) {
 	chdir(t, repo)
 	makeSuiteGreen(t, repo)
 
-	if code := cmdSeed(nil); code != 0 {
+	if code := cmdSeed(nil, io.Discard, io.Discard); code != 0 {
 		t.Fatalf("cmdSeed = %d, want 0 once the suite is green", code)
 	}
 	touchLogic(t, repo)
@@ -312,7 +313,7 @@ func TestCmdRunJSONEmitsTheFreshUncoveredReport(t *testing.T) {
 	chdir(t, repo)
 	makeSuiteGreen(t, repo)
 
-	if code := cmdSeed(nil); code != 0 {
+	if code := cmdSeed(nil, io.Discard, io.Discard); code != 0 {
 		t.Fatalf("cmdSeed = %d, want 0 once the suite is green", code)
 	}
 	touchLogic(t, repo)
@@ -388,7 +389,7 @@ func TestCmdRunJSONIsTheOnlyThingOnStdout(t *testing.T) {
 	chdir(t, repo)
 	makeSuiteGreen(t, repo)
 
-	if code := cmdSeed(nil); code != 0 {
+	if code := cmdSeed(nil, io.Discard, io.Discard); code != 0 {
 		t.Fatalf("cmdSeed = %d, want 0 once the suite is green", code)
 	}
 	touchLogic(t, repo)
@@ -454,7 +455,7 @@ func TestCmdRunFiresTheStaticImportFallbackAndAgreesWithWhich(t *testing.T) {
 	// a dirty test file would be selected by the direct tier and mask the fallback.
 	gitRun(t, repo, "commit", "-am", "green suite")
 
-	if code := cmdSeed(nil); code != 0 {
+	if code := cmdSeed(nil, io.Discard, io.Discard); code != 0 {
 		t.Fatalf("cmdSeed = %d, want 0 once the suite is green", code)
 	}
 
@@ -532,7 +533,7 @@ func TestRunWiresTheSharedImportFallbackHelper(t *testing.T) {
 func TestCmdRunJSONWarnsThatAnEmptySelectionIsNotAPass(t *testing.T) {
 	repo := realRepo(t)
 	chdir(t, repo)
-	if code := cmdSeed(nil); code != 1 {
+	if code := cmdSeed(nil, io.Discard, io.Discard); code != 1 {
 		t.Fatalf("cmdSeed = %d, want 1", code)
 	}
 
@@ -564,7 +565,7 @@ func TestCmdRunJSONReportsACompleteSelectionWithNoWarnings(t *testing.T) {
 	chdir(t, repo)
 	makeSuiteGreen(t, repo)
 
-	if code := cmdSeed(nil); code != 0 {
+	if code := cmdSeed(nil, io.Discard, io.Discard); code != 0 {
 		t.Fatalf("cmdSeed = %d, want 0 once the suite is green", code)
 	}
 	touchLogic(t, repo)
