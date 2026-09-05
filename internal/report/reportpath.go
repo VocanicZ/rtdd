@@ -235,11 +235,22 @@ func kindWord(isDir bool) string {
 }
 
 // ReadJUnitReport reads every file Files names and renders each case's id through tmpl,
-// producing the same []Outcome the pytest-reportlog path produces. It does not
-// de-duplicate: internal/runner already de-duplicates across chunks with "last invocation
-// wins", and two de-dupers with different rules is how that rule stops being true. Two
-// files of ONE directory claiming the same id are a different thing — nothing downstream
-// can tell those apart, so they are named here.
+// producing the same []Outcome the pytest-reportlog path produces.
+//
+// Two cases of ONE file that render the same id are folded into one outcome,
+// worst-status-wins: error > fail > skip > pass. A file-granular id_template — Vitest's
+// {classname}, RSpec's {file} — is deliberately shared by every case in the file, and a
+// per-test template collides too whenever a runner permits two tests of one file to carry
+// the same name. Emitting both outcomes handed the collapse to internal/runner's
+// "last invocation wins", which would let a passing case erase the failing one ahead of
+// it and report a red run green. Folding here is not a second de-duplicator disagreeing
+// with that rule: the runner's rule is about the SAME id seen in two invocations, where
+// the later invocation is genuinely the newer result, and it still decides that. This one
+// is about one invocation's own report, where neither case supersedes the other and the
+// id is only green when every case behind it is.
+//
+// Two files of ONE directory claiming the same id are a different thing — nothing
+// downstream can tell those apart, so they are named here rather than folded.
 func ReadJUnitReport(p ReportPath, tmpl string) ([]Outcome, error) {
 	files, err := p.Files()
 	if err != nil {
@@ -247,6 +258,7 @@ func ReadJUnitReport(p ReportPath, tmpl string) ([]Outcome, error) {
 	}
 	var outs []Outcome
 	seen := make(map[string]string, 64) // rendered id -> the file that first produced it
+	at := make(map[string]int, 64)      // rendered id -> its index in outs
 	for _, f := range files {
 		cases, err := ReadJUnitFile(f)
 		if err != nil {
@@ -261,9 +273,45 @@ func ReadJUnitReport(p ReportPath, tmpl string) ([]Outcome, error) {
 				return nil, fmt.Errorf("%s%w: %q is in both %s and %s",
 					p.prefix(), ErrDuplicateTestID, id, filepath.Base(first), filepath.Base(f))
 			}
+			if i, folded := at[id]; folded {
+				// The id keeps the position of its first case and accumulates the time
+				// every case behind it took: a file-granular id stands for the whole
+				// file, so its duration is the file's rather than one case's.
+				outs[i].Status = worseStatus(outs[i].Status, c.Status)
+				outs[i].DurationMS += c.DurationMS
+				continue
+			}
 			seen[id] = f
+			at[id] = len(outs)
 			outs = append(outs, Outcome{Test: id, Status: c.Status, DurationMS: c.DurationMS})
 		}
 	}
 	return outs, nil
+}
+
+// statusRank orders the Outcome vocabulary by how much it matters that a reader sees it:
+// an error outranks a failure, either outranks a skip, and anything outranks a pass. An
+// unrecognised status ranks above pass, because the one thing a status this reader does
+// not know must never do is silently become green.
+func statusRank(s string) int {
+	switch s {
+	case "error":
+		return 4
+	case "fail":
+		return 3
+	case "skip":
+		return 2
+	case "pass":
+		return 0
+	default:
+		return 1
+	}
+}
+
+// worseStatus is the survivor when two cases share one id.
+func worseStatus(a, b string) string {
+	if statusRank(b) > statusRank(a) {
+		return b
+	}
+	return a
 }
