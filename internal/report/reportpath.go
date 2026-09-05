@@ -19,6 +19,10 @@ var (
 	// directory report. Merging them silently would drop one outcome and report the
 	// other's status under both names, which is a false green wearing the right id.
 	ErrDuplicateTestID = errors.New("junit-xml: duplicate test id across report files")
+	// ErrClearReportPath is a report_path the engine could not empty before invocation.
+	// It is raised BEFORE the runner starts, because the alternative — continue and read
+	// whatever is there — parses the previous run's report as this run's result.
+	ErrClearReportPath = errors.New("junit-xml: cannot clear report_path")
 )
 
 // ReportPath is an adapter's report_path resolved against the repo root. The shape is read
@@ -76,6 +80,74 @@ func adapterPrefix(adapter string) string {
 // prefix is adapterPrefix for a resolved path.
 func (p ReportPath) prefix() string { return adapterPrefix(p.Adapter) }
 
+// Clear removes the previous run's report so a runner that writes nothing produces
+// ErrNoReport rather than last run's outcomes. For a file: remove it; a missing file is
+// not an error. For a directory: create it if absent, then remove every *.xml DIRECTLY
+// inside it — never the directory itself and never a non-XML sibling, because
+// target/surefire-reports also holds the *.txt dumps a developer may be reading.
+//
+// Nothing outside p.Abs is ever touched: NewReportPathFor has already refused an absolute
+// path and one that climbs out of the repo root, and the removals here are p.Abs itself or
+// its direct children. The declared shape decides which, so a file-shaped declaration
+// pointing at a directory removes nothing and is named instead — a directory the adapter
+// did not name is not this function's to delete.
+func (p ReportPath) Clear() error {
+	// The kind check comes FIRST: MkdirAll on a path where a file sits, and Remove on a
+	// directory that happens to be empty, would each answer the disagreement themselves.
+	if info, err := os.Stat(p.Abs); err == nil {
+		if info.IsDir() != p.IsDir {
+			return p.kindErr(info.IsDir())
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return p.clearErr(p.Abs, err)
+	}
+
+	// A runner told to write into a directory that does not exist writes nothing, and the
+	// run then fails on a report it could have had.
+	dir := p.Abs
+	if !p.IsDir {
+		dir = filepath.Dir(p.Abs)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return p.clearErr(dir, err)
+	}
+	if !p.IsDir {
+		if err := os.Remove(p.Abs); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return p.clearErr(p.Abs, err)
+		}
+		return nil
+	}
+	entries, err := os.ReadDir(p.Abs)
+	if err != nil {
+		return p.clearErr(p.Abs, err)
+	}
+	for _, e := range entries {
+		// Exactly the set Files reads. Clearing more than the read would delete a file
+		// no RTDD run was ever going to look at.
+		if !isReportEntry(e) {
+			continue
+		}
+		f := filepath.Join(p.Abs, e.Name())
+		if err := os.Remove(f); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return p.clearErr(f, err)
+		}
+	}
+	return nil
+}
+
+// kindErr is the declaration and the disk disagreeing about the shape. Clear raises it
+// before the run and Files after it, and both say the same thing.
+func (p ReportPath) kindErr(onDiskIsDir bool) error {
+	return fmt.Errorf("%s%w: report_path %q names %s, but %s is %s",
+		p.prefix(), ErrReportPathKind, p.Declared, kindWord(p.IsDir), p.Abs, kindWord(onDiskIsDir))
+}
+
+// clearErr names the path the clear stumbled on and keeps the OS error inspectable, so a
+// caller can still tell a permission problem from a busy file.
+func (p ReportPath) clearErr(path string, err error) error {
+	return fmt.Errorf("%s%w: %s: %w", p.prefix(), ErrClearReportPath, path, err)
+}
+
 // Files returns the report files to read, sorted: the single file, or every *.xml
 // DIRECTLY inside the directory. Sorted rather than readdir order so a merged report is
 // reproducible.
@@ -88,8 +160,7 @@ func (p ReportPath) Files() ([]string, error) {
 		return nil, fmt.Errorf("%sreading %s: %w", p.prefix(), p.Abs, err)
 	}
 	if info.IsDir() != p.IsDir {
-		return nil, fmt.Errorf("%s%w: report_path %q names %s, but %s is %s",
-			p.prefix(), ErrReportPathKind, p.Declared, kindWord(p.IsDir), p.Abs, kindWord(info.IsDir()))
+		return nil, p.kindErr(info.IsDir())
 	}
 	if !p.IsDir {
 		return []string{p.Abs}, nil
@@ -100,9 +171,7 @@ func (p ReportPath) Files() ([]string, error) {
 	}
 	var files []string
 	for _, e := range entries {
-		// Not recursive: Surefire and Gradle write their reports flat, and a nested
-		// directory in a build output belongs to something other than this run.
-		if e.IsDir() || !strings.EqualFold(filepath.Ext(e.Name()), ".xml") {
+		if !isReportEntry(e) {
 			continue
 		}
 		files = append(files, filepath.Join(p.Abs, e.Name()))
@@ -114,6 +183,15 @@ func (p ReportPath) Files() ([]string, error) {
 	}
 	sort.Strings(files)
 	return files, nil
+}
+
+// isReportEntry is a directory entry that belongs to a directory report: a *.xml file
+// DIRECTLY inside it. Not recursive — Surefire and Gradle write their reports flat, and a
+// nested directory in a build output belongs to something other than this run. One
+// predicate for both the read and the clear, because a file cleared but never read is a
+// deletion RTDD had no reason to make, and one read but never cleared goes stale.
+func isReportEntry(e os.DirEntry) bool {
+	return !e.IsDir() && strings.EqualFold(filepath.Ext(e.Name()), ".xml")
 }
 
 // kindWord renders a shape for an error message.
