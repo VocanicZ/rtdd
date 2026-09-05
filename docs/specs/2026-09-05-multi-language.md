@@ -144,7 +144,15 @@ time, **never** as a mid-run parse failure against a report file that was never 
 
 One parser in `internal/report` covers all ten. The hazard is **id round-tripping**: a
 JUnit `<testcase classname= name=>` pair must render back into something the runner's own
-selector syntax accepts. That is what `id_template` is for, and it is per-adapter because
+selector syntax accepts. The valid placeholders are exactly **`{file}`, `{classname}` and
+`{name}`** — `{classname}` matches the JUnit attribute's own spelling, and `{class}` is
+deliberately *not* an alias for it, because two spellings for one attribute is a trap for
+adapter authors. A template naming `{file}` against a runner that emits only `classname=`
+fails at run time with a message saying so, and adjacent placeholders with no literal
+separator (`"{classname}{name}"`) are rejected at load time: they render but cannot be read
+back, so the round-trip is not stable.
+
+That is what `id_template` is for, and it is per-adapter because
 only the adapter knows its runner's syntax. Audit finding A6 ("three of five parse formats
 structurally cannot carry a test identifier") is the reason this is specified explicitly
 rather than assumed.
