@@ -188,15 +188,59 @@ func staticReason(cands []staticCandidate) string {
 // unanswerableReason explains a full suite that neither the map nor the static tier could
 // narrow. A static adapter is never advised to seed: coverage: none means no map is ever
 // built, so `rtdd seed` is a command that cannot help it.
+//
+// It names ONLY the levels that were actually consulted. A resolver is nil when the level
+// was SKIPPED — an adapter declaring no importscan, or a caller that supplied no
+// filesystem — and reporting a skipped level as one that "reached nothing" is the lie
+// issue #275 filed: the CLI shipped without Exists for four milestones and told every
+// static repository that its declared correspondence had been evaluated and had failed.
 func unanswerableReason(in Inputs) string {
-	if in.Adapter != nil && in.Adapter.Selection == adapter.SelectionStatic {
-		if in.Adapter.Fidelity() == adapter.FidelityNone {
-			return "the " + in.Adapter.Name + " adapter declares selection: static but no " +
-				"test_for templates and no importscan command, so nothing narrower than " +
-				"the full suite can be derived"
-		}
-		return "the " + in.Adapter.Name + " adapter selects statically, and neither " +
-			"declared correspondence nor imports reach the changed set"
+	if in.Adapter == nil || in.Adapter.Selection != adapter.SelectionStatic {
+		return "the map is unseeded, so no selection is trustworthy: run rtdd seed"
 	}
-	return "the map is unseeded, so no selection is trustworthy: run rtdd seed"
+	name := in.Adapter.Name
+	if in.Adapter.Fidelity() == adapter.FidelityNone {
+		return "the " + name + " adapter declares selection: static but no " +
+			"test_for templates and no importscan command, so nothing narrower than " +
+			"the full suite can be derived"
+	}
+
+	skippedCorrespondence := correspondenceSkipped(in)
+	skippedImports := in.ImportDistance == nil
+
+	switch {
+	case skippedCorrespondence == "" && !skippedImports:
+		// Both levels ran and both found nothing. This is the only case in which the
+		// pre-#275 sentence was true, and it keeps that sentence word for word.
+		return "the " + name + " adapter selects statically, and neither " +
+			"declared correspondence nor imports reach the changed set"
+	case skippedCorrespondence == "":
+		return "the " + name + " adapter selects statically; no declared test_for " +
+			"correspondence reaches the changed set, and it declares no importscan, so " +
+			"imports were not consulted"
+	case !skippedImports:
+		return "the " + name + " adapter selects statically; no transitive imports reach " +
+			"the changed set, and correspondence was not consulted (" +
+			skippedCorrespondence + ")"
+	default:
+		return "the " + name + " adapter selects statically, but neither level was " +
+			"consulted: correspondence (" + skippedCorrespondence + ") and imports (it " +
+			"declares no importscan)"
+	}
+}
+
+// correspondenceSkipped reports WHY level 1 was skipped, or "" when it ran.
+//
+// The two causes are different defects and must stay apart: an adapter with no test_for
+// templates is a declaration its author has not made, while a missing Exists is a caller
+// that did not wire the resolver — the second is a bug in rtdd, and a reason that blamed
+// the adapter for it would send the reader to the wrong file.
+func correspondenceSkipped(in Inputs) string {
+	switch {
+	case in.Adapter == nil || len(in.Adapter.TestFor) == 0:
+		return "it declares no test_for templates"
+	case in.Exists == nil:
+		return "no filesystem resolver was supplied"
+	}
+	return ""
 }

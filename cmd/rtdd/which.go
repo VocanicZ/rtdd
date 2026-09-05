@@ -86,19 +86,27 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 
 	fb := newImportFallback(e.root, e.m, sig.UnmappedFiles)
 
+	// The static tier's two resolvers (spec §4.1). internal/selector is pure, so the
+	// filesystem and the adapter's declared importscan reach it only through these; a nil
+	// one is a level SKIPPED, which is why `which` supplied neither until issue #275 and
+	// no repository could reach TS from the CLI at all.
+	exists, importDistance, staticScanErr := staticResolvers(e.root, e.ad)
+
 	sel := selector.Select(selector.Inputs{
-		Map:        e.m,
-		Changes:    changes,
-		Adapter:    e.ad,
-		Cfg:        selector.DefaultConfig(),
-		AllTests:   allTests,
-		Cycles:     e.meta.Cycles,
-		Merge:      merge,
-		Distance:   distance,
-		ImportOnly: fb.testsImporting,
+		Map:            e.m,
+		Changes:        changes,
+		Adapter:        e.ad,
+		Cfg:            selector.DefaultConfig(),
+		AllTests:       allTests,
+		Cycles:         e.meta.Cycles,
+		Merge:          merge,
+		Distance:       distance,
+		ImportOnly:     fb.testsImporting,
+		Exists:         exists,
+		ImportDistance: importDistance,
 	})
 
-	notes := whichNotes(e, sel, allTests, fb)
+	notes := whichNotes(e, sel, allTests, fb, staticScanErr())
 
 	if *asJSON {
 		// The notes go BOTH ways. Structured, they are `complete` and `warnings` inside
@@ -133,7 +141,8 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 //
 // `status` already reports a missing adapter; `which` is the command agents call, and it
 // used to run with file classification silently disabled.
-func whichNotes(e *env, sel selector.Selection, allTests []string, fb *importFallbackScan) []string {
+func whichNotes(e *env, sel selector.Selection, allTests []string, fb *importFallbackScan,
+	staticScanErr error) []string {
 	var out []string
 	if e.ad == nil {
 		out = append(out, fmt.Sprintf("no adapter (%s) - file classification is disabled: "+
@@ -153,6 +162,13 @@ func whichNotes(e *env, sel selector.Selection, allTests []string, fb *importFal
 	}
 	if err := fb.err(); err != nil {
 		out = append(out, importScanNote(err))
+	}
+	// A DECLARED scanner that failed is a level that could not run. Without this note the
+	// selection is narrower than the adapter promises and nothing says so — and the tier's
+	// own reason, which only knows the resolver was supplied, reads as though the imports
+	// were checked and found nothing.
+	if staticScanErr != nil && e.ad != nil {
+		out = append(out, adapterImportScanNote(e.ad.Name, staticScanErr))
 	}
 	return out
 }
