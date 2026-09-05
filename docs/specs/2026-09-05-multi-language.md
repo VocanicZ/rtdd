@@ -111,12 +111,38 @@ branches.
 
 ### 4.3 `report: junit-xml` — the universal outcome format
 
-The static tier still has to know which tests ran and which failed. JUnit XML is the one
-format essentially every runner in every ecosystem emits: `vitest --reporter=junit`,
-`jest-junit`, `go-junit-report`, `cargo nextest --message-format`, Maven Surefire, Gradle,
-`dotnet test --logger junit`, RSpec, PHPUnit, and `pytest --junitxml`.
+The static tier still has to know which tests ran and which failed. JUnit XML is the closest
+thing to a universal outcome format, but "essentially every runner emits it" is too loose to
+build on: what each runner needs differs, and an adapter that assumes a flag exists fails on
+a clean machine. The three cases are distinct and an adapter must declare which it is in:
 
-One parser in `internal/report` covers all of them. The hazard is **id round-tripping**: a
+| runner | JUnit XML via | needs installing |
+|---|---|---|
+| Maven Surefire | `target/surefire-reports/*.xml`, written by default | no |
+| Gradle | `build/test-results/test/*.xml`, written by default | no |
+| PHPUnit | `--log-junit <path>` | no |
+| pytest | `--junitxml=<path>` | no |
+| Vitest | `--reporter=junit --outputFile=<path>` | no |
+| cargo-nextest | `[profile.<p>.junit] path` in `.config/nextest.toml` — **not** a CLI flag | nextest itself |
+| Jest | `--reporters=jest-junit` | `jest-junit` |
+| RSpec | `--format RspecJunitFormatter` | `rspec_junit_formatter` |
+| Go | piping `go test -json` through `go-junit-report` | `go-junit-report` |
+| dotnet | `--logger junit` | `JUnitTestLogger`; only `trx` is built in |
+
+Four of the ten need a package the host repo may not have, and cargo-nextest needs a config
+file rather than a flag. So the contract gains one more key:
+
+```yaml
+requires:                    # optional; prerequisites the host repo must already have
+  - bin: go-junit-report     # a binary that must resolve on PATH
+    reason: "go emits no JUnit XML natively"
+```
+
+`rtdd doctor` reports an unmet `requires` as a named, actionable finding — the prerequisite,
+which adapter needs it, and why. An unmet prerequisite must surface at `doctor` and `init`
+time, **never** as a mid-run parse failure against a report file that was never written.
+
+One parser in `internal/report` covers all ten. The hazard is **id round-tripping**: a
 JUnit `<testcase classname= name=>` pair must render back into something the runner's own
 selector syntax accepts. That is what `id_template` is for, and it is per-adapter because
 only the adapter knows its runner's syntax. Audit finding A6 ("three of five parse formats
@@ -191,7 +217,7 @@ applies to M3 and M4.
 
 | # | Slice | Done when |
 |---|---|---|
-| **M6a** | Adapter contract v2 + `init` gating | `selection`/`coverage: none`/`report_path`/`id_template`/`test_for`/`importscan` parse and validate; host `.rtdd/adapters/*.yaml` load; `init` refuses a no-adapter repo without `--force`; `doctor` reports fidelity |
+| **M6a** | Adapter contract v2 + `init` gating | `selection`/`coverage: none`/`report_path`/`id_template`/`test_for`/`importscan`/`requires` parse and validate; host `.rtdd/adapters/*.yaml` load; `init` refuses a no-adapter repo without `--force`; `doctor` reports fidelity and any unmet prerequisite |
 | **M6b** | The `TS` tier | Tier inserted between T1 and T2; three-level ranking; a seeded Python repo's selection is byte-identical to before |
 | **M6c** | `report: junit-xml` + runner | One parser, id round-trip through `id_template`, subset invocation, exit-code mapping |
 | **M6d** | Shipped adapters + polyglot | Adapters for the languages below; `Detect` returns a set; rows and selections carry an adapter tag |
