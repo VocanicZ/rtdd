@@ -2,6 +2,7 @@ package report
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -304,5 +305,52 @@ func TestReadJUnitFileAcceptsAnEmptySuiteThatDidNotFail(t *testing.T) {
 	}
 	if len(cases) != 1 || cases[0].Status != "pass" {
 		t.Fatalf("got %+v, want one passing case", cases)
+	}
+}
+
+// time= is telemetry that arrives from a foreign runner, and strconv.ParseFloat accepts
+// far more than a duration: "NaN", "Inf", and magnitudes past int64 all parse, so the
+// unparseable-is-zero fallback never fires for them and int(math.Round(sec*1000)) on an
+// out-of-range float is implementation-defined — in practice the int64 minimum. A negative
+// DurationMS is not a fast test; it is a number that silently poisons every ordering and
+// budgeting sum the ranker builds on top of it. So: non-finite is 0, negative is 0, a
+// padded value keeps its telemetry, and an absurd magnitude clamps instead of wrapping.
+func TestReadJUnitFileNeverTurnsATimeAttributeIntoANegativeDuration(t *testing.T) {
+	cases := []struct {
+		attr string
+		want int
+	}{
+		{attr: "", want: 0},
+		{attr: "abc", want: 0},
+		{attr: "NaN", want: 0},
+		{attr: "Inf", want: 0},
+		{attr: "+Inf", want: 0},
+		{attr: "-Inf", want: 0},
+		{attr: "1e30", want: MaxDurationMS},
+		{attr: "-1e30", want: 0},
+		{attr: "-1", want: 0},
+		{attr: "-0.25", want: 0},
+		{attr: " 0.5 ", want: 500},
+		{attr: "0.25", want: 250},
+		{attr: "0", want: 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.attr, func(t *testing.T) {
+			xmlDoc := fmt.Sprintf(
+				`<testsuite name="s"><testcase classname="s.C" name="n" time=%q/></testsuite>`, tc.attr)
+			got, err := ReadJUnitFile(writeXML(t, xmlDoc))
+			if err != nil {
+				t.Fatalf("ReadJUnitFile: %v", err)
+			}
+			if len(got) != 1 {
+				t.Fatalf("got %d cases, want 1", len(got))
+			}
+			if got[0].DurationMS < 0 {
+				t.Fatalf("time=%q produced a negative DurationMS %d", tc.attr, got[0].DurationMS)
+			}
+			if got[0].DurationMS != tc.want {
+				t.Fatalf("time=%q gave DurationMS %d, want %d", tc.attr, got[0].DurationMS, tc.want)
+			}
+		})
 	}
 }

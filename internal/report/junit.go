@@ -262,13 +262,32 @@ func caseStatus(c junitCase) string {
 	return "pass"
 }
 
+// MaxDurationMS is the ceiling a single testcase duration is clamped to: 24 hours in
+// milliseconds. Nothing a runner reports is longer, so a bigger number is a broken
+// attribute rather than a long test, and clamping keeps it a duration instead of letting
+// the float-to-int conversion wrap it into the int64 minimum.
+const MaxDurationMS = 24 * 60 * 60 * 1000
+
 // secondsToMS converts a JUnit time= attribute, which is SECONDS, into the millisecond
-// duration ReadReportLog records. A missing or unparseable value is 0, not an error: a
+// duration ReadReportLog records. A missing or unusable value is 0, not an error: a
 // duration is telemetry and an outcome is not.
+//
+// Unusable is wider than "ParseFloat said no". ParseFloat also accepts "NaN", "Inf" and
+// magnitudes far past int64, none of which is a duration, and converting an out-of-range
+// float to int is implementation-defined in Go — in practice the int64 minimum. A negative
+// DurationMS is not a fast test; it is a value that makes every ordering and budgeting sum
+// the ranker builds downstream meaningless, so non-finite and negative both collapse to 0
+// and an absurd magnitude clamps to MaxDurationMS. The attribute is trimmed first, because
+// a runner that pads time=" 0.5 " means half a second and should not lose its telemetry to
+// two spaces.
 func secondsToMS(attr string) int {
-	sec, err := strconv.ParseFloat(attr, 64)
-	if err != nil {
+	sec, err := strconv.ParseFloat(strings.TrimSpace(attr), 64)
+	if err != nil || math.IsNaN(sec) || math.IsInf(sec, 0) || sec <= 0 {
 		return 0
 	}
-	return int(math.Round(sec * 1000))
+	ms := math.Round(sec * 1000)
+	if ms > MaxDurationMS {
+		return MaxDurationMS
+	}
+	return int(ms)
 }
