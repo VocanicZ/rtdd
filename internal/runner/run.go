@@ -51,6 +51,18 @@ func execute(a *adapter.Adapter, repoRoot, tmpl string, chunks [][]string, failF
 	defer os.RemoveAll(tmpDir)
 
 	covPath := filepath.Join(repoRoot, ".coverage")
+
+	// The adapter's report_path is resolved ONCE, before the loop: it is a fixed
+	// declaration, not a per-chunk temp file, and resolving it per chunk would report a
+	// bad declaration N times instead of once.
+	var rp report.ReportPath
+	if a.ReportPath != "" {
+		rp, err = report.NewReportPathFor(a.Name, repoRoot, a.ReportPath)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	res := &RunResult{Coverage: &coverage.Result{ImportTime: map[string][]int{}}}
 	byTest := map[string]int{} // test id -> index in res.Outcomes, for dedupe
 
@@ -66,6 +78,13 @@ func execute(a *adapter.Adapter, repoRoot, tmpl string, chunks [][]string, failF
 		// set, so this map IS the enforcement — an adapter naming {src} fails here
 		// as an unresolved placeholder rather than silently narrowing coverage.
 		vars := map[string]string{"log": logPath, "out": tmpDir}
+		// {report} joins them, and ONLY when the adapter declares report_path. Expand's
+		// vocabulary is the caller's map, so an adapter naming {report} without
+		// report_path still fails as an unresolved placeholder rather than receiving an
+		// empty string and writing its report to "".
+		if a.ReportPath != "" {
+			vars["report"] = rp.Abs
+		}
 
 		var argv []string
 		if len(chunks) == 0 {
@@ -85,6 +104,15 @@ func execute(a *adapter.Adapter, repoRoot, tmpl string, chunks [][]string, failF
 		// passed; removing it first makes that guarantee ours, not pytest's.
 		if err := os.Remove(covPath); err != nil && !os.IsNotExist(err) {
 			return nil, fmt.Errorf("runner: removing stale %s: %w", covPath, err)
+		}
+
+		// The report is cleared per CHUNK, for the same reason: report_path is a fixed,
+		// adapter-declared path, so clearing it once per Run would let chunk i's cases be
+		// re-read as chunk i+1's if chunk i+1 crashed before writing.
+		if a.ReportPath != "" {
+			if err := rp.Clear(); err != nil {
+				return nil, fmt.Errorf("runner: chunk %d: %w", i, err)
+			}
 		}
 
 		var combined bytes.Buffer
@@ -122,7 +150,7 @@ func execute(a *adapter.Adapter, repoRoot, tmpl string, chunks [][]string, failF
 			res.ExitCode = 1
 		}
 
-		outs, err := report.ReadReportLog(logPath)
+		outs, err := readOutcomes(a, logPath, rp)
 		if err != nil {
 			return nil, fmt.Errorf("runner: chunk %d: %w", i, err)
 		}
@@ -139,11 +167,17 @@ func execute(a *adapter.Adapter, repoRoot, tmpl string, chunks [][]string, failF
 		// at the start of every invocation, so chunk i's contexts exist nowhere
 		// else once chunk i+1 starts. --cov-append is not the alternative — it
 		// would also absorb a stale store from an unrelated earlier run.
-		cov, err := coverage.ReadSQLite(covPath, repoRoot)
-		if err != nil {
-			return nil, fmt.Errorf("runner: chunk %d: %w", i, err)
+		//
+		// coverage: none has no .coverage to read at all, and ReadSQLite against a file
+		// that does not exist is an error rather than an empty result — so the read is
+		// skipped, not attempted and forgiven.
+		if a.Coverage != adapter.CoverageNone {
+			cov, err := coverage.ReadSQLite(covPath, repoRoot)
+			if err != nil {
+				return nil, fmt.Errorf("runner: chunk %d: %w", i, err)
+			}
+			res.Coverage.Merge(cov)
 		}
-		res.Coverage.Merge(cov)
 	}
 
 	for _, o := range res.Outcomes {
@@ -156,6 +190,27 @@ func execute(a *adapter.Adapter, repoRoot, tmpl string, chunks [][]string, failF
 		res.ExitCode = 1
 	}
 	return res, nil
+}
+
+// readOutcomes reads one chunk's outcomes through the parser the adapter's `report:`
+// field names. It is the ONE dispatch this path has, and it sits exactly where
+// report.ReadReportLog was called unconditionally, so the two parsers stay side by side
+// rather than one acquiring a caller it was never tested under.
+//
+// The junit path reads the adapter's report_path rather than the per-chunk {log}: an
+// adapter-declared path is fixed, which is why the caller clears it and reads it per
+// chunk. Both parsers produce report.Outcome in the same vocabulary, whose Test is in the
+// same namespace as the ids spliced into the command — so the caller's
+// last-invocation-wins de-duplication keeps meaning what it means on the pytest path.
+func readOutcomes(a *adapter.Adapter, logPath string, rp report.ReportPath) ([]report.Outcome, error) {
+	switch a.Report {
+	case "pytest-reportlog":
+		return report.ReadReportLog(logPath)
+	case "junit-xml":
+		return report.ReadJUnitReport(rp, a.IDTemplate)
+	default:
+		return nil, fmt.Errorf("runner: adapter %s: unsupported report %q", a.Name, a.Report)
+	}
 }
 
 // mergeEnv returns base with overrides applied, replacing rather than appending
