@@ -200,3 +200,110 @@ func TestInitInADetectableRepoInstallsTheUnmodifiedSkill(t *testing.T) {
 		t.Errorf("the installed SKILL.md is not the generated one")
 	}
 }
+
+// PRD #229 AC5 at init time: a malformed host adapter names the failing FILE and the
+// failing FIELD. The refusal that omits it tells the user to write the adapter they have
+// already written — and both facts were computed and then thrown away.
+func TestInitRefusalNamesTheMalformedHostAdapter(t *testing.T) {
+	dir := newUnsupportedRepo(t)
+	adir := filepath.Join(dir, ".rtdd", "adapters")
+	if err := os.MkdirAll(adir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// A real contract violation naming a field, not a YAML syntax error: subset has no
+	// {tests} placeholder, so the "subset" would run the whole suite.
+	yaml := "name: vitest\ndetect: [\"package.json\"]\nsubset: \"npx vitest run\"\n" +
+		"selection: static\ncoverage: none\nreport: junit-xml\nreport_path: \".rtdd/junit.xml\"\n" +
+		"id_template: \"{file}::{name}\"\ntest_for: [\"{dir}/{name}.test.ts\"]\n" +
+		"test_globs: [\"**/*.test.ts\"]\nsource_globs: [\"src/**/*.ts\"]\n"
+	if err := os.WriteFile(filepath.Join(adir, "vitest.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	before := snapshotTree(t, dir)
+
+	code, _, stderr := rtdd(t, dir, "init")
+	if code != 2 {
+		t.Fatalf("rtdd init = %d, want 2 (stderr: %s)", code, stderr)
+	}
+	for _, want := range []string{".rtdd/adapters/vitest.yaml", "subset", "{tests}"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr does not name %q:\n%s", want, stderr)
+		}
+	}
+	// The existing remedy text survives beside it — the file is broken, but writing an
+	// adapter is still what fixes this repository.
+	for _, want := range []string{"no adapter detected", ".rtdd/adapters/", "--force"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr lost the remedy text %q:\n%s", want, stderr)
+		}
+	}
+	assertTreeUnchanged(t, before, snapshotTree(t, dir))
+}
+
+// Spec §5, the ≥1-adapter branch: proceed, and record the detected adapters and their
+// selection in .rtdd/config.yaml. `rtdd doctor` still derives fidelity live; this is the
+// record of what the install saw.
+func TestInitProceedsAndRecordsTheDetectedAdapter(t *testing.T) {
+	dir := newDetectableRepo(t)
+
+	if code, _, stderr := rtdd(t, dir, "init"); code != 0 {
+		t.Fatalf("rtdd init = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, ".rtdd", "config.yaml"))
+	if err != nil {
+		t.Fatalf("read config.yaml: %v", err)
+	}
+	cfg := string(b)
+	for _, want := range []string{"adapters:", "name: python", "selection: coverage", "fidelity: execution-derived"} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf(".rtdd/config.yaml does not record %q:\n%s", want, cfg)
+		}
+	}
+	for _, want := range []string{"stale_commits: 50", "drift_guard: 100", "hub_threshold: 0.40"} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf(".rtdd/config.yaml lost the default %q:\n%s", want, cfg)
+		}
+	}
+}
+
+// A config that already exists is one someone tuned. The record is never worth rewriting
+// it for, so a second init leaves the file byte for byte as it found it.
+func TestInitNeverRewritesAnExistingConfigToAddTheRecord(t *testing.T) {
+	dir := newDetectableRepo(t)
+	if err := os.MkdirAll(filepath.Join(dir, ".rtdd"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	tuned := "stale_commits: 999\n"
+	cfg := filepath.Join(dir, ".rtdd", "config.yaml")
+	if err := os.WriteFile(cfg, []byte(tuned), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if code, _, stderr := rtdd(t, dir, "init"); code != 0 {
+		t.Fatalf("rtdd init = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	b, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatalf("read config.yaml: %v", err)
+	}
+	if string(b) != tuned {
+		t.Errorf(".rtdd/config.yaml = %q, want it untouched at %q", string(b), tuned)
+	}
+}
+
+// --force into a repo nothing matched has nothing to record, and must not claim it looked
+// and found an empty set: the config it writes is the unchanged three-key default.
+func TestInitForceRecordsNoAdaptersInTheConfig(t *testing.T) {
+	dir := newUnsupportedRepo(t)
+
+	if code, _, stderr := rtdd(t, dir, "init", "--force"); code != 0 {
+		t.Fatalf("rtdd init --force = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, ".rtdd", "config.yaml"))
+	if err != nil {
+		t.Fatalf("read config.yaml: %v", err)
+	}
+	if strings.Contains(string(b), "adapters:") {
+		t.Errorf(".rtdd/config.yaml claims a detected set in a repo nothing matched:\n%s", string(b))
+	}
+}

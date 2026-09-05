@@ -30,15 +30,37 @@ func TestRenderRequirementsIsSilentWhenNothingIsMissing(t *testing.T) {
 	}
 }
 
-// Every declared prerequisite is reported, in declaration order, one finding per line.
+// Every declared prerequisite is reported, in declaration order, ONE FINDING PER LINE —
+// and this asserts both, because "contains npx" is satisfied by a renderer that drops a
+// finding, reorders them, or runs them together into one paragraph.
 func TestRenderRequirementsReportsEveryUnmetEntry(t *testing.T) {
 	got := RenderRequirements([]adapter.UnmetFinding{
-		{Adapter: "vitest", Req: adapter.Requirement{Bin: "node", Reason: "runs vitest"}},
 		{Adapter: "vitest", Req: adapter.Requirement{Bin: "npx", Reason: "resolves the vitest binary"}},
+		{Adapter: "vitest", Req: adapter.Requirement{Bin: "node", Reason: "runs vitest"}},
+		{Adapter: "python", Req: adapter.Requirement{Bin: "pytest", Reason: "runs the suite"}},
 	})
-	for _, want := range []string{"node", "npx", "runs vitest", "resolves the vitest binary"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("output does not contain %q:\n%s", want, got)
+
+	// One line per finding, in the order given. Everything else the block prints — the
+	// heading and its blank lines — is not a finding line.
+	var findings []string
+	for _, line := range strings.Split(got, "\n") {
+		if strings.Contains(line, "not on PATH") {
+			findings = append(findings, line)
+		}
+	}
+	if len(findings) != 3 {
+		t.Fatalf("got %d finding lines, want 3, one per unmet entry:\n%s", len(findings), got)
+	}
+	wantIn := [][]string{
+		{"npx", "vitest", "resolves the vitest binary"},
+		{"node", "vitest", "runs vitest"},
+		{"pytest", "python", "runs the suite"},
+	}
+	for i, wants := range wantIn {
+		for _, want := range wants {
+			if !strings.Contains(findings[i], want) {
+				t.Errorf("finding line %d = %q, want it to name %q (declaration order)", i, findings[i], want)
+			}
 		}
 	}
 }

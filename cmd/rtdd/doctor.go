@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os/exec"
 	"strings"
 
 	"github.com/VocanicZ/rtdd/internal/adapter"
@@ -271,39 +270,6 @@ func undetected(all, detected []*adapter.Adapter) []*adapter.Adapter {
 	return out
 }
 
-// RenderRequirements formats the unmet-prerequisite findings. Pure; no findings renders
-// the empty string, because a heading over an empty list reads as a problem.
-//
-// Spec §4.3: an unmet prerequisite surfaces here, naming the binary, the adapter that
-// needs it and the declared reason — never as a mid-run parse failure against a report
-// file that was never written.
-func RenderRequirements(findings []adapter.UnmetFinding) string {
-	if len(findings) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString("prerequisites\n\n")
-	for _, f := range findings {
-		fmt.Fprintf(&b, "  %s is not on PATH — needed by adapter %s: %s\n", f.Req.Bin, f.Adapter, f.Req.Reason)
-	}
-	b.WriteString("\n")
-	return b.String()
-}
-
-// unmetFindings collects every declared prerequisite that does not resolve on this
-// machine, adapter by adapter, in declaration order. Callers pass the DETECTED adapters:
-// a missing binary only some other toolchain's adapter wants is not a finding about this
-// repository, and naming it sends an agent to install something nothing here runs.
-func unmetFindings(all []*adapter.Adapter, lookPath func(string) (string, error)) []adapter.UnmetFinding {
-	var out []adapter.UnmetFinding
-	for _, a := range all {
-		for _, r := range a.Unmet(lookPath) {
-			out = append(out, adapter.UnmetFinding{Adapter: a.Name, Req: r})
-		}
-	}
-	return out
-}
-
 // cmdDoctor implements `rtdd doctor`: what selection fidelity this repository can actually
 // achieve and why, what its adapters need installed first, and which files the most tests
 // reach — with the spec §9 caveat that keeps the ranking from being read as an escalation
@@ -347,7 +313,7 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprint(stdout, RenderFidelity(fidelityRows(e.root, detected), invalid))
 	fmt.Fprint(stdout, RenderUndetected(fidelityRows(e.root, undetected(all, detected))))
-	fmt.Fprint(stdout, RenderRequirements(unmetFindings(detected, exec.LookPath)))
+	fmt.Fprint(stdout, RenderRequirements(adapter.UnmetFindings(detected, lookPath)))
 	fmt.Fprint(stdout, RenderDoctor(doctor.Hubs(e.m), e.m.Len(), *limit))
 	return 0
 }

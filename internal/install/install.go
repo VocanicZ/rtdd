@@ -31,7 +31,12 @@ hub_threshold: 0.40
 // Cursor rule) are created but never overwritten without --force, because the
 // host may have edited them. Marker-delimited targets (AGENTS.md, CLAUDE.md) are
 // merged, which is always safe.
-func Plan(root string, files map[string]string, force bool) ([]Step, error) {
+//
+// detected is the adapter set `rtdd init` matched against this repository; it is recorded
+// into a NEWLY CREATED .rtdd/config.yaml (spec §5) and ignored when one already exists.
+// An empty slice is the --force install into a repo nothing matched, and writes the
+// unchanged defaults.
+func Plan(root string, files map[string]string, force bool, detected []AdapterRecord) ([]Step, error) {
 	steps := []Step{}
 
 	// 1. Whole-file targets.
@@ -104,7 +109,7 @@ func Plan(root string, files map[string]string, force bool) ([]Step, error) {
 	// 4. .rtdd/config.yaml — created, never overwritten.
 	cfg := filepath.Join(root, ".rtdd", "config.yaml")
 	if _, err := os.Stat(cfg); os.IsNotExist(err) {
-		steps = append(steps, Step{Path: ".rtdd/config.yaml", Action: Create, Content: defaultConfig})
+		steps = append(steps, Step{Path: ".rtdd/config.yaml", Action: Create, Content: ConfigWithAdapters(detected)})
 	} else {
 		steps = append(steps, Step{Path: ".rtdd/config.yaml", Action: Skip, Note: "keeping your config"})
 	}
