@@ -152,14 +152,10 @@ func cmdInit(args []string, stdout, stderr io.Writer) int {
 // declaration saying otherwise, and the front-end it just installed already carries the
 // no-adapter caveat.
 func RenderNextStep(detected []*adapter.Adapter) string {
-	var static, coverage []string
-	for _, a := range detected {
-		if a.Selection == adapter.SelectionStatic {
-			static = append(static, a.Name)
-			continue
-		}
-		coverage = append(coverage, a.Name)
-	}
+	// The partition is shared with doctor, explain and which (staticadvice.go): four
+	// surfaces answering one question must not each carry their own copy of it.
+	staticAds, coverageAds := selectionSplit(detected)
+	static, coverage := adapterNames(staticAds), adapterNames(coverageAds)
 
 	// The default branch is byte-identical to the pre-M6b line, so every existing init
 	// test on a Python repository passes unchanged.

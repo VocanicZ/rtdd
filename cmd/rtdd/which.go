@@ -129,7 +129,7 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "  %-9s %s\n", c.Status.String(), c.Path)
 		}
 	}
-	fmt.Fprint(stdout, RenderWhich(sel, sig.UnmappedFiles))
+	fmt.Fprint(stdout, RenderWhich(sel, sig.UnmappedFiles, e.ad))
 	for _, n := range notes {
 		fmt.Fprintf(stdout, "\nNOTE: %s\n", n)
 	}

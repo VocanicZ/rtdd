@@ -14,7 +14,7 @@ func TestRenderDoctorTable(t *testing.T) {
 		{Path: "src/b.py", TestCount: 2, Fraction: 0.5},
 		{Path: "src/a.py", TestCount: 1, Fraction: 0.25},
 	}
-	got := RenderDoctor(hubs, 4, 2)
+	got := RenderDoctor(hubs, 4, 2, nil)
 	want := "" +
 		"fan-out over 4 tests (top 2 of 3 files)\n" +
 		"\n" +
@@ -40,7 +40,7 @@ func TestRenderDoctorAlwaysPrintsTheCaveat(t *testing.T) {
 		{"empty map", nil, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := RenderDoctor(tc.hubs, tc.tot, 20)
+			got := RenderDoctor(tc.hubs, tc.tot, 20, nil)
 			if !strings.Contains(got, doctor.Caveat) {
 				t.Fatalf("doctor output is missing the §9 caveat:\n%s", got)
 			}
@@ -56,7 +56,7 @@ func TestRenderDoctorAlwaysPrintsTheCaveat(t *testing.T) {
 // The caveat names every once-per-process mechanism the spec calls out, including the
 // two the table itself cannot show: module singletons and DI container wiring.
 func TestRenderDoctorCaveatNamesEveryOncePerProcessMechanism(t *testing.T) {
-	got := RenderDoctor(nil, 0, 20)
+	got := RenderDoctor(nil, 0, 20, nil)
 	for _, needle := range []string{"lru_cache", "singleton", "DI container", "session-scoped fixture"} {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("doctor output is missing %q:\n%s", needle, got)
@@ -65,7 +65,7 @@ func TestRenderDoctorCaveatNamesEveryOncePerProcessMechanism(t *testing.T) {
 }
 
 func TestRenderDoctorEmptyMap(t *testing.T) {
-	got := RenderDoctor(nil, 0, 20)
+	got := RenderDoctor(nil, 0, 20, nil)
 	if !strings.Contains(got, "map is empty") {
 		t.Fatalf("RenderDoctor() on an empty map should say so:\n%s", got)
 	}
@@ -81,7 +81,7 @@ func TestRenderDoctorLimitBeyondTheFileCountShowsEverything(t *testing.T) {
 		{Path: "src/hub.py", TestCount: 3, Fraction: 0.75},
 		{Path: "src/b.py", TestCount: 2, Fraction: 0.5},
 	}
-	got := RenderDoctor(hubs, 4, 20)
+	got := RenderDoctor(hubs, 4, 20, nil)
 	want := "" +
 		"fan-out over 4 tests (2 files)\n" +
 		"\n" +
@@ -102,7 +102,7 @@ func TestRenderDoctorNonPositiveLimitShowsEverything(t *testing.T) {
 		{Path: "src/b.py", TestCount: 2, Fraction: 0.5},
 	}
 	for _, limit := range []int{0, -1} {
-		got := RenderDoctor(hubs, 4, limit)
+		got := RenderDoctor(hubs, 4, limit, nil)
 		if !strings.Contains(got, "src/b.py") {
 			t.Fatalf("limit=%d dropped rows:\n%s", limit, got)
 		}
@@ -112,7 +112,7 @@ func TestRenderDoctorNonPositiveLimitShowsEverything(t *testing.T) {
 // One test in the map is "1 test", not "1 tests": the header is read by humans.
 func TestRenderDoctorSingularTestCount(t *testing.T) {
 	hubs := []doctor.Hub{{Path: "src/a.py", TestCount: 1, Fraction: 1}}
-	got := RenderDoctor(hubs, 1, 20)
+	got := RenderDoctor(hubs, 1, 20, nil)
 	if !strings.Contains(got, "fan-out over 1 test (1 file)") {
 		t.Fatalf("RenderDoctor() header is not singular:\n%s", got)
 	}
