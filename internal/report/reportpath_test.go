@@ -480,3 +480,112 @@ func TestClearNamesAReportPathOfTheWrongKind(t *testing.T) {
 		t.Errorf("Clear removed the file sitting at a directory-shaped report_path: %v", err)
 	}
 }
+
+// A report_path whose final element is a SYMLINK is refused, not followed. Clear removes
+// the previous run's report, and os.Stat answers the kind question through the link, so a
+// repo-relative report_path pointing at a symlinked directory would clear the link's
+// TARGET — files outside the repository root that no RTDD run was ever going to read.
+// Symlinked build outputs are ordinary (target -> /var/build/..., a pnpm or bazel output
+// link), so the declaring adapter does not have to be malicious for this to delete a
+// developer's files.
+func TestClearRefusesASymlinkedDirectoryReportPath(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	keep := filepath.Join(outside, "keep.xml")
+	if err := os.WriteFile(keep, []byte(`<testsuite name="not-ours"/>`), 0o644); err != nil {
+		t.Fatalf("write keep.xml: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "link")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	p, err := NewReportPathFor("surefire", root, "link/")
+	if err != nil {
+		t.Fatalf("NewReportPathFor: %v", err)
+	}
+	err = p.Clear()
+	if !errors.Is(err, ErrReportPathSymlink) {
+		t.Fatalf("Clear(symlinked directory) error = %v, want errors.Is(_, ErrReportPathSymlink)", err)
+	}
+	// The adapter's declaration is what has to change, so the error names both.
+	for _, want := range []string{"surefire", "link/"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not name %q", err, want)
+		}
+	}
+	if _, err := os.Stat(keep); err != nil {
+		t.Fatalf("Clear followed the symlink and deleted a file outside the repository root: %v", err)
+	}
+}
+
+// The single-file form has the same hole: os.Remove would unlink the link only, but the
+// os.Stat kind-check ahead of it has already been answered by the target, so a file-shaped
+// declaration pointing at a symlinked DIRECTORY passes the check it was meant to fail.
+func TestClearRefusesASymlinkedSingleFileReportPath(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	target := filepath.Join(outside, "keep.xml")
+	if err := os.WriteFile(target, []byte(`<testsuite name="not-ours"/>`), 0o644); err != nil {
+		t.Fatalf("write keep.xml: %v", err)
+	}
+	link := filepath.Join(root, "link.xml")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	p, err := NewReportPathFor("vitest", root, "link.xml")
+	if err != nil {
+		t.Fatalf("NewReportPathFor: %v", err)
+	}
+	err = p.Clear()
+	if !errors.Is(err, ErrReportPathSymlink) {
+		t.Fatalf("Clear(symlinked file) error = %v, want errors.Is(_, ErrReportPathSymlink)", err)
+	}
+	if _, err := os.Lstat(link); err != nil {
+		t.Errorf("Clear unlinked a report_path it refused: %v", err)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Errorf("Clear followed the symlink and deleted its target outside the root: %v", err)
+	}
+}
+
+// A symlink pointing INSIDE the repository root is refused too. Resolving and then
+// checking containment would accept this one, but containment today is not containment
+// tomorrow: the link is a file in the repo, and repointing it at /var or a home directory
+// is one `ln -sf` away from a change no RTDD test would notice.
+func TestClearRefusesASymlinkPointingInsideTheRepositoryRoot(t *testing.T) {
+	root := t.TempDir()
+	inside := filepath.Join(root, "build", "test-results")
+	if err := os.MkdirAll(inside, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.Symlink(inside, filepath.Join(root, "reports")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	p, err := NewReportPathFor("gradle", root, "reports/")
+	if err != nil {
+		t.Fatalf("NewReportPathFor: %v", err)
+	}
+	if err := p.Clear(); !errors.Is(err, ErrReportPathSymlink) {
+		t.Fatalf("Clear(symlink inside the root) error = %v, want errors.Is(_, ErrReportPathSymlink)", err)
+	}
+}
+
+// Files refuses the same declaration, and for the same reason: what Clear will not empty
+// is not a path this run may read either, and one of the two accepting it is how a report
+// gets read from a directory nothing cleared.
+func TestFilesRefusesASymlinkedReportPath(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "TEST-other.xml"), []byte(`<testsuite name="not-ours"/>`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "link")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	p, err := NewReportPathFor("surefire", root, "link/")
+	if err != nil {
+		t.Fatalf("NewReportPathFor: %v", err)
+	}
+	if _, err := p.Files(); !errors.Is(err, ErrReportPathSymlink) {
+		t.Fatalf("Files(symlinked directory) error = %v, want errors.Is(_, ErrReportPathSymlink)", err)
+	}
+}
