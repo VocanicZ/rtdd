@@ -125,7 +125,14 @@ func TestDoctorCommandRanksFilesByFanOut(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
+	// The selection-fidelity block precedes the fan-out table on every repo (spec §6);
+	// the table itself and its §9 caveat are byte-identical to what doctor always printed.
 	want := "" +
+		"selection fidelity\n" +
+		"\n" +
+		"  python  python.yaml  (built-in)  execution-derived\n" +
+		"      selection: coverage with coverage: sqlite — tests are chosen from per-test coverage recorded by a real run\n" +
+		"\n" +
 		"fan-out over 4 tests (4 files)\n" +
 		"\n" +
 		"  tests  share  file\n" +

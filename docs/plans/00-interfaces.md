@@ -264,6 +264,40 @@ func AvailableReport(repoRoot string) ([]*Adapter, []Invalid, error)
 // binary.
 func IsHostAuthored(repoRoot string, a *Adapter) bool
 
+// Fidelity is how a selection was derived (spec §6). The string values are the wire format
+// for --json and must not be reworded.
+type Fidelity string
+
+const (
+    FidelityExecution Fidelity = "execution-derived"
+    FidelityStatic    Fidelity = "static"
+    FidelityNone      Fidelity = "none"
+)
+
+// Fidelity reports the best selection this adapter can ever produce. It is DERIVED from
+// `selection` and `coverage`, never asserted beside them, so an adapter declaring it
+// records nothing can never report execution-derived selection. It is a property of the
+// declaration and not of the repository's state: an unseeded Python repo is still
+// execution-derived, it just has no map yet. A static adapter with neither a test_for
+// template nor an importscan command is `none`, not `static` — all it could offer is the
+// path proximity spec §7 pre-registers the static tier AGAINST. Never blank: a nil adapter
+// is FidelityNone.
+func (a *Adapter) Fidelity() Fidelity
+
+// Unmet returns the requirements whose bin does not resolve, in declaration order.
+// lookPath is injected rather than calling exec.LookPath directly so what happens to be
+// installed on the machine running the tests never decides whether this is correct;
+// cmd/rtdd passes exec.LookPath.
+func (a *Adapter) Unmet(lookPath func(string) (string, error)) []Requirement
+
+// UnmetFinding pairs one unmet requirement with the adapter that declared it. Spec §4.3:
+// an unmet prerequisite surfaces at doctor/init time, never as a mid-run parse failure
+// against a report file that was never written.
+type UnmetFinding struct {
+    Adapter string
+    Req     Requirement
+}
+
 // Detect returns the adapter whose Detect globs match a file in repoRoot.
 // Exactly one match required; zero or multiple is an error (polyglot is out of scope in v1).
 func Detect(repoRoot string, adapters []*Adapter) (*Adapter, error)
@@ -582,6 +616,13 @@ func Hubs(m *mapstore.Map) []Hub
 // session-scoped fixtures) has a fan-out of 1, so the most coupled file in the repo can
 // appear as the cleanest.
 const Caveat = "CAVEAT: anything executed once per process — ..."
+
+// StaticCaveat is the selection-fidelity warning `rtdd doctor` MUST print alongside any
+// `static` or `none` row (spec §6). A static selection is derived from declaration rather
+// than from a recorded run, so it can miss a test execution-derived selection would have
+// caught, and passing it is weaker evidence. Like Caveat it is a const so the text cannot
+// drift between the surfaces that print it.
+const StaticCaveat = "CAVEAT: a static selection is derived from declared correspondence ..."
 ```
 
 ## internal/initrepo
@@ -1042,6 +1083,29 @@ type env struct { root, mapPath, metaPath, adPath string; m *mapstore.Map; meta 
 // code to use when err is non-nil: 3 for a fatal environment error, 2 for a bad config.
 func loadEnv(adapterPath string) (*env, int, error)
 func cmdStatus(args []string, stdout, stderr io.Writer) int
+
+// FidelityRow is one resolved adapter as `rtdd doctor` reports it: where it came from,
+// whether it overrode a built-in, the selection fidelity this repository can achieve with
+// it, and Why — the clause naming what determined that fidelity. A verdict with no cause
+// attached is not an honesty surface, so Why is always printed (spec §6).
+type FidelityRow struct {
+    Name     string
+    Src      string // repo-relative path for a host adapter, the embedded name otherwise
+    Host     bool
+    Override bool
+    Fidelity adapter.Fidelity
+    Why      string
+}
+
+// RenderFidelity formats the selection-fidelity block printed above the fan-out table.
+// Pure. A `none` row always names the consequence (the full suite) and the fix; any
+// `static` or `none` row is accompanied by doctor.StaticCaveat; an unloadable host adapter
+// is named with the field that failed rather than being fatal (spec §4.5).
+func RenderFidelity(rows []FidelityRow, invalid []adapter.Invalid) string
+
+// RenderRequirements formats the unmet-prerequisite findings — binary, adapter, reason.
+// Pure; no findings renders "" because a heading over an empty list reads as a problem.
+func RenderRequirements(findings []adapter.UnmetFinding) string
 func cmdSeed(args []string) int
 func cmdRun(args []string) int
 ```

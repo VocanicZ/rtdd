@@ -47,3 +47,13 @@ func Hubs(m *mapstore.Map) []Hub {
 	})
 	return out
 }
+
+// StaticCaveat is the limitation rtdd doctor MUST print alongside any `static` or `none`
+// selection fidelity (spec §6). A static selection is derived from declaration rather than
+// from a recorded run, so it can miss a test execution-derived selection would have caught;
+// saying so is what keeps a green static selection from being read as the same evidence a
+// green execution-derived one is.
+const StaticCaveat = "CAVEAT: a static selection is derived from declared correspondence " +
+	"and imports, not from a recorded run, so it can miss a test that execution-derived " +
+	"selection would have caught. A passing static selection is therefore weaker evidence " +
+	"than a passing execution-derived one."
