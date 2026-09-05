@@ -1,7 +1,9 @@
 package selector
 
 import (
+	"path"
 	"sort"
+	"strings"
 
 	"github.com/VocanicZ/rtdd/internal/adapter"
 	"github.com/VocanicZ/rtdd/internal/gitctx"
@@ -76,11 +78,12 @@ func staticCandidates(in Inputs) []staticCandidate {
 	return out
 }
 
-// rankStatic orders the candidate set by spec §4.1's levels, most confident first, and
-// falls back to lexicographic order so a full tie is reproducible.
+// rankStatic orders the candidate set by spec §4.1's three levels, most confident first,
+// and falls back to lexicographic order so a full tie is reproducible.
 //
 //  1. declared test_for correspondence;
-//  2. import distance, shortest transitive path first.
+//  2. import distance, shortest transitive path first;
+//  3. path proximity, longest shared directory prefix with any changed file first.
 //
 // The level key is compared before the distance key, so a level-1 candidate that also
 // happens to carry an import distance is never reordered by it: correspondence outranks
@@ -89,9 +92,16 @@ func staticCandidates(in Inputs) []staticCandidate {
 // itself — at level 1 a distance of zero means "never reached through imports", not
 // "reached in zero hops", and ordering on it would be ordering on a sentinel.
 //
-// The level-3 key (path proximity over changedFiles, longest shared directory prefix
-// first) is added by the sibling slice; changedFiles is the input that tiebreak will read.
+// Level 3 is read here and NOWHERE in staticCandidates: it is a tiebreak over tests some
+// more confident level already vouched for, and it is the last key before lexicographic
+// order. Proximity is the weakest signal in the tier — it is the `path` baseline spec §7
+// pre-registers the static tier as having to beat — so it may reorder two candidates that
+// are otherwise indistinguishable and may never lift one over a level or a hop count.
 func rankStatic(cands []staticCandidate, changedFiles []string) []string {
+	prox := make(map[string]int, len(cands))
+	for _, c := range cands {
+		prox[c.Test] = maxSharedPrefix(c.Test, changedFiles)
+	}
 	ranked := append([]staticCandidate(nil), cands...)
 	sort.Slice(ranked, func(i, j int) bool {
 		a, b := ranked[i], ranked[j]
@@ -101,6 +111,9 @@ func rankStatic(cands []staticCandidate, changedFiles []string) []string {
 		if a.Level == 2 && a.Distance != b.Distance {
 			return a.Distance < b.Distance
 		}
+		if prox[a.Test] != prox[b.Test] {
+			return prox[a.Test] > prox[b.Test]
+		}
 		return a.Test < b.Test
 	})
 	out := make([]string, 0, len(ranked))
@@ -108,6 +121,26 @@ func rankStatic(cands []staticCandidate, changedFiles []string) []string {
 		out = append(out, c.Test)
 	}
 	return out
+}
+
+// maxSharedPrefix is the length, in leading path SEGMENTS, of the longest directory
+// prefix this test shares with any changed file. Segments rather than bytes: "src/authz"
+// and "src/auth" share eight bytes and no directory at all, and ranking on the byte count
+// would call two unrelated packages neighbours.
+func maxSharedPrefix(test string, changedFiles []string) int {
+	best := 0
+	tp := strings.Split(path.Dir(test), "/")
+	for _, f := range changedFiles {
+		fp := strings.Split(path.Dir(f), "/")
+		n := 0
+		for n < len(tp) && n < len(fp) && tp[n] == fp[n] {
+			n++
+		}
+		if n > best {
+			best = n
+		}
+	}
+	return best
 }
 
 // mapCannotAnswer is the TS gate (spec §4.1: "when the map cannot answer — unseeded, or

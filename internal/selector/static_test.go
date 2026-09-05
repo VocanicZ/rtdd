@@ -289,3 +289,130 @@ func TestRankStaticIsDeterministicOnAFullTie(t *testing.T) {
 		}
 	}
 }
+
+// PRD #230 AC5 whole: ONE fixture that exercises all three of spec §4.1's ranking
+// levels, run through the real candidate set rather than a hand-built one, so the test
+// fails if any level is applied out of turn — not only if a level is missing.
+//
+//	src/auth/token.test.ts      level 1                        -> first
+//	src/auth/session.test.ts    level 2, 1 hop                 -> second
+//	src/auth/far.test.ts        level 2, 3 hops, shares src/auth -> third
+//	src/api/gateway.test.ts     level 2, 3 hops, shares src     -> fourth
+//	src/auth/unrelated.test.ts  proximity only                 -> not selected at all
+//
+// far and gateway tie on level AND on distance, and lexicographic order alone would put
+// gateway first: only the level-3 proximity key separates them, so the assertion is a
+// live one rather than a restatement of the fallback.
+func TestRankStaticOrdersByCorrespondenceThenImportsThenProximity(t *testing.T) {
+	in := staticInputs()
+	in.AllTests = append(in.AllTests, "src/auth/far.test.ts")
+	in.Exists = existsIn(
+		"src/api/gateway.test.ts",
+		"src/auth/far.test.ts",
+		"src/auth/session.test.ts",
+		"src/auth/token.test.ts",
+		"src/auth/unrelated.test.ts",
+	)
+	in.ImportDistance = func(changed string) map[string]int {
+		if changed != "src/auth/token.ts" {
+			return nil
+		}
+		return map[string]int{
+			"src/auth/session.test.ts": 1,
+			"src/auth/far.test.ts":     3,
+			"src/api/gateway.test.ts":  3,
+		}
+	}
+
+	got := rankStatic(staticCandidates(in), []string{"src/auth/token.ts"})
+
+	want := []string{
+		"src/auth/token.test.ts",
+		"src/auth/session.test.ts",
+		"src/auth/far.test.ts",
+		"src/api/gateway.test.ts",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("rankStatic = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("rankStatic = %#v, want %#v", got, want)
+		}
+	}
+}
+
+// Level 3 orders; it never admits. The same fixture that pins the three-level order also
+// pins the decision behind it (docs/plans/06-m6b-static-tier.md, decision 1): the test
+// sharing the changed file's own directory, with neither correspondence nor an import,
+// is not in the ranked selection at any position.
+func TestRankStaticNeverRanksAProximityOnlyTest(t *testing.T) {
+	in := staticInputs()
+
+	for _, test := range rankStatic(staticCandidates(in), []string{"src/auth/token.ts"}) {
+		if test == "src/auth/unrelated.test.ts" {
+			t.Errorf("proximity alone put %q into the selection; it may only order one", test)
+		}
+	}
+}
+
+// Proximity is the longest shared DIRECTORY prefix, counted in path segments. Counted in
+// bytes, "src/authz" and "src/auth" would share eight of them and two unrelated packages
+// would rank as neighbours.
+func TestRankStaticProximityCountsSegmentsNotBytes(t *testing.T) {
+	cands := []staticCandidate{
+		{Test: "src/authz/a.test.ts", Level: 2, Distance: 2},
+		{Test: "src/b.test.ts", Level: 2, Distance: 2},
+	}
+
+	got := rankStatic(cands, []string{"src/auth/token.ts"})
+
+	// Both share exactly one segment ("src") with the changed file, so neither wins on
+	// proximity and lexicographic order settles it. A byte-wise prefix would have ranked
+	// src/authz first on eight shared characters.
+	if got[0] != "src/authz/a.test.ts" || got[1] != "src/b.test.ts" {
+		t.Fatalf("rankStatic = %#v, want lexicographic: src/authz shares one segment, not eight bytes", got)
+	}
+}
+
+// A test in the changed file's own directory outranks a more distant one when the level
+// and the import distance are equal — this is the level-3 key doing the only work it is
+// allowed to do.
+func TestRankStaticProximityBreaksATieOnLevelAndDistance(t *testing.T) {
+	cands := []staticCandidate{
+		{Test: "src/api/a.test.ts", Level: 2, Distance: 2},
+		{Test: "src/auth/z.test.ts", Level: 2, Distance: 2},
+	}
+
+	got := rankStatic(cands, []string{"src/auth/token.ts"})
+
+	if got[0] != "src/auth/z.test.ts" {
+		t.Fatalf("rankStatic = %#v, want the co-located test first on proximity", got)
+	}
+}
+
+// Proximity is a TIEBREAK, never a promotion: a level-1 candidate stays ahead of a
+// level-2 one that sits in the changed file's directory, and a shorter import path stays
+// ahead of a nearer file within level 2.
+func TestRankStaticProximityNeverOutranksLevelOrDistance(t *testing.T) {
+	cands := []staticCandidate{
+		{Test: "src/auth/near.test.ts", Level: 2, Distance: 5},
+		{Test: "far/away/corresponds.test.ts", Level: 1},
+		{Test: "src/auth/nearer.test.ts", Level: 2, Distance: 9},
+		{Test: "far/away/imports.test.ts", Level: 2, Distance: 1},
+	}
+
+	got := rankStatic(cands, []string{"src/auth/token.ts"})
+
+	want := []string{
+		"far/away/corresponds.test.ts",
+		"far/away/imports.test.ts",
+		"src/auth/near.test.ts",
+		"src/auth/nearer.test.ts",
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("rankStatic = %#v, want %#v", got, want)
+		}
+	}
+}
