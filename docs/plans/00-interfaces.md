@@ -166,7 +166,20 @@ type Adapter struct {
     ExitCodes     map[int]string    `yaml:"exit_codes"`
     Opaque        []string          `yaml:"opaque"`
     FullEscalate  []string          `yaml:"full_escalate"`
+
+    // Contract v2 (spec §4.2). Optional: an omitted key defaults to SelectionCoverage,
+    // so every v1 adapter keeps its meaning unedited.
+    Selection     string            `yaml:"selection"` // "coverage" (default) | "static"
 }
+
+// Selection fidelity. An adapter declaring SelectionStatic must declare CoverageNone and
+// must NOT declare a seed; CoverageNone is legal only under SelectionStatic. All three
+// rejections are configuration errors (exit 2) raised by Load.
+const (
+    SelectionCoverage = "coverage"
+    SelectionStatic   = "static"
+    CoverageNone      = "none"
+)
 
 func Load(path string) (*Adapter, error)
 func LoadAll(dir string) ([]*Adapter, error)
