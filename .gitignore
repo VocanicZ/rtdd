@@ -8,3 +8,11 @@ __pycache__/
 *.pyc
 .venv/
 bench/results/.cache/
+
+# Per-issue agent scaffolding written into the worktree by the Harness fleet.
+# Not repo content: .harness-task.md is the agent's own prompt and
+# .claude/ralph-loop.local.md is loop state carrying a session id. One agent
+# committed both in #242; others correctly left them alone. Ignore them so the
+# outcome does not depend on which agent claims the issue.
+/.harness-task.md
+/.claude/ralph-loop.local.md
