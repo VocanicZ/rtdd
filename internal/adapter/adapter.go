@@ -246,6 +246,13 @@ func (a *Adapter) validate() error {
 		return fmt.Errorf("report: junit-xml requires report_path")
 	case a.Report == "junit-xml" && a.IDTemplate == "":
 		return fmt.Errorf("report: junit-xml requires id_template")
+
+	// A glob is the third shape report_path could have had, and it is rejected: the
+	// engine CLEARS this path before every invocation, and "remove everything matching
+	// this pattern" in a host repo's build output is not a thing an adapter may ask for.
+	// One file, or one directory ending in "/" (plan 06-m6c decision 3).
+	case a.Report == "junit-xml" && strings.ContainsAny(a.ReportPath, "*?["):
+		return fmt.Errorf("report_path %q: globs are not supported; name one file, or a directory ending in %q", a.ReportPath, "/")
 	case a.Report != "pytest-reportlog" && a.Report != "junit-xml":
 		return fmt.Errorf("unsupported report %q (only \"pytest-reportlog\" and \"junit-xml\")", a.Report)
 	}

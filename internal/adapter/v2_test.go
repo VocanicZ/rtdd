@@ -358,7 +358,7 @@ subset: "gradle test {tests}"
 selection: static
 coverage: none
 report: junit-xml
-report_path: "build/test-results/test/*.xml"
+report_path: "build/test-results/test/"
 id_template: "{classname}.{name}"
 test_for:
   - "{dir}/{name}Test.java"
@@ -442,5 +442,42 @@ func TestTheStaticTierKeysAreAllOptional(t *testing.T) {
 	}
 	if py.ReportPath != "" || py.IDTemplate != "" || len(py.TestFor) != 0 || py.Importscan != nil || len(py.Requires) != 0 {
 		t.Errorf("adapters/python.yaml picked up v2 fields it does not declare: %+v", py)
+	}
+}
+
+// Decision 3: a glob in report_path is rejected at LOAD time. The engine clears this path
+// before every invocation, and "clear everything matching this pattern" in a host repo's
+// build output is not a thing an adapter may ask for.
+func TestValidateRejectsAGlobInReportPath(t *testing.T) {
+	const globbed = `name: maven
+detect: ["pom.xml"]
+subset: "mvn -B test -Dtest={tests}"
+selection: static
+coverage: none
+report: junit-xml
+report_path: "target/surefire-reports/*.xml"
+id_template: "{classname}#{name}"
+`
+	dir := t.TempDir()
+	_, err := Load(writeAdapter(t, dir, "maven.yaml", globbed))
+	if err == nil {
+		t.Fatalf("Load = nil error for a globbed report_path")
+	}
+	for _, want := range []string{"report_path", "globs are not supported", `ending in "/"`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not carry %q", err, want)
+		}
+	}
+	// The directory form of the same declaration is legal.
+	if _, err := Load(writeAdapter(t, dir, "maven-dir.yaml", strings.Replace(globbed,
+		`report_path: "target/surefire-reports/*.xml"`,
+		`report_path: "target/surefire-reports/"`, 1))); err != nil {
+		t.Fatalf("Load(directory report_path): %v", err)
+	}
+	// So is the single-file form, with a ? and a [ nowhere in it.
+	if _, err := Load(writeAdapter(t, dir, "maven-file.yaml", strings.Replace(globbed,
+		`report_path: "target/surefire-reports/*.xml"`,
+		`report_path: "target/surefire-reports/TEST-all.xml"`, 1))); err != nil {
+		t.Fatalf("Load(single-file report_path): %v", err)
 	}
 }
