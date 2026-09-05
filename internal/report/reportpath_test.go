@@ -240,3 +240,243 @@ func TestFilesNamesAReportPathOfTheWrongKind(t *testing.T) {
 		}
 	}
 }
+
+// PRD #231 AC7: the previous run's report must not survive into this one. The failure it
+// prevents is the worst kind — a subset run whose runner never started, reporting the
+// outcomes of a run that is not this one.
+func TestClearRemovesAStaleSingleFileReport(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".rtdd"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	stale := filepath.Join(root, ".rtdd", "junit.xml")
+	if err := os.WriteFile(stale, []byte(`<testsuite name="old"><testcase classname="old" name="passed"/></testsuite>`), 0o644); err != nil {
+		t.Fatalf("write stale: %v", err)
+	}
+	p, err := NewReportPath(root, ".rtdd/junit.xml")
+	if err != nil {
+		t.Fatalf("NewReportPath: %v", err)
+	}
+	if err := p.Clear(); err != nil {
+		t.Fatalf("Clear: %v", err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("stale report still present after Clear (stat err = %v)", err)
+	}
+	if _, err := ReadJUnitReport(p, "{classname}#{name}"); !errors.Is(err, ErrNoReport) {
+		t.Fatalf("after Clear, read error = %v, want errors.Is(_, ErrNoReport)", err)
+	}
+	// Clearing a path that is already absent is not an error: the first run of a repo.
+	if err := p.Clear(); err != nil {
+		t.Fatalf("Clear on an absent report: %v", err)
+	}
+}
+
+// For a directory the clear is surgical: this run's *.xml go, the directory stays, and
+// everything that is not XML stays — Surefire's own *.txt dumps included.
+func TestClearRemovesOnlyTheXMLInADirectoryReport(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "target", "surefire-reports")
+	if err := os.MkdirAll(filepath.Join(dir, "nested"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	for name, body := range map[string]string{
+		"TEST-old.xml":         `<testsuite name="old"/>`,
+		"com.example.Test.txt": "a human-readable dump",
+		"nested/TEST-deep.xml": `<testsuite name="deep"/>`,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(name)), []byte(body), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	p, err := NewReportPath(root, "target/surefire-reports/")
+	if err != nil {
+		t.Fatalf("NewReportPath: %v", err)
+	}
+	if err := p.Clear(); err != nil {
+		t.Fatalf("Clear: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "TEST-old.xml")); !os.IsNotExist(err) {
+		t.Errorf("stale TEST-old.xml survived Clear (stat err = %v)", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "com.example.Test.txt")); err != nil {
+		t.Errorf("Clear deleted a non-XML sibling: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "nested", "TEST-deep.xml")); err != nil {
+		t.Errorf("Clear descended into a nested directory Files never reads: %v", err)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Errorf("Clear removed the report directory itself: %v", err)
+	}
+}
+
+// A directory report_path whose directory does not exist yet must be created: a runner
+// invoked with --outputFile in a directory that is not there writes nothing and the run
+// fails on a report it could have had.
+func TestClearCreatesAMissingReportDirectory(t *testing.T) {
+	root := t.TempDir()
+	p, err := NewReportPath(root, "build/test-results/test/")
+	if err != nil {
+		t.Fatalf("NewReportPath: %v", err)
+	}
+	if err := p.Clear(); err != nil {
+		t.Fatalf("Clear: %v", err)
+	}
+	st, err := os.Stat(filepath.Join(root, "build", "test-results", "test"))
+	if err != nil || !st.IsDir() {
+		t.Fatalf("report directory not created by Clear: %v", err)
+	}
+}
+
+// The single-file form needs its parent to exist for the same reason.
+func TestClearCreatesTheParentOfASingleFileReport(t *testing.T) {
+	root := t.TempDir()
+	p, err := NewReportPath(root, ".rtdd/junit.xml")
+	if err != nil {
+		t.Fatalf("NewReportPath: %v", err)
+	}
+	if err := p.Clear(); err != nil {
+		t.Fatalf("Clear: %v", err)
+	}
+	st, err := os.Stat(filepath.Join(root, ".rtdd"))
+	if err != nil || !st.IsDir() {
+		t.Fatalf("parent directory not created by Clear: %v", err)
+	}
+}
+
+// The whole point, end to end at this layer: a stale report names a test that no longer
+// exists, the clear runs, the "runner" writes a fresh report, and the parsed outcome holds
+// only what THIS run produced. Without the clear the stale id merges in as a pass.
+func TestClearKeepsAStaleTestIDOutOfTheFreshOutcome(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		declared string
+		staleAt  string
+		freshAt  string
+	}{
+		{"single file", ".rtdd/junit.xml", ".rtdd/junit.xml", ".rtdd/junit.xml"},
+		// The directory case is the one a merge hides: the fresh run writes a
+		// DIFFERENTLY named file, so nothing overwrites the stale one.
+		{"directory", "target/surefire-reports/", "target/surefire-reports/TEST-old.xml", "target/surefire-reports/TEST-new.xml"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			p, err := NewReportPath(root, tc.declared)
+			if err != nil {
+				t.Fatalf("NewReportPath: %v", err)
+			}
+			write := func(rel, body string) {
+				abs := filepath.Join(root, filepath.FromSlash(rel))
+				if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+					t.Fatalf("mkdir: %v", err)
+				}
+				if err := os.WriteFile(abs, []byte(body), 0o644); err != nil {
+					t.Fatalf("write %s: %v", rel, err)
+				}
+			}
+			write(tc.staleAt, `<testsuite name="stale" time="0.01">
+  <testcase classname="gone.Deleted" name="test_removed_last_week" time="0.01"/>
+</testsuite>`)
+
+			// The clear is what the runner does immediately before invocation.
+			if err := p.Clear(); err != nil {
+				t.Fatalf("Clear: %v", err)
+			}
+			// The subset run writes its own report.
+			write(tc.freshAt, `<testsuite name="fresh" time="0.02">
+  <testcase classname="live.Kept" name="test_still_here" time="0.02"/>
+</testsuite>`)
+
+			outs, err := ReadJUnitReport(p, "{classname}#{name}")
+			if err != nil {
+				t.Fatalf("ReadJUnitReport: %v", err)
+			}
+			want := []Outcome{{Test: "live.Kept#test_still_here", Status: "pass", DurationMS: 20}}
+			if len(outs) != len(want) || outs[0] != want[0] {
+				t.Fatalf("outcomes = %+v, want %+v (the stale id must be gone)", outs, want)
+			}
+			for _, o := range outs {
+				if o.Test == "gone.Deleted#test_removed_last_week" {
+					t.Fatalf("stale test id %q survived the clear into the parsed outcome", o.Test)
+				}
+			}
+		})
+	}
+}
+
+// A clear that cannot remove the stale report is a named error BEFORE the run starts. The
+// silent continue is the dangerous branch: the run proceeds and then parses the very
+// report the clear failed to delete.
+func TestClearNamesAReportPathItCannotClear(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the directory permissions this test relies on")
+	}
+	root := t.TempDir()
+	dir := filepath.Join(root, "reports")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "TEST-old.xml"), []byte(`<testsuite name="old"/>`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	// Read and traverse, but no write: the entry can be listed and not unlinked.
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	p, err := NewReportPathFor("maven", root, "reports/")
+	if err != nil {
+		t.Fatalf("NewReportPathFor: %v", err)
+	}
+	err = p.Clear()
+	if !errors.Is(err, ErrClearReportPath) {
+		t.Fatalf("Clear error = %v, want errors.Is(_, ErrClearReportPath)", err)
+	}
+	for _, want := range []string{"maven", "TEST-old.xml"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not name %q", err, want)
+		}
+	}
+}
+
+// The declaration and the disk disagreeing is named here too, before the run rather than
+// after it — and in particular the clear never removes a directory a file-shaped
+// declaration happens to point at.
+func TestClearNamesAReportPathOfTheWrongKind(t *testing.T) {
+	root := t.TempDir()
+	// Declared as a file, but a directory sits there.
+	if err := os.MkdirAll(filepath.Join(root, "junit.xml"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// Declared as a directory, but a regular file sits there.
+	if err := os.WriteFile(filepath.Join(root, "reports"), []byte("<testsuite/>"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	fileDecl, err := NewReportPathFor("vitest", root, "junit.xml")
+	if err != nil {
+		t.Fatalf("NewReportPathFor(file): %v", err)
+	}
+	if err := fileDecl.Clear(); !errors.Is(err, ErrReportPathKind) {
+		t.Fatalf("Clear(file declared, directory on disk) error = %v, want errors.Is(_, ErrReportPathKind)", err)
+	} else if !strings.Contains(err.Error(), "vitest") {
+		t.Errorf("error %q does not name the adapter", err)
+	}
+	if st, err := os.Stat(filepath.Join(root, "junit.xml")); err != nil || !st.IsDir() {
+		t.Errorf("Clear removed a directory the adapter declared as a file: %v", err)
+	}
+
+	dirDecl, err := NewReportPathFor("gradle", root, "reports/")
+	if err != nil {
+		t.Fatalf("NewReportPathFor(dir): %v", err)
+	}
+	if err := dirDecl.Clear(); !errors.Is(err, ErrReportPathKind) {
+		t.Fatalf("Clear(dir declared, file on disk) error = %v, want errors.Is(_, ErrReportPathKind)", err)
+	} else if !strings.Contains(err.Error(), "gradle") {
+		t.Errorf("error %q does not name the adapter", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "reports")); err != nil {
+		t.Errorf("Clear removed the file sitting at a directory-shaped report_path: %v", err)
+	}
+}
