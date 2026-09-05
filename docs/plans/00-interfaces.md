@@ -447,6 +447,10 @@ const (
 )
 func (t Tier) String() string
 
+// TierTS is added between TierT1 and TierT2 by the M6b amendments at the end of this
+// document; the set above is the M1a-era one. The resolution order those amendments fix
+// is: T2 escalations, T1 escalations, T0, TS, empty.
+
 type Config struct {
     StaleCommits int     // default 50
     DriftGuard   int     // default 100
@@ -1270,3 +1274,19 @@ repository arrives through `Inputs` as an injected function.
 // enforced by validateTemplates at load time.
 func (a *Adapter) TestForCandidate(rel string, exists func(string) bool) (string, bool)
 ```
+
+### cmd/rtdd — internal to `main`
+
+```go
+// RenderNextStep is the line `rtdd init` closes with, derived from the DETECTED adapters
+// because seeding is advice that only applies to an adapter that records coverage. A
+// coverage-only repository gets the pre-M6b line byte for byte; a static-only repository
+// is pointed at `rtdd which`; a mixed one is told both, each scoped by adapter name. A
+// repository that matched nothing (--force) keeps the seed line.
+func RenderNextStep(detected []*adapter.Adapter) string
+```
+
+`rtdd seed` against a `selection: static` adapter exits **2** naming the adapter, saying it
+records nothing, and writes no map — it points at `rtdd which` instead. It is a
+configuration error, not a run failure: a seed that silently succeeds having built no map
+is what PRD #230 AC9 closes.

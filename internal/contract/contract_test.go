@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/VocanicZ/rtdd/internal/doctor"
+	"github.com/VocanicZ/rtdd/internal/selector"
 )
 
 // repoRoot walks up from the test's working directory to the directory holding go.mod.
@@ -960,4 +961,141 @@ func mustRel(t *testing.T, base, target string) string {
 		t.Fatalf("rel %s %s: %v", base, target, err)
 	}
 	return rel
+}
+
+// --- M6b: the TS static selection tier -------------------------------------------------
+
+// What this protects: the SPELLING of the tier, not its existence. `Tier.String()` is a
+// wire value — `rtdd which --json` reports it verbatim and the sibling milestones bind
+// their front-end text to it — while internal/selector's own tests compare tiers as
+// constants and would keep passing through a rename to "static", "ts" or "T-S".
+// PRD #230 AC2 fixes it as exactly "TS".
+func TestTierTSStringIsExactlyTS(t *testing.T) {
+	if got := selector.TierTS.String(); got != "TS" {
+		t.Errorf(`selector.TierTS.String() = %q, want exactly "TS"`, got)
+	}
+}
+
+// What this protects: the ORDER of the tier constants. They are ranked by confidence and
+// compared with `<` in the escalation logic, so TierTS's position is behaviour, not
+// cosmetics: moved above T1 it would override a usable map, moved below T2 it would
+// outrank the full suite. TierEmpty stays the zero value so a zero Selection is an
+// explicit empty rather than whichever tier happened to land on 0.
+func TestTierTSIsOrderedBetweenT1AndT2(t *testing.T) {
+	if selector.TierEmpty != 0 {
+		t.Errorf("selector.TierEmpty = %d, want 0: the zero Selection must be an explicit empty", selector.TierEmpty)
+	}
+	if !(selector.TierT1 < selector.TierTS) {
+		t.Errorf("selector.TierT1 (%d) must sort below TierTS (%d): TS never overrides a usable map (spec §4.1)",
+			selector.TierT1, selector.TierTS)
+	}
+	if !(selector.TierTS < selector.TierT2) {
+		t.Errorf("selector.TierTS (%d) must sort below TierT2 (%d): TS is narrower than the full suite",
+			selector.TierTS, selector.TierT2)
+	}
+}
+
+// commentMarker matches the `//` opening a Go doc-comment line inside a fenced block.
+var commentMarker = regexp.MustCompile(`(?m)^[ \t]*//[ \t]?`)
+
+// What this protects: that the tier is WRITTEN DOWN where the repo records its contracts.
+// M6c and M6d bind to these names, and a name that lives only in the implementation is a
+// name the next milestone has to reverse-engineer — which is what 00-interfaces.md's own
+// "Rule for future additions" exists to prevent.
+func TestInterfaceContractRecordsTheStaticTier(t *testing.T) {
+	src := readRepoFile(t, "docs/plans/00-interfaces.md")
+
+	const heading = "## M6b amendments"
+	idx := strings.Index(src, heading)
+	if idx < 0 {
+		t.Fatalf("docs/plans/00-interfaces.md has no %q section", heading)
+	}
+	// The section is wrapped markdown carrying wrapped Go doc comments, so a sentence the
+	// contract fixes can be split across lines — and the second line then opens with the
+	// `//` marker. Dropping the markers and collapsing runs of whitespace asserts the WORDS
+	// are recorded, without pinning where the reflow happens to break them.
+	tail := commentMarker.ReplaceAllString(src[idx:], "")
+	tail = strings.Join(strings.Fields(tail), " ")
+
+	for _, want := range []struct{ name, text string }{
+		{"the tier itself", "TierTS"},
+		{`its String() value, so the document and the wire agree`, `Its String()`},
+		{"the resolution order it sits in", "T2 escalations, T1 escalations, T0, TS, empty"},
+		{"the gate that reaches it", "in.Adapter.Selection == adapter.SelectionStatic"},
+		{"the injected existence check level 1 resolves against", "Exists func(rel string) bool"},
+		{"the injected hop counts level 2 ranks by", "ImportDistance func(changed string) map[string]int"},
+		{"test_for resolution", "func (a *Adapter) TestForCandidate(rel string, exists func(string) bool) (string, bool)"},
+		{"init's fidelity-aware closing line", "func RenderNextStep(detected []*adapter.Adapter) string"},
+	} {
+		if !strings.Contains(tail, want.text) {
+			t.Errorf("the M6b amendments must record %s — no %q", want.name, want.text)
+		}
+	}
+}
+
+// What this protects: a reader of the tier enum finds TS. The enum is documented once, in
+// the M1a-era `internal/selector` section, and the amendment that adds TierTS is 700 lines
+// below it — so the enum on its own reads as a complete set that has no static tier, which
+// is exactly the reverse-engineering the contract document exists to prevent.
+func TestTheTierEnumPointsAtTheStaticTierAmendment(t *testing.T) {
+	src := readRepoFile(t, "docs/plans/00-interfaces.md")
+
+	head, _, ok := strings.Cut(src, "## M6b amendments")
+	if !ok {
+		t.Fatal("docs/plans/00-interfaces.md has no `## M6b amendments` section")
+	}
+	i := strings.Index(head, "func (t Tier) String() string")
+	if i < 0 {
+		t.Fatal("docs/plans/00-interfaces.md documents no `func (t Tier) String() string`")
+	}
+	near := strings.Join(strings.Fields(commentMarker.ReplaceAllString(head[i:], "")), " ")
+	for _, want := range []string{"TierTS", "T2 escalations, T1 escalations, T0, TS, empty"} {
+		if !strings.Contains(near, want) {
+			t.Errorf("the tier enum must point at the static tier — no %q beside it", want)
+		}
+	}
+}
+
+// What this protects: the two documents that describe the resolution order cannot drift
+// apart. select.go's own header comment is what an implementer reads; 00-interfaces.md is
+// what the next milestone binds to. PRD #230 AC1 makes the order part of the contract, so
+// a step reordered in one place and not the other is a red test rather than two documents
+// quietly disagreeing about when TS is reached.
+func TestDocumentedResolutionOrderMatchesTheSelector(t *testing.T) {
+	impl := readRepoFile(t, "internal/selector/select.go")
+
+	head, _, ok := strings.Cut(impl, "func Select(in Inputs) Selection {")
+	if !ok {
+		t.Fatal("internal/selector/select.go declares no `func Select(in Inputs) Selection`")
+	}
+	var at []int
+	for _, step := range []string{"T2 escalations", "T1 escalations", "4. T0", "5. TS", "6. TierEmpty"} {
+		i := strings.Index(head, step)
+		if i < 0 {
+			t.Fatalf("Select's header comment names no %q step; the documented order is "+
+				"T2 escalations, T1 escalations, T0, TS, empty", step)
+		}
+		at = append(at, i)
+	}
+	if !slices.IsSorted(at) {
+		t.Errorf("Select's header comment lists the steps out of order (offsets %v); the "+
+			"documented order is T2 escalations, T1 escalations, T0, TS, empty", at)
+	}
+}
+
+// What this protects: the `selection_fidelity` vocabulary stays in ONE document. It is
+// PRD #233's — the front-end honesty milestone owns the field, its three values and which
+// surfaces carry it — and a second copy here is a copy that goes stale the first time that
+// PRD refines it. The TS tier needs no part of it: a tier name and a fidelity are answers
+// to different questions.
+//
+// If ownership ever moves, delete this guard in the same commit that writes the vocabulary
+// here, and say in the message which PRD licenses the move.
+func TestInterfaceContractDoesNotDuplicateTheSelectionFidelityVocabulary(t *testing.T) {
+	src := readRepoFile(t, "docs/plans/00-interfaces.md")
+
+	if strings.Contains(src, "selection_fidelity") {
+		t.Error("00-interfaces.md documents the `selection_fidelity` wire field; it belongs " +
+			"to PRD #233 alone, and two copies of a vocabulary drift")
+	}
 }
