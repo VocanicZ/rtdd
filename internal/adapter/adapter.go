@@ -18,6 +18,20 @@ import (
 	"github.com/VocanicZ/rtdd/internal/paths"
 )
 
+// Selection and coverage values. `selection` is contract v2's fidelity key: it says
+// whether this toolchain's selection is derived from execution or from declaration.
+const (
+	// SelectionCoverage is the v1 behaviour and the default: tests are chosen from
+	// recorded per-test coverage. An adapter that omits `selection` means this, so
+	// every adapter written against v1 keeps its meaning without being edited.
+	SelectionCoverage = "coverage"
+	// SelectionStatic chooses tests from declared correspondence and imports. Spec §4.2.
+	SelectionStatic = "static"
+	// CoverageNone is the only coverage value permitted under SelectionStatic: an
+	// adapter that records nothing.
+	CoverageNone = "none"
+)
+
 type Adapter struct {
 	Name         string            `yaml:"name"`
 	Detect       []string          `yaml:"detect"`
@@ -33,6 +47,21 @@ type Adapter struct {
 	ExitCodes    map[int]string    `yaml:"exit_codes"`
 	Opaque       []string          `yaml:"opaque"`
 	FullEscalate []string          `yaml:"full_escalate"`
+
+	// Selection is contract v2 (spec §4.2). It is optional: an omitted key defaults to
+	// SelectionCoverage, which is what every v1 adapter already means.
+	Selection string `yaml:"selection"`
+}
+
+// applyDefaults fills the two keys that encode one fact between them. An omitted
+// selection is today's behaviour, and today's behaviour reads sqlite coverage.
+func (a *Adapter) applyDefaults() {
+	if a.Selection == "" {
+		a.Selection = SelectionCoverage
+	}
+	if a.Coverage == "" && a.Selection == SelectionCoverage {
+		a.Coverage = "sqlite"
+	}
 }
 
 // Load reads one adapter declaration from a file on disk.
@@ -88,6 +117,7 @@ func parse(b []byte, src string) (*Adapter, error) {
 	if err := dec.Decode(&a); err != nil {
 		return nil, fmt.Errorf("adapter: %s: %w", src, err)
 	}
+	a.applyDefaults()
 	if err := a.validate(); err != nil {
 		return nil, fmt.Errorf("adapter: %s: %w", src, err)
 	}
@@ -109,16 +139,35 @@ func (a *Adapter) validate() error {
 		return fmt.Errorf("name is required")
 	case len(a.Detect) == 0:
 		return fmt.Errorf("detect is required")
-	case a.Seed == "":
+	case a.Selection != SelectionCoverage && a.Selection != SelectionStatic:
+		return fmt.Errorf("unsupported selection %q (only %q and %q)", a.Selection, SelectionCoverage, SelectionStatic)
+
+	// selection, coverage and seed encode one fact between them: whether this toolchain
+	// is instrumented. Each message names BOTH offending keys, because either one of the
+	// pair could be the typo. The third case closes the remaining direction, so no
+	// combination of the three can express a static tier that also reads coverage.
+	// All are configuration errors (exit 2). Spec §4.2.
+	case a.Coverage == CoverageNone && a.Selection != SelectionStatic:
+		return fmt.Errorf("coverage: none requires selection: static, got selection %q", a.Selection)
+	case a.Selection == SelectionStatic && a.Seed != "":
+		return fmt.Errorf("selection: static forbids seed, got seed %q", a.Seed)
+	case a.Selection == SelectionStatic && a.Coverage != CoverageNone:
+		return fmt.Errorf("selection: static requires coverage: none, got coverage %q", a.Coverage)
+
+	// A coverage adapter with no seed command can never build a map. Under
+	// SelectionStatic there is nothing to seed, so the field is forbidden above rather
+	// than required here.
+	case a.Selection == SelectionCoverage && a.Seed == "":
 		return fmt.Errorf("seed is required")
+
 	case a.Subset == "":
 		return fmt.Errorf("subset is required")
 	case !strings.Contains(a.Subset, "{tests}"):
 		// Without the placeholder the subset command runs the whole suite, so every
 		// selection would silently become a full run.
 		return fmt.Errorf("subset %q has no {tests} placeholder", a.Subset)
-	case a.Coverage != "sqlite":
-		return fmt.Errorf("unsupported coverage %q (only \"sqlite\" in v1)", a.Coverage)
+	case a.Selection == SelectionCoverage && a.Coverage != "sqlite":
+		return fmt.Errorf("unsupported coverage %q (only \"sqlite\" and \"none\")", a.Coverage)
 	case a.Report != "pytest-reportlog":
 		return fmt.Errorf("unsupported report %q (only \"pytest-reportlog\" in v1)", a.Report)
 	}
