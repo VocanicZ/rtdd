@@ -41,6 +41,12 @@ rtdd which     # what covers your current changes
 `.cursor/rules/rtdd.mdc`, and a short marker-delimited block in `AGENTS.md` (and `CLAUDE.md`
 if you have one). It never rewrites a byte outside its own markers.
 
+It first checks that an adapter matches the repository. If none does, it writes **nothing**
+and exits 2: agent instructions promising a selection RTDD cannot make are worse than no
+instructions at all. The way out is an adapter of your own in `.rtdd/adapters/<language>.yaml`
+— or `rtdd init --force`, which installs anyway and states the caveat in the first paragraph
+of the skill it writes.
+
 ## Prior art
 
 RTDD did not invent test impact analysis. It is a late entry in a long line, and the

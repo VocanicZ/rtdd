@@ -10,6 +10,15 @@ import (
 	"github.com/VocanicZ/rtdd/internal/protocol"
 )
 
+// markDetectable gives a fixture repo the python toolchain marker `rtdd init` now gates
+// on (spec §5). newTestRepo describes a python source tree but carries no marker file,
+// and init refuses a repo no adapter matches — so every test below that expects an
+// install to happen declares one, exactly as a real python repository does.
+func markDetectable(t *testing.T, dir string) {
+	t.Helper()
+	writeFile(t, dir, "pyproject.toml", "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n")
+}
+
 func TestRenderInit(t *testing.T) {
 	steps := []install.Step{
 		{Path: ".gitattributes", Action: install.Create},
@@ -33,6 +42,7 @@ func TestRenderInit(t *testing.T) {
 // `rtdd init` is dispatched from main, installs into the working directory, and exits 0.
 func TestInitInstallsIntoTheWorkingDirectory(t *testing.T) {
 	dir := newTestRepo(t)
+	markDetectable(t, dir)
 	writeFile(t, dir, "AGENTS.md", "# AGENTS\n\nHouse rules.\n")
 
 	code, stdout, stderr := rtdd(t, dir, "init")
@@ -75,6 +85,7 @@ func TestInitInstallsIntoTheWorkingDirectory(t *testing.T) {
 // AGENTS.md.
 func TestInitMergesClaudeMdWhenTheHostRepoAlreadyHasOne(t *testing.T) {
 	dir := newTestRepo(t)
+	markDetectable(t, dir)
 	writeFile(t, dir, "CLAUDE.md", "# Our Claude notes\n\nDo not touch prod.\n")
 
 	code, _, stderr := rtdd(t, dir, "init")
@@ -92,6 +103,7 @@ func TestInitMergesClaudeMdWhenTheHostRepoAlreadyHasOne(t *testing.T) {
 
 func TestInitDryRunPrintsThePlanAndWritesNothing(t *testing.T) {
 	dir := newTestRepo(t)
+	markDetectable(t, dir)
 
 	code, stdout, stderr := rtdd(t, dir, "init", "--dry-run")
 	if code != 0 {
@@ -111,6 +123,7 @@ func TestInitDryRunPrintsThePlanAndWritesNothing(t *testing.T) {
 // write anything until --force is passed.
 func TestInitConflictsOnAHandEditedSkillFileAndForceOverridesIt(t *testing.T) {
 	dir := newTestRepo(t)
+	markDetectable(t, dir)
 	skillDir := filepath.Join(dir, ".claude", "skills", "rtdd")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -177,6 +190,7 @@ func readRepoFileForTest(t *testing.T, dir, rel string) string {
 // file contents cannot see that; asking git can.
 func TestInitInstallsAtTheRepoRootFromASubdirectory(t *testing.T) {
 	dir := newTestRepo(t)
+	markDetectable(t, dir)
 	deep := filepath.Join(dir, "sub", "deep")
 	if err := os.MkdirAll(deep, 0o755); err != nil {
 		t.Fatal(err)
@@ -207,6 +221,9 @@ func TestInitInstallsAtTheRepoRootFromASubdirectory(t *testing.T) {
 // directory.
 func TestInitFallsBackToTheWorkingDirectoryOutsideAGitRepository(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte("[project]\nname = \"demo\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	code, stdout, stderr := rtdd(t, dir, "init")
 	if code != 0 {

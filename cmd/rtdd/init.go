@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
+	"github.com/VocanicZ/rtdd/internal/adapter"
 	"github.com/VocanicZ/rtdd/internal/install"
 )
 
@@ -55,10 +57,38 @@ func cmdInit(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
+	// The gate (spec §5), before install.Files and therefore before install.Plan, so
+	// --dry-run refuses too: printing a plan the command would refuse to execute is a
+	// lie, and a plan is the one output a user reads as a promise.
+	//
+	// Detection consults the RESOLVED set — the built-ins overlaid with the host's
+	// .rtdd/adapters/*.yaml — so a repo that supplies its own adapter passes the gate
+	// without an RTDD release (§4.5).
+	all, err := adapter.Available(root)
+	if err != nil {
+		fmt.Fprintf(stderr, "rtdd init: %v\n", err)
+		return 2
+	}
+	detected, err := adapter.DetectAll(root, all)
+	if err != nil {
+		fmt.Fprintf(stderr, "rtdd init: %v\n", err)
+		return 3
+	}
+	if len(detected) == 0 && !*force {
+		writeNoAdapterRefusal(stderr, root)
+		return 2
+	}
+
 	files, err := install.Files()
 	if err != nil {
 		fmt.Fprintf(stderr, "rtdd init: %v\n", err)
 		return 2
+	}
+	// --force in a repo nothing matched installs, and then the front-end has to say so
+	// itself: the file outlives this terminal, and the agent that reads it never saw
+	// the warning printed here.
+	if len(detected) == 0 {
+		files = install.WithNoAdapterCaveat(files)
 	}
 	steps, err := install.Plan(root, files, *force)
 	if err != nil {
@@ -87,4 +117,19 @@ func cmdInit(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintln(stdout, "\nNext: run `rtdd seed` once to build .rtdd/map.jsonl, then commit it.")
 	return 0
+}
+
+// writeNoAdapterRefusal explains a refusal in the terms the user can act on: what RTDD
+// found, why installing anyway would be a promise it cannot keep, and the two ways out.
+// Naming .rtdd/adapters/ is the load-bearing half — authoring an adapter is the remedy,
+// and a message that omits it reads as "this repo is unsupported, full stop".
+func writeNoAdapterRefusal(stderr io.Writer, root string) {
+	fmt.Fprintf(stderr, "rtdd init: no adapter detected in %s\n", root)
+	if found := adapter.UnsupportedToolchains(root); len(found) > 0 {
+		fmt.Fprintf(stderr, "  found, but served by no adapter: %s\n", strings.Join(found, ", "))
+	}
+	fmt.Fprintln(stderr, "  Installing agent instructions here would promise a selection RTDD cannot make:")
+	fmt.Fprintln(stderr, "  with no adapter there is no map to seed, so every answer would be \"run the full suite\".")
+	fmt.Fprintf(stderr, "  Write an adapter in %s/<language>.yaml (see docs/specs for the contract),\n", adapter.HostAdapterDir)
+	fmt.Fprintln(stderr, "  or re-run with --force to install anyway.")
 }
