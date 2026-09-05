@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -83,7 +84,7 @@ func TestCmdSeedWritesTheMap(t *testing.T) {
 	chdir(t, repo)
 
 	// The fixture has one deliberate failure, so seed exits 1.
-	if code := cmdSeed(nil); code != 1 {
+	if code := cmdSeed(nil, io.Discard, io.Discard); code != 1 {
 		t.Fatalf("cmdSeed = %d, want 1 (tests/test_b.py::test_fail fails on purpose)", code)
 	}
 
@@ -151,7 +152,7 @@ func TestCmdSeedWritesTheMap(t *testing.T) {
 func TestCmdSeedRowsAreUsable(t *testing.T) {
 	repo := realRepo(t)
 	chdir(t, repo)
-	if code := cmdSeed(nil); code != 1 {
+	if code := cmdSeed(nil, io.Discard, io.Discard); code != 1 {
 		t.Fatalf("cmdSeed = %d, want 1", code)
 	}
 	// gitctx, not exec.Command: internal/gitctx is the only package in the tree
@@ -193,7 +194,7 @@ func TestCmdSeedRowsAreUsable(t *testing.T) {
 func TestCmdSeedWritesMeta(t *testing.T) {
 	repo := realRepo(t)
 	chdir(t, repo)
-	if code := cmdSeed(nil); code != 1 {
+	if code := cmdSeed(nil, io.Discard, io.Discard); code != 1 {
 		t.Fatalf("cmdSeed = %d, want 1", code)
 	}
 	m, err := readMeta(repo)
@@ -219,7 +220,7 @@ func TestCmdSeedWritesMeta(t *testing.T) {
 func TestCmdSeedMayShrinkARow(t *testing.T) {
 	repo := realRepo(t)
 	chdir(t, repo)
-	if code := cmdSeed(nil); code != 1 {
+	if code := cmdSeed(nil, io.Discard, io.Discard); code != 1 {
 		t.Fatalf("first cmdSeed = %d, want 1", code)
 	}
 	before := readMapJSONL(t, repo)["tests/test_a.py::test_add"]
@@ -239,7 +240,7 @@ func TestCmdSeedMayShrinkARow(t *testing.T) {
 		t.Fatalf("append: %v", err)
 	}
 
-	if code := cmdSeed(nil); code != 1 {
+	if code := cmdSeed(nil, io.Discard, io.Discard); code != 1 {
 		t.Fatalf("second cmdSeed = %d, want 1", code)
 	}
 	after := readMapJSONL(t, repo)["tests/test_a.py::test_add"]
@@ -251,7 +252,7 @@ func TestCmdSeedMayShrinkARow(t *testing.T) {
 func TestCmdSeedOutsideARepoIsAUsageError(t *testing.T) {
 	dir := t.TempDir()
 	chdir(t, dir)
-	if code := cmdSeed(nil); code != 2 {
+	if code := cmdSeed(nil, io.Discard, io.Discard); code != 2 {
 		t.Fatalf("cmdSeed outside a git repo = %d, want 2", code)
 	}
 }
@@ -268,7 +269,7 @@ func TestCmdSeedWithNoAdapterIsAUsageError(t *testing.T) {
 		t.Fatalf("InitGit: %v", err)
 	}
 	chdir(t, dir)
-	if code := cmdSeed(nil); code != 2 {
+	if code := cmdSeed(nil, io.Discard, io.Discard); code != 2 {
 		t.Fatalf("cmdSeed with no detectable adapter = %d, want 2", code)
 	}
 }
@@ -278,7 +279,7 @@ func TestCmdSeedWithNoAdapterIsAUsageError(t *testing.T) {
 func TestCmdSeedRejectsArguments(t *testing.T) {
 	dir := t.TempDir()
 	chdir(t, dir)
-	if code := cmdSeed([]string{"extra"}); code != 2 {
+	if code := cmdSeed([]string{"extra"}, io.Discard, io.Discard); code != 2 {
 		t.Fatalf("cmdSeed with a positional argument = %d, want 2", code)
 	}
 }

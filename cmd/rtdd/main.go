@@ -45,7 +45,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "init":
 		return cmdInit(args[1:], stdout, stderr)
 	case "seed":
-		return cmdSeed(args[1:])
+		return cmdSeed(args[1:], stdout, stderr)
 	case "run":
 		return cmdRun(args[1:])
 	case "status":

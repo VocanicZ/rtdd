@@ -133,9 +133,63 @@ func cmdInit(args []string, stdout, stderr io.Writer) int {
 	// decline to install — the CI that runs the suite may install it later, and refusing
 	// would break `rtdd init` on every such repo.
 	fmt.Fprint(stderr, RenderRequirements(adapter.UnmetFindings(detected, lookPath)))
-	fmt.Fprintln(stdout, "\nNext: run `rtdd seed` once to build .rtdd/map.jsonl, then commit it.")
+	fmt.Fprint(stdout, RenderNextStep(detected))
 	return 0
 }
+
+// RenderNextStep is the line `rtdd init` closes with. It is derived from the DETECTED
+// adapters, because seeding is advice that only applies to an adapter that records
+// coverage: a selection: static adapter declares coverage: none, so no map is ever built
+// and `rtdd seed` is a command that can do nothing for it.
+//
+// The three cases are one question asked of the detected set, not a global flag: a
+// polyglot repository has a coverage adapter to seed AND a static one seeding cannot help,
+// and it needs to be told both — suppressing the guidance would strand the map the
+// coverage adapter needs, and printing it unscoped would send the caller to seed a
+// toolchain that records nothing.
+//
+// A repo where detection matched nothing (--force) keeps the seed line: there is no
+// declaration saying otherwise, and the front-end it just installed already carries the
+// no-adapter caveat.
+func RenderNextStep(detected []*adapter.Adapter) string {
+	var static, coverage []string
+	for _, a := range detected {
+		if a.Selection == adapter.SelectionStatic {
+			static = append(static, a.Name)
+			continue
+		}
+		coverage = append(coverage, a.Name)
+	}
+
+	// The default branch is byte-identical to the pre-M6b line, so every existing init
+	// test on a Python repository passes unchanged.
+	switch {
+	case len(static) == 0:
+		return "\nNext: run `rtdd seed` once to build .rtdd/map.jsonl, then commit it.\n"
+	case len(coverage) == 0:
+		return fmt.Sprintf("\nNext: run `rtdd which` to see what a change selects. %s, "+
+			"so there is no map to seed.\n", staticClause(static))
+	default:
+		return fmt.Sprintf("\nNext: run `rtdd seed` once to build .rtdd/map.jsonl for the %s %s, "+
+			"then commit it. %s, so seeding does not apply to %s — `rtdd which` answers for %s.\n",
+			strings.Join(coverage, ", "), plural(len(coverage), "adapter", "adapters"),
+			staticClause(static), pronoun(static), pronoun(static))
+	}
+}
+
+// staticClause names the static adapters and the fact that makes seeding meaningless for
+// them. Naming them is the load-bearing half: "some adapters record nothing" is unusable
+// to someone who has to decide which command to run next.
+func staticClause(names []string) string {
+	return fmt.Sprintf("The %s %s", strings.Join(names, ", "),
+		plural(len(names), "adapter selects statically and records no coverage",
+			"adapters select statically and record no coverage"))
+}
+
+// pronoun agrees with how many static adapters were detected. A message that says "the
+// vitest adapters select" reads as a bug in the tool, and a reader who distrusts the
+// sentence distrusts the advice in it.
+func pronoun(names []string) string { return plural(len(names), "it", "them") }
 
 // adapterRecords is what spec §5 has init record in a newly created .rtdd/config.yaml:
 // each detected adapter's name, its declared selection, and the fidelity that selection

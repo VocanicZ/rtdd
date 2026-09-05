@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -131,7 +132,7 @@ func TestWhichAndRunAgreeOnTheDetectedAdapter(t *testing.T) {
 	makeSuiteGreen(t, repo)
 	gitRun(t, repo, "commit", "-am", "green suite")
 
-	if code := cmdSeed(nil); code != 0 {
+	if code := cmdSeed(nil, io.Discard, io.Discard); code != 0 {
 		t.Fatalf("cmdSeed = %d, want 0 once the suite is green", code)
 	}
 	touchLogic(t, repo)

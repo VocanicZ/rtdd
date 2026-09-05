@@ -141,7 +141,7 @@ func captureStdout(t *testing.T, f func()) string {
 func TestCmdRunTierIsStableAcrossConsecutiveRuns(t *testing.T) {
 	repo := realRepo(t)
 	chdir(t, repo)
-	if code := cmdSeed(nil); code != 1 {
+	if code := cmdSeed(nil, io.Discard, io.Discard); code != 1 {
 		t.Fatalf("cmdSeed = %d, want 1", code)
 	}
 	touchLogic(t, repo)
@@ -172,7 +172,7 @@ func TestCmdRunTierIsStableAcrossConsecutiveRuns(t *testing.T) {
 func TestCmdRunStillEscalatesOnAUserAuthoredJSON(t *testing.T) {
 	repo := realRepo(t)
 	chdir(t, repo)
-	if code := cmdSeed(nil); code != 1 {
+	if code := cmdSeed(nil, io.Discard, io.Discard); code != 1 {
 		t.Fatalf("cmdSeed = %d, want 1", code)
 	}
 	touchLogic(t, repo)
