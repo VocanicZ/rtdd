@@ -24,14 +24,12 @@ func (a *Adapter) TestForCandidate(rel string, exists func(string) bool) (string
 	if a == nil || exists == nil || len(a.TestFor) == 0 {
 		return "", false
 	}
-	r := strings.NewReplacer(
-		"{dir}", path.Dir(rel),
-		"{name}", strings.TrimSuffix(path.Base(rel), path.Ext(rel)),
-	)
+	dir := path.Dir(rel)
+	name := strings.TrimSuffix(path.Base(rel), path.Ext(rel))
 	for _, tmpl := range a.TestFor {
 		// Clean collapses the "./" a root-level {dir} would otherwise produce; engine
 		// paths are always cleaned and slash-separated.
-		cand := path.Clean(r.Replace(tmpl))
+		cand := path.Clean(expandTestFor(tmpl, dir, name))
 		if cand == "" || cand == "." {
 			continue
 		}
@@ -40,4 +38,30 @@ func (a *Adapter) TestForCandidate(rel string, exists func(string) bool) (string
 		}
 	}
 	return "", false
+}
+
+// expandTestFor substitutes {dir} and {name} in one left-to-right pass, so a substituted
+// value is never rescanned for a placeholder it happens to contain.
+//
+// It is written by hand rather than with strings.NewReplacer for a structural reason:
+// TestOnlySeedCallsMapstoreReplace greps the whole tree textually to keep mapstore's
+// row-shrinking method confined to cmd/rtdd/seed.go, and a replacer's method call here
+// would read as that offence to a guard that cannot tell the two apart.
+func expandTestFor(tmpl, dir, name string) string {
+	var b strings.Builder
+	b.Grow(len(tmpl) + len(dir) + len(name))
+	for i := 0; i < len(tmpl); {
+		switch {
+		case strings.HasPrefix(tmpl[i:], "{dir}"):
+			b.WriteString(dir)
+			i += len("{dir}")
+		case strings.HasPrefix(tmpl[i:], "{name}"):
+			b.WriteString(name)
+			i += len("{name}")
+		default:
+			b.WriteByte(tmpl[i])
+			i++
+		}
+	}
+	return b.String()
 }

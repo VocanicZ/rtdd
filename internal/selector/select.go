@@ -15,10 +15,16 @@ import (
 // Order of evaluation, and it matters:
 //  1. the direct set, BEFORE any map lookup — a test the agent just wrote has no map row,
 //     and in v1 it was therefore in no tier and never ran;
-//  2. T2 escalations (unseeded map, full-escalate file, drift guard);
+//  2. T2 escalations (full-escalate file, drift guard);
 //  3. T1 escalations (merge commit, opaque file, import-time-only file, stale row);
 //  4. T0;
-//  5. TierEmpty, reported explicitly with a Reason.
+//  5. TS — static correspondence, reached only when the coverage relation cannot
+//     answer: an unseeded map, or an adapter declaring selection: static. TS never
+//     overrides a usable map (spec §4.1), so steps 3 and 4 are skipped on this path
+//     and a seeded repository never reaches it;
+//  6. TierEmpty, reported explicitly with a Reason — or, when the static tier had
+//     nothing to offer either, the full suite at T2 with a reason naming what was
+//     missing.
 //
 // Select is pure: it makes no git calls, touches no filesystem, and prints nothing.
 // Everything it needs about the world arrives through Inputs.
@@ -59,6 +65,26 @@ func Select(in Inputs) Selection {
 			Direct: direct,
 			Tests:  mergeFirst(direct, in.AllTests),
 			Reason: reason,
+		}
+	}
+
+	// (5) TS. The map cannot answer, so T1 and T0 have nothing to consult and are
+	// skipped entirely; static evidence is the only evidence there is.
+	if mapCannotAnswer(in, m) {
+		cands := staticCandidates(in)
+		if ranked := rankStatic(cands, changedFiles); len(ranked) > 0 {
+			return Selection{
+				Tier:   TierTS,
+				Direct: direct,
+				Tests:  mergeFirst(direct, ranked),
+				Reason: staticReason(cands),
+			}
+		}
+		return Selection{
+			Tier:   TierT2,
+			Direct: direct,
+			Tests:  mergeFirst(direct, in.AllTests),
+			Reason: unanswerableReason(in),
 		}
 	}
 
@@ -129,10 +155,11 @@ func emptyReason(in Inputs) string {
 	return noCoverage + ", and no test file changed"
 }
 
+// escalateFull covers the T2 escalations that do not depend on the map. The unseeded-map
+// branch used to live here and now belongs to the TS gate: an unseeded map is not an
+// escalation, it is the coverage relation being unable to answer at all, and what to do
+// about that depends on what the adapter can declare instead.
 func escalateFull(in Inputs, m *mapstore.Map, cfg Config) (string, bool) {
-	if m.Len() == 0 {
-		return "the map is unseeded, so no selection is trustworthy: run rtdd seed", true
-	}
 	for _, c := range in.Changes {
 		if in.Adapter.IsFullEscalate(c.Path) {
 			return "full-escalate file changed: " + c.Path, true
