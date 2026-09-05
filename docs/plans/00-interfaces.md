@@ -170,6 +170,30 @@ type Adapter struct {
     // Contract v2 (spec §4.2). Optional: an omitted key defaults to SelectionCoverage,
     // so every v1 adapter keeps its meaning unedited.
     Selection     string            `yaml:"selection"` // "coverage" (default) | "static"
+
+    // The rest of contract v2: how a static-tier adapter finds and names its tests
+    // (spec §4.2) and what its runner needs installed first (spec §4.3). All optional,
+    // none defaulted.
+    ReportPath    string            `yaml:"report_path"` // where the runner leaves its outcome file
+    IDTemplate    string            `yaml:"id_template"` // a parsed id, rendered back into a selector
+    TestFor       []string          `yaml:"test_for"`    // correspondence templates, tried IN ORDER
+    Importscan    *Importscan       `yaml:"importscan"`  // nil means import ranking is skipped
+    Requires      []Requirement     `yaml:"requires"`
+}
+
+// Importscan is the optional per-language import scanner: the engine runs a script and
+// never parses the language itself (D8, the precedent internal/importscan set). Declaring
+// one half without the other is a configuration error naming the missing field.
+type Importscan struct {
+    Command string `yaml:"command"` // e.g. "node {script}"
+    Script  string `yaml:"script"`  // shipped beside the adapter
+}
+
+// Requirement is one binary this adapter cannot work without, and why. Both fields are
+// required: doctor prints the reason verbatim (spec §4.3).
+type Requirement struct {
+    Bin    string `yaml:"bin"`
+    Reason string `yaml:"reason"`
 }
 
 // Selection fidelity. An adapter declaring SelectionStatic must declare CoverageNone and
@@ -180,6 +204,15 @@ const (
     SelectionStatic   = "static"
     CoverageNone      = "none"
 )
+
+// report takes two values. "junit-xml" is carried by the contract from M6a on and has no
+// parser until M6c; it requires BOTH report_path and id_template, because a <testcase>
+// that cannot round-trip into `subset` is worthless (audit A6).
+//
+// Template placeholders are per-field vocabularies, and an unrecognised one is exit 2
+// naming the file, the field and the placeholder:
+//   test_for:     {dir} {name}
+//   id_template:  {file} {classname} {name}
 
 func Load(path string) (*Adapter, error)
 func LoadAll(dir string) ([]*Adapter, error)

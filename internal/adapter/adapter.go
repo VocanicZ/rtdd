@@ -32,6 +32,25 @@ const (
 	CoverageNone = "none"
 )
 
+// Importscan is the optional per-language import scanner. It follows the precedent set by
+// internal/importscan: the engine runs a script, it never parses the language itself
+// (decision D8). An adapter that omits the block skips import ranking; that is a narrower
+// static tier, not an error.
+type Importscan struct {
+	Command string `yaml:"command"` // e.g. "node {script}"
+	Script  string `yaml:"script"`  // shipped beside the adapter
+}
+
+// Requirement is one binary this adapter cannot work without, and why. Spec §4.3: Go needs
+// go-junit-report, Jest needs jest-junit, RSpec needs rspec_junit_formatter and dotnet needs
+// JUnitTestLogger before any of them can emit JUnit XML at all. It exists so an unmet
+// prerequisite surfaces at doctor/init time instead of as a mid-run parse failure against a
+// report file that was never written.
+type Requirement struct {
+	Bin    string `yaml:"bin"`
+	Reason string `yaml:"reason"`
+}
+
 type Adapter struct {
 	Name         string            `yaml:"name"`
 	Detect       []string          `yaml:"detect"`
@@ -51,7 +70,35 @@ type Adapter struct {
 	// Selection is contract v2 (spec §4.2). It is optional: an omitted key defaults to
 	// SelectionCoverage, which is what every v1 adapter already means.
 	Selection string `yaml:"selection"`
+
+	// The rest of contract v2: how a static-tier adapter finds and names its tests
+	// (spec §4.2), and what its runner needs installed first (spec §4.3). Every one is
+	// optional and none is defaulted, so a v1 adapter is a valid v2 adapter unedited.
+	ReportPath string        `yaml:"report_path"` // where the runner leaves its outcome file
+	IDTemplate string        `yaml:"id_template"` // how a parsed id renders back into a selector
+	TestFor    []string      `yaml:"test_for"`    // path-correspondence templates, tried IN ORDER
+	Importscan *Importscan   `yaml:"importscan"`
+	Requires   []Requirement `yaml:"requires"`
 }
+
+// The placeholders each template field may use. They are separate vocabularies because the
+// two fields answer different questions: test_for maps a changed SOURCE path to a candidate
+// test path, so it knows only where that file sits; id_template renders a parsed TEST id
+// back into the runner's own selector syntax, so it knows the JUnit <testcase> attributes —
+// classname and name — plus the file the case came from. A placeholder outside its field's
+// vocabulary can never be substituted, so it would survive into a path or a selector as a
+// literal brace; Load rejects it instead (exit 2).
+var (
+	testForPlaceholders = map[string]bool{
+		"{dir}":  true, // the changed source file's directory, repo-relative
+		"{name}": true, // its base name without extension
+	}
+	idTemplatePlaceholders = map[string]bool{
+		"{file}":      true, // the file the test case was parsed from
+		"{classname}": true, // the JUnit <testcase classname=...> attribute
+		"{name}":      true, // the JUnit <testcase name=...> attribute
+	}
+)
 
 // applyDefaults fills the two keys that encode one fact between them. An omitted
 // selection is today's behaviour, and today's behaviour reads sqlite coverage.
@@ -168,8 +215,96 @@ func (a *Adapter) validate() error {
 		return fmt.Errorf("subset %q has no {tests} placeholder", a.Subset)
 	case a.Selection == SelectionCoverage && a.Coverage != "sqlite":
 		return fmt.Errorf("unsupported coverage %q (only \"sqlite\" and \"none\")", a.Coverage)
-	case a.Report != "pytest-reportlog":
-		return fmt.Errorf("unsupported report %q (only \"pytest-reportlog\" in v1)", a.Report)
+
+	// junit-xml is accepted by the contract here and has no parser until M6c: an adapter
+	// declaring it loads and validates, and fails at RUN time on the existing unsupported
+	// -report path. Both companion keys are required because a parsed <testcase> that
+	// cannot round-trip into `subset` is worthless (spec §4.3, audit finding A6), and a
+	// report nobody can locate is worse than no report at all.
+	case a.Report == "junit-xml" && a.ReportPath == "":
+		return fmt.Errorf("report: junit-xml requires report_path")
+	case a.Report == "junit-xml" && a.IDTemplate == "":
+		return fmt.Errorf("report: junit-xml requires id_template")
+	case a.Report != "pytest-reportlog" && a.Report != "junit-xml":
+		return fmt.Errorf("unsupported report %q (only \"pytest-reportlog\" and \"junit-xml\")", a.Report)
+	}
+
+	if err := a.validateTemplates(); err != nil {
+		return err
+	}
+	if err := a.validateImportscan(); err != nil {
+		return err
+	}
+
+	// A prerequisite doctor cannot explain is not worth declaring: the reason is printed
+	// verbatim in the finding (spec §4.3, PRD #229 AC9).
+	for i, r := range a.Requires {
+		switch {
+		case r.Bin == "":
+			return fmt.Errorf("requires[%d]: bin is required", i)
+		case r.Reason == "":
+			return fmt.Errorf("requires[%d] (%s): reason is required", i, r.Bin)
+		}
+	}
+	return nil
+}
+
+// validateTemplates rejects a placeholder the engine could never substitute. The failure
+// it prevents is silent: an unsubstituted {folder} survives into a candidate path, that
+// path matches no file on disk, and the adapter simply selects nothing — indistinguishable
+// from a repository with no corresponding tests. Naming the field and the placeholder makes
+// it a one-line fix instead of a debugging session.
+func (a *Adapter) validateTemplates() error {
+	if a.IDTemplate != "" {
+		if bad := unknownPlaceholder(a.IDTemplate, idTemplatePlaceholders); bad != "" {
+			return fmt.Errorf("id_template %q: unknown placeholder %s", a.IDTemplate, bad)
+		}
+	}
+	for i, tmpl := range a.TestFor {
+		if bad := unknownPlaceholder(tmpl, testForPlaceholders); bad != "" {
+			return fmt.Errorf("test_for[%d] %q: unknown placeholder %s", i, tmpl, bad)
+		}
+	}
+	return nil
+}
+
+// unknownPlaceholder returns the first {…} run in tmpl that known does not contain, or ""
+// when every one of them is recognised. An unterminated brace is not a placeholder — the
+// runner's own selector syntax may well contain one — so it is left alone.
+func unknownPlaceholder(tmpl string, known map[string]bool) string {
+	rest := tmpl
+	for {
+		open := strings.Index(rest, "{")
+		if open < 0 {
+			return ""
+		}
+		shut := strings.Index(rest[open:], "}")
+		if shut < 0 {
+			return ""
+		}
+		ph := rest[open : open+shut+1]
+		if !known[ph] {
+			return ph
+		}
+		rest = rest[open+shut+1:]
+	}
+}
+
+// validateImportscan rejects a half-declared scanner. command and script are one
+// declaration in two halves: a command with no script has nothing to run, and a script with
+// no command has nothing to run it. Omitting the whole block is legal and means import
+// ranking is skipped (spec §4.2), so only the halves are checked here.
+func (a *Adapter) validateImportscan() error {
+	if a.Importscan == nil {
+		return nil
+	}
+	switch {
+	case a.Importscan.Command == "" && a.Importscan.Script == "":
+		return fmt.Errorf("importscan: command and script are required; omit the whole block to skip import ranking")
+	case a.Importscan.Script == "":
+		return fmt.Errorf("importscan: script is required alongside command")
+	case a.Importscan.Command == "":
+		return fmt.Errorf("importscan: command is required alongside script")
 	}
 	return nil
 }

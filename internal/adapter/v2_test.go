@@ -5,18 +5,28 @@ import (
 	"testing"
 )
 
-// staticYAML is the shape spec §4.2 describes: a toolchain RTDD cannot instrument, so it
-// declares selection: static and records no coverage. `report` stays pytest-reportlog
-// here because the junit-xml report value and its companion keys (report_path,
-// id_template) are a sibling slice of contract v2; this slice owns selection fidelity
-// only.
+// staticYAML is the shape spec §4.2 describes: a toolchain RTDD cannot instrument,
+// described entirely declaratively. Every key here is new in contract v2 except
+// name/detect/subset/list and the glob fields.
 const staticYAML = `name: vitest
 detect: ["package.json"]
-subset: "npx vitest run {tests}"
+subset: "npx vitest run {tests} --reporter=junit --outputFile={report}"
 list: "npx vitest list"
 selection: static
 coverage: none
-report: pytest-reportlog
+report: junit-xml
+report_path: ".rtdd/junit.xml"
+id_template: "{file}::{name}"
+test_for:
+  - "{dir}/{name}.test.ts"
+  - "{dir}/__tests__/{name}.test.ts"
+  - "tests/{name}.test.ts"
+importscan:
+  command: "node {script}"
+  script: "scan-imports.mjs"
+requires:
+  - bin: node
+    reason: "the importscan script and the vitest runner both run under node"
 test_globs: ["**/*.test.ts"]
 source_globs: ["src/**/*.ts"]
 `
@@ -177,5 +187,260 @@ func TestBuiltinAdaptersStillValidate(t *testing.T) {
 	}
 	if len(all) == 0 {
 		t.Fatalf("Builtin returned no adapters")
+	}
+}
+
+// The four keys that describe how a static-tier adapter finds and names its tests
+// (spec §4.2/§4.3), plus the `requires` prerequisites. Nothing consumes them yet — the
+// TS tier and the junit-xml parser are later PRDs — so the contract carrying them is the
+// whole of what is asserted here.
+func TestLoadParsesTheStaticTierFields(t *testing.T) {
+	a, err := Load(writeAdapter(t, t.TempDir(), "vitest.yaml", staticYAML))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if a.Report != "junit-xml" {
+		t.Errorf("Report = %q, want %q", a.Report, "junit-xml")
+	}
+	if a.ReportPath != ".rtdd/junit.xml" {
+		t.Errorf("ReportPath = %q, want %q", a.ReportPath, ".rtdd/junit.xml")
+	}
+	if a.IDTemplate != "{file}::{name}" {
+		t.Errorf("IDTemplate = %q, want %q", a.IDTemplate, "{file}::{name}")
+	}
+	if a.Importscan == nil {
+		t.Fatalf("Importscan = nil, want the declared scanner")
+	}
+	if a.Importscan.Command != "node {script}" || a.Importscan.Script != "scan-imports.mjs" {
+		t.Errorf("Importscan = %+v, want {Command: \"node {script}\", Script: \"scan-imports.mjs\"}", *a.Importscan)
+	}
+	if len(a.Requires) != 1 {
+		t.Fatalf("Requires = %+v, want exactly one entry", a.Requires)
+	}
+	if a.Requires[0].Bin != "node" || a.Requires[0].Reason == "" {
+		t.Errorf("Requires[0] = %+v, want bin node with a non-empty reason", a.Requires[0])
+	}
+}
+
+// test_for is tried in order, so its order is meaning rather than presentation: the first
+// template that resolves to a real test file wins (spec §4.1 ranking). A map or a sorted
+// slice would silently reorder the adapter author's intent.
+func TestTestForPreservesDocumentOrder(t *testing.T) {
+	a, err := Load(writeAdapter(t, t.TempDir(), "vitest.yaml", staticYAML))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := []string{"{dir}/{name}.test.ts", "{dir}/__tests__/{name}.test.ts", "tests/{name}.test.ts"}
+	if len(a.TestFor) != len(want) {
+		t.Fatalf("TestFor = %v, want %v", a.TestFor, want)
+	}
+	for i := range want {
+		if a.TestFor[i] != want[i] {
+			t.Errorf("TestFor[%d] = %q, want %q", i, a.TestFor[i], want[i])
+		}
+	}
+}
+
+// An omitted importscan means import ranking is skipped for this adapter. It is not an
+// error and nothing is defaulted into place: a defaulted command would be a scanner the
+// adapter author never declared, run against a language nobody said it could read.
+func TestOmittedImportscanIsValidAndNotDefaulted(t *testing.T) {
+	yaml := `name: vitest
+detect: ["package.json"]
+subset: "npx vitest run {tests}"
+selection: static
+coverage: none
+report: junit-xml
+report_path: ".rtdd/junit.xml"
+id_template: "{file}::{name}"
+test_for: ["{dir}/{name}.test.ts"]
+`
+	a, err := Load(writeAdapter(t, t.TempDir(), "vitest.yaml", yaml))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if a.Importscan != nil {
+		t.Errorf("Importscan = %+v, want nil for an adapter that declares none", *a.Importscan)
+	}
+}
+
+// command and script are one declaration in two halves: a command with no script has
+// nothing to run, and a script with no command has nothing to run it. Either alone is a
+// configuration error (exit 2) that names the half that is missing.
+func TestImportscanRequiresBothCommandAndScript(t *testing.T) {
+	base := `name: vitest
+detect: ["package.json"]
+subset: "npx vitest run {tests}"
+selection: static
+coverage: none
+report: junit-xml
+report_path: ".rtdd/junit.xml"
+id_template: "{file}::{name}"
+`
+	cases := []struct{ name, yaml, want string }{
+		{
+			name: "command without script",
+			yaml: base + "importscan:\n  command: \"node {script}\"\n",
+			want: "importscan: script is required alongside command",
+		},
+		{
+			name: "script without command",
+			yaml: base + "importscan:\n  script: \"scan-imports.mjs\"\n",
+			want: "importscan: command is required alongside script",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := writeAdapter(t, t.TempDir(), "a.yaml", tc.yaml)
+			_, err := Load(p)
+			if err == nil {
+				t.Fatalf("Load accepted a half-declared importscan block")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %q, want it to contain %q", err.Error(), tc.want)
+			}
+			if !strings.Contains(err.Error(), p) {
+				t.Errorf("error = %q, want it to name the source file %q", err.Error(), p)
+			}
+		})
+	}
+}
+
+// A template placeholder the engine cannot substitute is a typo that would otherwise
+// survive into a path or a selector as a literal brace. The message names the file, the
+// field and the placeholder, so an agent reading exit 2 can fix it without reading Go.
+func TestUnknownTemplatePlaceholdersAreRejected(t *testing.T) {
+	base := `name: vitest
+detect: ["package.json"]
+subset: "npx vitest run {tests}"
+selection: static
+coverage: none
+report: junit-xml
+report_path: ".rtdd/junit.xml"
+`
+	cases := []struct {
+		name, yaml string
+		want       []string
+	}{
+		{
+			name: "id_template",
+			yaml: base + "id_template: \"{file}::{testcase}\"\n",
+			want: []string{"id_template", "{testcase}"},
+		},
+		{
+			name: "test_for entry",
+			yaml: base + "id_template: \"{file}::{name}\"\ntest_for:\n  - \"{dir}/{name}.test.ts\"\n  - \"{folder}/{name}.test.ts\"\n",
+			want: []string{"test_for[1]", "{folder}"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := writeAdapter(t, t.TempDir(), "a.yaml", tc.yaml)
+			_, err := Load(p)
+			if err == nil {
+				t.Fatalf("Load accepted an unrecognised template placeholder")
+			}
+			for _, want := range append(tc.want, p, "unknown placeholder") {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error = %q, want it to contain %q", err.Error(), want)
+				}
+			}
+		})
+	}
+}
+
+// The placeholders the contract does recognise must all be accepted, or an adapter author
+// discovers the vocabulary one exit 2 at a time.
+func TestRecognisedTemplatePlaceholdersAreAccepted(t *testing.T) {
+	yaml := `name: gradle
+detect: ["build.gradle"]
+subset: "gradle test {tests}"
+selection: static
+coverage: none
+report: junit-xml
+report_path: "build/test-results/test/*.xml"
+id_template: "{classname}.{name}"
+test_for:
+  - "{dir}/{name}Test.java"
+`
+	if _, err := Load(writeAdapter(t, t.TempDir(), "gradle.yaml", yaml)); err != nil {
+		t.Errorf("Load = %v, want nil for an adapter using only recognised placeholders", err)
+	}
+}
+
+// A JUnit testcase is a (classname, name) pair. Without id_template there is nothing to
+// render it back into the runner's own selector syntax, and without report_path there is
+// nothing to read — audit A6 is why this is a contract rule and not an assumption.
+func TestJUnitReportRequiresPathAndIDTemplate(t *testing.T) {
+	base := `name: vitest
+detect: ["package.json"]
+subset: "npx vitest run {tests}"
+selection: static
+coverage: none
+report: junit-xml
+`
+	for _, tc := range []struct{ yaml, want string }{
+		{base + "id_template: \"{file}::{name}\"\n", "report: junit-xml requires report_path"},
+		{base + "report_path: \".rtdd/junit.xml\"\n", "report: junit-xml requires id_template"},
+	} {
+		_, err := Load(writeAdapter(t, t.TempDir(), "c.yaml", tc.yaml))
+		if err == nil {
+			t.Fatalf("Load accepted junit-xml without the field %q names", tc.want)
+		}
+		if !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("error = %q, want it to contain %q", err.Error(), tc.want)
+		}
+	}
+}
+
+// A prerequisite doctor cannot explain is not worth declaring: the reason is printed
+// verbatim in the finding (spec §4.3, PRD #229 AC9).
+func TestRequiresEntriesNeedABinAndAReason(t *testing.T) {
+	base := `name: vitest
+detect: ["package.json"]
+subset: "npx vitest run {tests}"
+selection: static
+coverage: none
+report: junit-xml
+report_path: ".rtdd/junit.xml"
+id_template: "{file}::{name}"
+test_for: ["{dir}/{name}.test.ts"]
+`
+	for _, tc := range []struct{ yaml, want string }{
+		{base + "requires:\n  - reason: \"runs vitest\"\n", "requires[0]: bin is required"},
+		{base + "requires:\n  - bin: node\n", "requires[0] (node): reason is required"},
+	} {
+		_, err := Load(writeAdapter(t, t.TempDir(), "d.yaml", tc.yaml))
+		if err == nil {
+			t.Fatalf("Load accepted a requires entry that %q rejects", tc.want)
+		}
+		if !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("error = %q, want it to contain %q", err.Error(), tc.want)
+		}
+	}
+}
+
+// Every v2 key is optional. A v1 adapter declaring none of them still loads, and picks up
+// none of them by default — spec §4.1 makes byte-identical Python behaviour a regression
+// requirement, and a defaulted report_path or test_for would quietly break that.
+func TestTheStaticTierKeysAreAllOptional(t *testing.T) {
+	a, err := Load(writeAdapter(t, t.TempDir(), "demo.yaml", validYAML))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if a.ReportPath != "" || a.IDTemplate != "" || len(a.TestFor) != 0 || a.Importscan != nil || len(a.Requires) != 0 {
+		t.Errorf("a v1 adapter picked up v2 fields it does not declare: %+v", a)
+	}
+
+	all, err := Builtin()
+	if err != nil {
+		t.Fatalf("Builtin: %v", err)
+	}
+	py := byName(all, "python")
+	if py == nil {
+		t.Fatalf("Builtin has no python adapter")
+	}
+	if py.ReportPath != "" || py.IDTemplate != "" || len(py.TestFor) != 0 || py.Importscan != nil || len(py.Requires) != 0 {
+		t.Errorf("adapters/python.yaml picked up v2 fields it does not declare: %+v", py)
 	}
 }
