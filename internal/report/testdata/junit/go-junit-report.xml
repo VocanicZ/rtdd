@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="3" failures="1" skipped="1">
+	<testsuite name="example.com/calc/calc" tests="3" failures="1" errors="0" id="0" hostname="5c47dfe74c85" skipped="1" time="0.026" timestamp="2026-09-05T18:04:32Z">
+		<testcase name="TestAddsTwoNumbers" classname="example.com/calc/calc" time="0.020"></testcase>
+		<testcase name="TestFailsOnAWrongSum" classname="example.com/calc/calc" time="0.000">
+			<failure message="Failed"><![CDATA[    calc_test.go:20: Add(1, 2) = 3, want 4]]></failure>
+		</testcase>
+		<testcase name="TestIsNotImplementedYet" classname="example.com/calc/calc" time="0.000">
+			<skipped message="Skipped"><![CDATA[    calc_test.go:25: not implemented yet]]></skipped>
+		</testcase>
+	</testsuite>
+</testsuites>

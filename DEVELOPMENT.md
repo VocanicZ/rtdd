@@ -53,6 +53,23 @@ Only two third-party modules are permitted in the engine:
 
 Adding a third requires a spec amendment. No test framework beyond stdlib `testing`.
 
+## JUnit XML fixtures
+
+`internal/report/testdata/junit/` holds six JUnit XML reports captured from six real
+runners — Vitest, Jest, `go-junit-report`, Maven Surefire, RSpec and PHPUnit. They are
+never hand-written and never hand-edited: when one contradicts the parser, the parser is
+what changes. `scripts/capture-junit-fixtures.sh` regenerates them by running each suite in
+a pinned container, so it needs Docker and the network and is deliberately NOT part of the
+CI gate:
+
+```bash
+scripts/capture-junit-fixtures.sh            # all six
+scripts/capture-junit-fixtures.sh rspec      # just one
+```
+
+`internal/report/testdata/junit/README.md` records each fixture's runner version and the
+exact command that produced it, plus the checklist of what the six disagree about.
+
 ## Benchmark harnesses
 
 `bench/` is Python, managed with `uv`, and is deliberately outside the Go module.
