@@ -589,3 +589,117 @@ func TestFilesRefusesASymlinkedReportPath(t *testing.T) {
 		t.Fatalf("Files(symlinked directory) error = %v, want errors.Is(_, ErrReportPathSymlink)", err)
 	}
 }
+
+// Two <testcase> elements of ONE file that render the same id are not two outcomes: the
+// runner's cross-chunk de-duplication would collapse them last-wins, and a fail followed
+// by a pass would report green. A file-granular id_template like Vitest's {classname} or
+// RSpec's {file} is deliberately shared by every case in the file, so this is the ordinary
+// case rather than a malformed report — the fold is worst-status-wins, error > fail >
+// skip > pass, so the id is only green when every case behind it is.
+func TestReadJUnitReportFoldsCasesSharingAnIDWorstStatusWins(t *testing.T) {
+	body := func(cases string) string {
+		return `<testsuite name="s">` + cases + `</testsuite>`
+	}
+	pass := `<testcase classname="test/calc.test.js" name="%s" time="0.01"/>`
+	fail := `<testcase classname="test/calc.test.js" name="%s" time="0.01"><failure message="boom"/></testcase>`
+	erroR := `<testcase classname="test/calc.test.js" name="%s" time="0.01"><error message="blew up"/></testcase>`
+	skip := `<testcase classname="test/calc.test.js" name="%s" time="0.01"><skipped/></testcase>`
+
+	for _, tc := range []struct {
+		name  string
+		cases []string
+		want  string
+	}{
+		{"fail then pass", []string{fail, pass}, "fail"},
+		{"pass then fail", []string{pass, fail}, "fail"},
+		{"error beats fail", []string{fail, erroR}, "error"},
+		{"fail beats error is false", []string{erroR, fail}, "error"},
+		{"fail beats skip", []string{skip, fail}, "fail"},
+		{"skip beats pass", []string{pass, skip}, "skip"},
+		{"all pass stays pass", []string{pass, pass}, "pass"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			var xml string
+			for i, c := range tc.cases {
+				xml += "\n  " + strings.Replace(c, "%s", string(rune('a'+i)), 1)
+			}
+			if err := os.WriteFile(filepath.Join(root, "junit.xml"), []byte(body(xml)), 0o644); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+			p, err := NewReportPath(root, "junit.xml")
+			if err != nil {
+				t.Fatalf("NewReportPath: %v", err)
+			}
+			outs, err := ReadJUnitReport(p, "{classname}")
+			if err != nil {
+				t.Fatalf("ReadJUnitReport: %v", err)
+			}
+			if len(outs) != 1 {
+				t.Fatalf("outcomes = %+v, want the shared id folded into exactly one", outs)
+			}
+			if outs[0].Test != "test/calc.test.js" || outs[0].Status != tc.want {
+				t.Errorf("outcome = %+v, want test/calc.test.js %s", outs[0], tc.want)
+			}
+		})
+	}
+}
+
+// Folding two cases into one id keeps the time both of them took: a file-granular id
+// stands for the whole file, so its duration is the file's, not one case's.
+func TestReadJUnitReportSumsTheDurationOfFoldedCases(t *testing.T) {
+	root := t.TempDir()
+	body := `<testsuite name="s">
+  <testcase classname="test/calc.test.js" name="a" time="0.01"><failure message="boom"/></testcase>
+  <testcase classname="test/calc.test.js" name="b" time="0.03"/>
+</testsuite>`
+	if err := os.WriteFile(filepath.Join(root, "junit.xml"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	p, err := NewReportPath(root, "junit.xml")
+	if err != nil {
+		t.Fatalf("NewReportPath: %v", err)
+	}
+	outs, err := ReadJUnitReport(p, "{classname}")
+	if err != nil {
+		t.Fatalf("ReadJUnitReport: %v", err)
+	}
+	want := []Outcome{{Test: "test/calc.test.js", Status: "fail", DurationMS: 40}}
+	if len(outs) != 1 || outs[0] != want[0] {
+		t.Fatalf("outcomes = %+v, want %+v", outs, want)
+	}
+}
+
+// The fold does not reorder the report: the folded id stays where its FIRST case was, so
+// a merged directory report still reads in document order.
+func TestReadJUnitReportKeepsTheFirstPositionOfAFoldedID(t *testing.T) {
+	root := t.TempDir()
+	body := `<testsuite name="s">
+  <testcase classname="test/a.test.js" name="one" time="0.01"/>
+  <testcase classname="test/b.test.js" name="two" time="0.01"/>
+  <testcase classname="test/a.test.js" name="three" time="0.01"><failure message="boom"/></testcase>
+</testsuite>`
+	if err := os.WriteFile(filepath.Join(root, "junit.xml"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	p, err := NewReportPath(root, "junit.xml")
+	if err != nil {
+		t.Fatalf("NewReportPath: %v", err)
+	}
+	outs, err := ReadJUnitReport(p, "{classname}")
+	if err != nil {
+		t.Fatalf("ReadJUnitReport: %v", err)
+	}
+	want := []Outcome{
+		{Test: "test/a.test.js", Status: "fail", DurationMS: 20},
+		{Test: "test/b.test.js", Status: "pass", DurationMS: 10},
+	}
+	if len(outs) != len(want) {
+		t.Fatalf("outcomes = %+v, want %+v", outs, want)
+	}
+	for i := range want {
+		if outs[i] != want[i] {
+			t.Errorf("outcome %d = %+v, want %+v", i, outs[i], want[i])
+		}
+	}
+}

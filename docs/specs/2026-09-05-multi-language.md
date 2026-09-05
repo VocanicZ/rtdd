@@ -152,6 +152,13 @@ fails at run time with a message saying so, and adjacent placeholders with no li
 separator (`"{classname}{name}"`) are rejected at load time: they render but cannot be read
 back, so the round-trip is not stable.
 
+A template need not name one test. Vitest and RSpec have no single-token selector for one
+case, so their adapters render a **file-granular** id that every case in the file shares.
+Cases of one report file that render the same id therefore fold into one outcome, and the
+fold is **worst-status-wins** — `error` > `fail` > `skip` > `pass` — so an id is green only
+when every case behind it passed. (The same id in two files of one *directory* report is
+not this: nothing downstream can tell those apart, so it is an error naming both files.)
+
 That is what `id_template` is for, and it is per-adapter because
 only the adapter knows its runner's syntax. Audit finding A6 ("three of five parse formats
 structurally cannot carry a test identifier") is the reason this is specified explicitly

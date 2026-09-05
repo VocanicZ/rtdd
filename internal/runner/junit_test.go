@@ -291,3 +291,32 @@ func TestAnUnsupportedReportFormatIsNamed(t *testing.T) {
 		t.Errorf("error = %v, want it to name the unsupported report", err)
 	}
 }
+
+// #285: two cases of one report file sharing a rendered id must not collapse into the
+// LAST one — a failure followed by a pass under a file-granular id_template would exit 0
+// with an empty Failed list. The parser folds them worst-status-wins before the runner's
+// cross-chunk rule ever sees them, so the run is red.
+func TestRunDoesNotLoseAFailureToACaseSharingItsID(t *testing.T) {
+	repo := t.TempDir()
+	a := junitStubAdapter(t, repo, nil)
+	a.IDTemplate = "{classname}"
+	xml := writeStubXML(t, repo, "src.xml", `<testsuite name="s">
+  <testcase classname="test/calc.test.js" name="a" time="0.01"><failure message="boom"/></testcase>
+  <testcase classname="test/calc.test.js" name="b" time="0.01"/>
+</testsuite>`)
+	a.Env["RTDD_STUB_XML"] = xml
+
+	res, err := Run(a, repo, []string{"test/calc.test.js"}, false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(res.Outcomes) != 1 || res.Outcomes[0].Status != "fail" {
+		t.Fatalf("Outcomes = %+v, want one test/calc.test.js fail", res.Outcomes)
+	}
+	if len(res.Failed) != 1 || res.Failed[0] != "test/calc.test.js" {
+		t.Errorf("Failed = %v, want [test/calc.test.js]", res.Failed)
+	}
+	if res.ExitCode != 1 {
+		t.Errorf("ExitCode = %d, want 1: a failing case is in the report", res.ExitCode)
+	}
+}
