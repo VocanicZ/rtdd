@@ -37,7 +37,7 @@ func cmdSeed(args []string) int {
 		fmt.Fprintln(os.Stderr, "rtdd:", err)
 		return 2
 	}
-	ad, err := detectAdapter(root)
+	ad, err := detectAdapter(root, os.Stderr)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "rtdd:", err)
 		return 2

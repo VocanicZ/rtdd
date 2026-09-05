@@ -19,7 +19,7 @@ func cmdStatus(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	e, code, err := loadEnv(*adapterPath)
+	e, code, err := loadEnv(*adapterPath, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "rtdd status: %v\n", err)
 		return code

@@ -342,6 +342,28 @@ func TestInterfaceContractRecordsTheAdapterLoaders(t *testing.T) {
 	}
 }
 
+// M6a Task 4 adds the host-adapter loaders. §4.5 calls user-authorable adapters the
+// load-bearing part of the multi-language design, so the precedence rule — the host wins —
+// belongs in the interface of record, not only in the code that implements it.
+func TestInterfaceContractRecordsTheHostAdapterLoaders(t *testing.T) {
+	src := readRepoFile(t, "docs/plans/00-interfaces.md")
+
+	for _, want := range []string{
+		`const HostAdapterDir = ".rtdd/adapters"`,
+		"func LoadHost(repoRoot string) ([]*Adapter, error)",
+		"func LoadHostReport(repoRoot string) ([]*Adapter, []Invalid, error)",
+		"func Available(repoRoot string) ([]*Adapter, error)",
+		"func AvailableReport(repoRoot string) ([]*Adapter, []Invalid, error)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("00-interfaces.md must record %q", want)
+		}
+	}
+	if !strings.Contains(src, "REPLACES it") {
+		t.Error("00-interfaces.md must state the precedence rule: a host adapter replaces the built-in of the same name")
+	}
+}
+
 // M2 Task 13 adds internal/initrepo to the contract. The planning sketch in the
 // Additions block named the enum `Action` and the record `Block`, with a `force` flag;
 // the shipped package inverts the two names and has no force, because `rtdd init` never

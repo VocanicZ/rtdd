@@ -179,6 +179,11 @@ type Adapter struct {
     TestFor       []string          `yaml:"test_for"`    // correspondence templates, tried IN ORDER
     Importscan    *Importscan       `yaml:"importscan"`  // nil means import ranking is skipped
     Requires      []Requirement     `yaml:"requires"`
+
+    // Src is the file this adapter was read from: an embedded name ("python.yaml") or an
+    // on-disk path for a host-authored one. Never declared in YAML — it is how doctor and
+    // every error message name the file, and a declaration could lie about it.
+    Src           string            `yaml:"-"`
 }
 
 // Importscan is the optional per-language import scanner: the engine runs a script and
@@ -224,6 +229,40 @@ func LoadFS(fsys fs.FS, dir string) ([]*Adapter, error)
 // Builtin returns the adapters embedded in the binary from the root `adapters`
 // package (//go:embed *.yaml), so rtdd ships as a single static file.
 func Builtin() ([]*Adapter, error)
+
+// Host-authored adapters (spec §4.5). The shipped set is a convenience, not the
+// boundary of support: a language RTDD has never heard of is supported by writing YAML
+// into the host repo, with no engine change and no release.
+const HostAdapterDir = ".rtdd/adapters"
+
+// Invalid is one host adapter file that failed to load. It is a value, not a returned
+// error, so a half-written adapter does not take the working ones down with it.
+type Invalid struct {
+    Path string
+    Err  error
+}
+
+// LoadHost reads every *.yaml directly under <repoRoot>/.rtdd/adapters, discarding the
+// files that do not load. A missing directory is not an error.
+func LoadHost(repoRoot string) ([]*Adapter, error)
+
+// LoadHostReport is LoadHost with the discarded files kept, so `rtdd doctor` can name the
+// failing file and the failing field. The error is reserved for an unreadable directory.
+func LoadHostReport(repoRoot string) ([]*Adapter, []Invalid, error)
+
+// Available returns the built-ins overlaid with the host's adapters, sorted by name. A
+// host adapter whose name equals a built-in's REPLACES it: §4.5 makes host YAML the real
+// boundary of support, so a repo must be able to correct a shipped adapter without an
+// RTDD release. The override is never silent — rtdd doctor names it. Two HOST files
+// claiming one name is an error; there is no principled winner.
+func Available(repoRoot string) ([]*Adapter, error)
+
+// AvailableReport is Available for callers that must say WHY a host adapter is missing.
+func AvailableReport(repoRoot string) ([]*Adapter, []Invalid, error)
+
+// IsHostAuthored reports whether a came from the repo's .rtdd/adapters/ rather than the
+// binary.
+func IsHostAuthored(repoRoot string, a *Adapter) bool
 
 // Detect returns the adapter whose Detect globs match a file in repoRoot.
 // Exactly one match required; zero or multiple is an error (polyglot is out of scope in v1).
