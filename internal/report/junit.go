@@ -30,8 +30,10 @@ var (
 	// <testsuites> nor <testsuite>.
 	ErrMalformedReport = errors.New("junit-xml: malformed report")
 	// ErrSuiteFailure is a <testsuite> carrying a suite-level <failure> or <error> and no
-	// <testcase>: a suite that could not run at all. Reporting zero tests from it would be
-	// a false green.
+	// <testcase> of its own: a suite that could not run at all. Nested <testsuite> children
+	// do not count — cases inside one belong to that suite, so a parent that failed at
+	// import time is still a suite nothing ran in. Reporting zero tests from it would be a
+	// false green.
 	ErrSuiteFailure = errors.New("junit-xml: suite failed before any test ran")
 )
 
@@ -199,12 +201,17 @@ func ReadJUnitFile(path string) ([]JUnitCase, error) {
 
 // walkSuite appends one suite's children depth first, in the order they were written.
 //
-// A suite with no children at all but a suite-level <failure> or <error> is the collection
-// crash: the run blew up before any test was named, and dropping it would read as "this
-// suite has no tests". A suite that is merely empty is not an error — a runner writes one
-// for a file it collected and skipped entirely.
+// A suite that named no test of its own but carries a suite-level <failure> or <error> is
+// the collection crash: the run blew up before any test was named, and dropping it would
+// read as "this suite has no tests". "Named no test of its own" is about <testcase>
+// children only, not children of every kind — PHPUnit and Surefire nest <testsuite> inside
+// <testsuite>, so a parent that failed at import time while one child suite still reported
+// carries a nested suite and zero testcases, and gating on "no children at all" let its
+// failure through as a run of passing tests. A suite that is merely empty is not an error —
+// a runner writes one for a file it collected and skipped entirely — and a suite failure
+// ALONGSIDE the suite's own testcases stays a summary, because those cases carry the detail.
 func walkSuite(s *junitSuite, path string, out []JUnitCase) ([]JUnitCase, error) {
-	if len(s.Children) == 0 {
+	if !hasOwnCase(s) {
 		if detail := s.Failure; detail != nil {
 			return nil, suiteFailure(path, s.Name, detail)
 		}
@@ -233,6 +240,18 @@ func walkSuite(s *junitSuite, path string, out []JUnitCase) ([]JUnitCase, error)
 		}
 	}
 	return out, nil
+}
+
+// hasOwnCase reports whether the suite names a <testcase> of its own. Cases inside a nested
+// <testsuite> belong to that suite — the flattened output attributes them to its name — so
+// they say nothing about whether THIS suite ran.
+func hasOwnCase(s *junitSuite) bool {
+	for _, child := range s.Children {
+		if child.Case != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // suiteFailure names the suite and repeats the runner's own message: with no testcase to

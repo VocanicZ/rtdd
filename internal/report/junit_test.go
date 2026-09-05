@@ -291,6 +291,84 @@ func TestReadJUnitFileKeepsASuiteFailureThatAlsoHasTestcases(t *testing.T) {
 	}
 }
 
+// A suite that carries a suite-level <failure> and no <testcase> of its own is the
+// collection crash whether or not it also nests further suites. PHPUnit and Surefire both
+// write <testsuite> inside <testsuite>, so a parent that blew up while a sibling child
+// suite still reported is a real shape — and gating the guard on "no children at all"
+// dropped the parent's failure the moment one nested suite was present, reporting the
+// child's passing cases and exit 0 for a run in which a whole suite never ran.
+func TestReadJUnitFileSurfacesASuiteFailureWhenTheSuiteOnlyHasNestedSuites(t *testing.T) {
+	const nested = `<testsuite name="outer">
+  <failure message="outer blew up at import time"/>
+  <testsuite name="inner"><testcase classname="I" name="ok"/></testsuite>
+</testsuite>`
+	got, err := ReadJUnitFile(writeXML(t, nested))
+	if err == nil {
+		t.Fatalf("ReadJUnitFile = %v, nil error for a suite that failed before any of its tests ran", got)
+	}
+	if !errors.Is(err, ErrSuiteFailure) {
+		t.Fatalf("error = %v, want errors.Is(_, ErrSuiteFailure)", err)
+	}
+	if !strings.Contains(err.Error(), "outer") {
+		t.Errorf("error %q does not name the failing suite", err)
+	}
+}
+
+// <error> in place of <failure> is the same catastrophe read through the other half of the
+// vocabulary: Surefire writes <error> where jest-junit writes <failure>, and a nested-suite
+// parent must surface both.
+func TestReadJUnitFileSurfacesASuiteErrorWhenTheSuiteOnlyHasNestedSuites(t *testing.T) {
+	const nested = `<testsuites>
+  <testsuite name="outer">
+    <error message="ClassNotFoundException" type="Error">at Outer.java:1</error>
+    <testsuite name="inner"><testcase classname="I" name="ok"/></testsuite>
+  </testsuite>
+</testsuites>`
+	got, err := ReadJUnitFile(writeXML(t, nested))
+	if err == nil {
+		t.Fatalf("ReadJUnitFile = %v, nil error for a suite that errored before any of its tests ran", got)
+	}
+	if !errors.Is(err, ErrSuiteFailure) {
+		t.Fatalf("error = %v, want errors.Is(_, ErrSuiteFailure)", err)
+	}
+	if !strings.Contains(err.Error(), "outer") {
+		t.Errorf("error %q does not name the failing suite", err)
+	}
+}
+
+// The mirror of the guard: a parent suite that nests suites and did NOT fail is ordinary
+// PHPUnit output, and its children's cases must come through untouched.
+func TestReadJUnitFileKeepsNestedSuitesWhenTheParentDidNotFail(t *testing.T) {
+	const nested = `<testsuite name="outer">
+  <testsuite name="inner"><testcase classname="I" name="ok" time="0.01"/></testsuite>
+</testsuite>`
+	cases, err := ReadJUnitFile(writeXML(t, nested))
+	if err != nil {
+		t.Fatalf("ReadJUnitFile: %v", err)
+	}
+	if len(cases) != 1 || cases[0].Suite != "inner" || cases[0].Status != "pass" {
+		t.Fatalf("got %+v, want one passing case in suite inner", cases)
+	}
+}
+
+// A suite-level <failure> alongside the suite's OWN testcases stays a summary even when the
+// suite also nests further suites: the cases carry the detail, so erroring here would fail
+// whole runs that reported every one of their tests.
+func TestReadJUnitFileKeepsASuiteFailureThatHasItsOwnTestcasesAndNestedSuites(t *testing.T) {
+	const both = `<testsuite name="outer" tests="2" failures="1">
+  <failure message="1 test failed"/>
+  <testcase classname="O" name="failing"><failure message="nope"/></testcase>
+  <testsuite name="inner"><testcase classname="I" name="ok"/></testsuite>
+</testsuite>`
+	cases, err := ReadJUnitFile(writeXML(t, both))
+	if err != nil {
+		t.Fatalf("ReadJUnitFile: %v", err)
+	}
+	if len(cases) != 2 || cases[0].Status != "fail" || cases[1].Suite != "inner" || cases[1].Status != "pass" {
+		t.Fatalf("got %+v, want the outer failing case then the inner passing one", cases)
+	}
+}
+
 // An empty <testsuite> with no failure of its own is not an error: a runner writes one for
 // a file it collected and skipped entirely, and erroring on it would fail whole runs that
 // went fine.
