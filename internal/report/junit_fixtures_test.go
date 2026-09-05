@@ -1,7 +1,9 @@
 package report
 
 import (
+	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -146,6 +148,259 @@ func TestReadJUnitFileReadsRealCapturedOutputFromSixRunners(t *testing.T) {
 			}
 			if !nonZero {
 				t.Errorf("every case parsed as 0ms; %s emits time= in seconds and the reader must convert it", f.runner)
+			}
+		})
+	}
+}
+
+// PRD #231 AC3, the load-bearing half: a parsed <testcase> is only an identifier if it can
+// be handed back to the runner. So each fixture below carries the id_template an adapter
+// for that runner could actually ship — a template whose rendering is ONE argv token that
+// runner's own selector syntax accepts — and the ids it renders are written out in full so
+// a reviewer can read them against the CLI in the `selector` column rather than trust a
+// round-trip that would hold just as well for gibberish.
+//
+// Two of the six render a FILE-granular id, because Vitest and RSpec have no single-token
+// form that names one test: `vitest run <path>` and `rspec <path>` are what those runners
+// accept, and `-t` / `-e` are separate flags an id spliced by ExpandTests cannot become.
+// A file-granular id is deliberately shared by every case in the file — the runner's own
+// de-duplication is what collapses it — so uniqueness is asserted only where the template
+// names {name}.
+//
+// The templates here are NOT the shipped adapter set: PRD #232 owns that, and this table
+// may not be read as pinning it.
+type idFixture struct {
+	runner   string
+	file     string
+	tmpl     string
+	selector string   // the CLI the rendered id is spliced into, one id per argv token
+	wantIDs  []string // every case in the fixture, in document order
+	perTest  bool     // does the template name one test, or one file?
+}
+
+var idFixtures = []idFixture{
+	{
+		runner:   "vitest",
+		file:     "vitest.xml",
+		tmpl:     "{classname}",
+		selector: "vitest run --reporter=junit --outputFile={report} {tests}",
+		wantIDs: []string{
+			"test/calc.test.js",
+			"test/calc.test.js",
+			"test/calc.test.js",
+		},
+		// Vitest emits no file=; its classname IS the spec file path, which is exactly
+		// what `vitest run <path>` filters on.
+	},
+	{
+		runner:   "jest",
+		file:     "jest.xml",
+		tmpl:     "{name}",
+		selector: "jest --reporters=jest-junit -t {tests}",
+		wantIDs: []string{
+			"calculator adds two numbers",
+			"calculator fails on a wrong sum",
+			"calculator is not implemented yet",
+		},
+		perTest: true,
+		// jest-junit's name= is the full name including the describe chain, which is what
+		// `jest -t` matches. The spaces survive unescaped: the id is one argv token.
+	},
+	{
+		runner:   "go-junit-report",
+		file:     "go-junit-report.xml",
+		tmpl:     "{name}",
+		selector: "go test ./... -run {tests}",
+		wantIDs: []string{
+			"TestAddsTwoNumbers",
+			"TestFailsOnAWrongSum",
+			"TestIsNotImplementedYet",
+		},
+		perTest: true,
+		// go-junit-report's classname is the package import path, which `go test -run`
+		// does not take; the name alone is the -run pattern.
+	},
+	{
+		runner:   "maven-surefire",
+		file:     "surefire.xml",
+		tmpl:     "{classname}#{name}",
+		selector: "mvn -B test -Dtest={tests}",
+		wantIDs: []string{
+			"calc.CalcTest#addsTwoNumbers",
+			"calc.CalcTest#failsOnAWrongSum",
+			"calc.CalcTest#isNotImplementedYet",
+		},
+		perTest: true,
+		// Surefire's own -Dtest= syntax is literally class#method, fully qualified.
+	},
+	{
+		runner:   "rspec",
+		file:     "rspec.xml",
+		tmpl:     "{file}",
+		selector: "rspec --format RspecJunitFormatter --out {report} {tests}",
+		wantIDs: []string{
+			"./spec/calc_spec.rb",
+			"./spec/calc_spec.rb",
+			"./spec/calc_spec.rb",
+		},
+		// RSpec is one of the two runners that DO emit file=, and the path it writes is a
+		// selector `rspec` accepts verbatim, leading "./" and all.
+	},
+	{
+		runner:   "phpunit",
+		file:     "phpunit.xml",
+		tmpl:     "{classname}::{name}",
+		selector: "phpunit --log-junit {report} --filter {tests}",
+		wantIDs: []string{
+			"CalcTest::testAddsTwoNumbers",
+			"CalcTest::testFailsOnAWrongSum",
+			"CalcTest::testIsNotImplementedYet",
+		},
+		perTest: true,
+		// PHPUnit's --filter takes Class::method, which is the form its own classname and
+		// name attributes spell out.
+	},
+}
+
+// parse -> render -> parse is stable for all six shipped fixtures.
+func TestIDRoundTripIsStableForEveryFixture(t *testing.T) {
+	for _, f := range idFixtures {
+		t.Run(f.runner, func(t *testing.T) {
+			cases, err := ReadJUnitFile(filepath.Join("testdata", "junit", f.file))
+			if err != nil {
+				t.Fatalf("ReadJUnitFile(%s): %v", f.file, err)
+			}
+			if len(cases) != len(f.wantIDs) {
+				t.Fatalf("fixture has %d cases, table names %d ids", len(cases), len(f.wantIDs))
+			}
+
+			seen := map[string]bool{}
+			for i, c := range cases {
+				id, err := RenderID(f.tmpl, c)
+				if err != nil {
+					t.Fatalf("RenderID(%q, %+v): %v", f.tmpl, c, err)
+				}
+				if id != f.wantIDs[i] {
+					t.Errorf("case %d rendered %q, want %q — the id is spliced into `%s` as one argv token", i, id, f.wantIDs[i], f.selector)
+				}
+				if f.perTest {
+					if seen[id] {
+						t.Errorf("id %q is produced by two cases; a colliding id makes a subset run select the wrong test", id)
+					}
+					seen[id] = true
+				}
+
+				back, err := ParseID(f.tmpl, id)
+				if err != nil {
+					t.Fatalf("ParseID(%q, %q): %v", f.tmpl, id, err)
+				}
+				again, err := RenderID(f.tmpl, back)
+				if err != nil {
+					t.Fatalf("RenderID after ParseID (%q): %v", f.tmpl, err)
+				}
+				if again != id {
+					t.Errorf("round trip through %q: %q -> %q", f.tmpl, id, again)
+				}
+			}
+		})
+	}
+}
+
+// Rendering the same report twice produces the same ids in the same order: the map's test
+// ids and the subset command's arguments are joined by string equality, so a rendering
+// that varied between runs would silently stop matching.
+func TestIDRenderingIsDeterministicAcrossRepeatedReads(t *testing.T) {
+	for _, f := range idFixtures {
+		t.Run(f.runner, func(t *testing.T) {
+			var first []string
+			for pass := 0; pass < 5; pass++ {
+				cases, err := ReadJUnitFile(filepath.Join("testdata", "junit", f.file))
+				if err != nil {
+					t.Fatalf("ReadJUnitFile: %v", err)
+				}
+				var ids []string
+				for _, c := range cases {
+					id, err := RenderID(f.tmpl, c)
+					if err != nil {
+						t.Fatalf("RenderID: %v", err)
+					}
+					ids = append(ids, id)
+				}
+				if pass == 0 {
+					first = ids
+					continue
+				}
+				if len(ids) != len(first) {
+					t.Fatalf("pass %d rendered %d ids, pass 0 rendered %d", pass, len(ids), len(first))
+				}
+				for i := range ids {
+					if ids[i] != first[i] {
+						t.Fatalf("pass %d id %d = %q, want %q", pass, i, ids[i], first[i])
+					}
+				}
+			}
+		})
+	}
+}
+
+// Decision 2, pinned to the four captures that genuinely lack the attribute: Vitest, Jest,
+// go-junit-report and Maven Surefire all emit <testcase> with no file=. A template naming
+// {file} against any of them is a NAMED error, never a path derived from classname or the
+// suite — a derived path that is wrong renders an id the runner does not recognise, the
+// subset selects nothing, and RTDD reports a green run that executed no tests.
+func TestATemplateNamingFileAgainstARunnerThatOmitsItIsNamedRatherThanDerived(t *testing.T) {
+	for _, name := range []string{"vitest.xml", "jest.xml", "go-junit-report.xml", "surefire.xml"} {
+		t.Run(name, func(t *testing.T) {
+			cases, err := ReadJUnitFile(filepath.Join("testdata", "junit", name))
+			if err != nil {
+				t.Fatalf("ReadJUnitFile: %v", err)
+			}
+			if len(cases) == 0 {
+				t.Fatalf("fixture parsed to no cases")
+			}
+			for _, c := range cases {
+				if c.File != "" {
+					t.Fatalf("case %q has file=%q; this fixture is one of the four that must lack it", c.Name, c.File)
+				}
+				id, err := RenderID("{file}::{name}", c)
+				if !errors.Is(err, ErrNoFileAttr) {
+					t.Fatalf("RenderID = (%q, %v), want errors.Is(_, ErrNoFileAttr)", id, err)
+				}
+				// The message names the case and the placeholder, because the fix is the
+				// adapter's id_template rather than anything in the report.
+				for _, want := range []string{c.Name, "{file}", "id_template"} {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("error %q does not name %q", err, want)
+					}
+				}
+			}
+		})
+	}
+}
+
+// The two runners that DO emit file= are the ones a {file} template is for, and what they
+// write is a path, not a class name dressed as one.
+func TestTheTwoRunnersThatEmitFileRenderItVerbatim(t *testing.T) {
+	for _, tc := range []struct{ file, wantPrefix string }{
+		{"rspec.xml", "./spec/"},
+		{"phpunit.xml", "/work/tests/"},
+	} {
+		t.Run(tc.file, func(t *testing.T) {
+			cases, err := ReadJUnitFile(filepath.Join("testdata", "junit", tc.file))
+			if err != nil {
+				t.Fatalf("ReadJUnitFile: %v", err)
+			}
+			for _, c := range cases {
+				id, err := RenderID("{file}", c)
+				if err != nil {
+					t.Fatalf("RenderID(%+v): %v", c, err)
+				}
+				if id != c.File {
+					t.Errorf("RenderID = %q, want the file= attribute verbatim (%q)", id, c.File)
+				}
+				if !strings.HasPrefix(id, tc.wantPrefix) {
+					t.Errorf("rendered %q, want the path this runner actually wrote (prefix %q)", id, tc.wantPrefix)
+				}
 			}
 		})
 	}

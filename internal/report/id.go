@@ -10,9 +10,10 @@ import (
 // internal/report keeps its single dependency direction, and internal/adapter stays free
 // of parsing.
 //
-// Plan 06-m6c Task 3 owns this file. What is here is what Task 5's ReadJUnitReport needs
-// to turn a parsed <testcase> into an Outcome.Test — the renderer and the two errors it
-// can produce. ParseID, RenderID's inverse, lands with the rest of Task 3.
+// Plan 06-m6c Task 3 owns this file: the renderer that turns a parsed <testcase> into an
+// Outcome.Test, its inverse, and the two errors they share. The pair is what makes
+// "parse -> render -> parse is stable" an assertion rather than a hope — an id that cannot
+// be read back is an id nothing can check the runner was actually handed.
 var (
 	// ErrNoFileAttr is a template naming {file} against a runner that does not emit the
 	// attribute — Maven Surefire, go-junit-report and jest-junit by default. Deriving the
@@ -108,4 +109,63 @@ func RenderID(tmpl string, c JUnitCase) (string, error) {
 		}
 	}
 	return b.String(), nil
+}
+
+// ParseID is RenderID's inverse: it reads a rendered id back into the fields the template
+// names, by splitting on the template's literal segments. It is what makes "parse ->
+// render -> parse is stable" an assertion rather than a hope (PRD #231 AC3).
+//
+// The split is leftmost-first: each placeholder ends at the first occurrence of the
+// literal that follows it, and the last placeholder takes whatever is left. A field whose
+// value contains the separator therefore round-trips as long as the separator does not
+// appear in an EARLIER field — which is why {file} and {classname}, the fields a runner
+// controls, come before {name}, the field a test author writes.
+func ParseID(tmpl, id string) (JUnitCase, error) {
+	segs, err := splitTemplate(tmpl)
+	if err != nil {
+		return JUnitCase{}, err
+	}
+	mismatch := func() (JUnitCase, error) {
+		return JUnitCase{}, fmt.Errorf("report: id %q does not match id_template %q", id, tmpl)
+	}
+
+	var c JUnitCase
+	rest := id
+	for i, s := range segs {
+		if !s.placeholder {
+			// A literal must be exactly where the template puts it. Anything else means
+			// this id was rendered by a different template, and a half-assigned case
+			// would become a selector the runner silently matches nothing against.
+			if !strings.HasPrefix(rest, s.text) {
+				return mismatch()
+			}
+			rest = rest[len(s.text):]
+			continue
+		}
+		value := rest
+		if i+1 < len(segs) {
+			// splitTemplate guarantees the next segment is a literal: two adjacent
+			// placeholders are ErrAmbiguousTemplate.
+			next := segs[i+1].text
+			cut := strings.Index(rest, next)
+			if cut < 0 {
+				return mismatch()
+			}
+			value, rest = rest[:cut], rest[cut:]
+		} else {
+			rest = ""
+		}
+		switch s.text {
+		case "{file}":
+			c.File = value
+		case "{classname}":
+			c.Classname = value
+		case "{name}":
+			c.Name = value
+		}
+	}
+	if rest != "" {
+		return mismatch()
+	}
+	return c, nil
 }
