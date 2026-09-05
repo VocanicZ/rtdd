@@ -1275,7 +1275,48 @@ repository arrives through `Inputs` as an injected function.
 func (a *Adapter) TestForCandidate(rel string, exists func(string) bool) (string, bool)
 ```
 
+### internal/importscan
+
+```go
+// AdapterScanner runs an adapter's DECLARED importscan script and returns hop counts.
+// The wire contract matches the embedded Python scanner's: a JSON request on the child's
+// stdin, a JSON answer on its stdout, with distances instead of bare lists.
+//
+//     stdin :  {"root": "...", "targets": ["src/a.ts"], "tests": ["src/a.test.ts"]}
+//     stdout:  {"src/a.ts": {"src/a.test.ts": 1}}
+//
+// `script` resolves against .rtdd/adapters/, beside the host YAML that declared it, and
+// reaches the command template as {script}; argv is built by (*Adapter).Expand, so the
+// engine never hands a shell a string. An adapter declaring no importscan yields an INERT
+// scanner, not a nil one. A missing, failing or unparseable scanner degrades selection to
+// levels 1 and 3 and is reported through Err; it never fails the command.
+func NewAdapterScanner(repoRoot string, a *adapter.Adapter, tests []string) *AdapterScanner
+func (s *AdapterScanner) Distances(changed string) map[string]int
+func (s *AdapterScanner) Err() error
+```
+
 ### cmd/rtdd — internal to `main`
+
+```go
+// repoExists and adapterImportDistance are the impure halves of the static tier: they are
+// built in cmd/ and injected into selector.Inputs by BOTH `which` and `run`, through
+// staticResolvers, so the advisory command and the executing command cannot wire them
+// differently. A resolver left nil is a level SKIPPED, never a level that failed.
+//
+// adapterImportDistance returns the resolver AND a reader for the first scan failure:
+// a declared scanner that fails narrows the selection, and a narrowing nobody reports
+// reaches the reader as "no import reaches the changed set" — a sentence about a level
+// that could not run. Both commands turn a non-nil error into a warning instead.
+func repoExists(root string) func(rel string) bool
+func adapterImportDistance(root string, ad *adapter.Adapter, tests []string) (func(string) map[string]int, func() error)
+func staticResolvers(root string, ad *adapter.Adapter) (func(string) bool, func(string) map[string]int, func() error)
+
+// staticTestCandidates enumerates the repository's own test files, by the adapter's test
+// globs, for a declared scanner to rank against. The map cannot supply them — a static
+// adapter records no coverage — and `which` never enumerates the suite. It is called only
+// when the adapter declares an importscan, so a coverage repository pays no walk.
+func staticTestCandidates(root string, ad *adapter.Adapter) []string
+```
 
 ```go
 // RenderNextStep is the line `rtdd init` closes with, derived from the DETECTED adapters
