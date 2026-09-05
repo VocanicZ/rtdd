@@ -114,3 +114,73 @@ func TestAdjacentPlaceholdersAreAStructuralRuleTheLoaderDoesNotPolice(t *testing
 		t.Errorf("ParseID error = %v, want errors.Is(_, report.ErrAmbiguousTemplate)", err)
 	}
 }
+
+// An id_template names at least one placeholder, or it is not a template: "classname#name"
+// — the braces simply forgotten — renders that same constant id for every <testcase> in the
+// report, de-duplication collapses the suite to one row whose status is whichever case came
+// last, and a run whose first test failed reports green, exit 0. There is no error at load,
+// none at parse, and nothing in the output that looks wrong, so the rejection belongs here,
+// where the rest of the id_template vocabulary is already enforced (exit 2).
+//
+// An unterminated "{" is rejected on the same grounds: it is a typo for a placeholder, not
+// a runner selector that happens to contain a brace, and left as a literal it fails exactly
+// as silently.
+func TestAnIDTemplateThatNamesNoPlaceholderIsRejectedAtLoad(t *testing.T) {
+	base := `name: vitest
+detect: ["package.json"]
+subset: "npx vitest run {tests}"
+selection: static
+coverage: none
+report: junit-xml
+report_path: ".rtdd/junit.xml"
+`
+	sample := report.JUnitCase{Suite: "s", Classname: "calc.CalcTest", Name: "adds", File: "src/Calc.java"}
+	for _, tmpl := range []string{"classname#name", "{name", "prefix{"} {
+		t.Run(tmpl, func(t *testing.T) {
+			p := writeAdapter(t, t.TempDir(), "a.yaml", base+"id_template: \""+tmpl+"\"\n")
+			_, err := Load(p)
+			if err == nil {
+				t.Fatalf("Load accepted id_template %q; it renders one constant id for every test in the report", tmpl)
+			}
+			for _, want := range []string{"id_template", tmpl, "placeholder"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error = %q, want it to contain %q", err.Error(), want)
+				}
+			}
+
+			// The renderer's vocabulary is the loader's, structural rules included.
+			if _, rerr := report.RenderID(tmpl, sample); rerr == nil {
+				t.Errorf("RenderID(%q) = nil error; the loader rejects it, so the renderer must too", tmpl)
+			}
+			if _, perr := report.ParseID(tmpl, "calc.CalcTest#adds"); perr == nil {
+				t.Errorf("ParseID(%q) = nil error; the loader rejects it, so the reader must too", tmpl)
+			}
+		})
+	}
+}
+
+// The rejection above is a rule about STRUCTURE, so it must not cost the shipped templates
+// anything: every id_template the junit fixtures render through (internal/report's
+// idFixtures) still loads and still renders.
+func TestTheShippedIDTemplatesStillLoadAndRender(t *testing.T) {
+	base := `name: vitest
+detect: ["package.json"]
+subset: "npx vitest run {tests}"
+selection: static
+coverage: none
+report: junit-xml
+report_path: ".rtdd/junit.xml"
+`
+	sample := report.JUnitCase{Suite: "s", Classname: "calc.CalcTest", Name: "adds", File: "src/Calc.java"}
+	for _, tmpl := range []string{"{classname}", "{name}", "{classname}#{name}", "{file}", "{classname}::{name}"} {
+		t.Run(tmpl, func(t *testing.T) {
+			p := writeAdapter(t, t.TempDir(), "a.yaml", base+"id_template: \""+tmpl+"\"\n")
+			if _, err := Load(p); err != nil {
+				t.Fatalf("Load(id_template %q): %v", tmpl, err)
+			}
+			if _, err := report.RenderID(tmpl, sample); err != nil {
+				t.Fatalf("RenderID(%q): %v", tmpl, err)
+			}
+		})
+	}
+}

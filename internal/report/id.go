@@ -24,6 +24,11 @@ var (
 	// "{classname}{name}": it renders, but nothing can read it back, so the round-trip
 	// PRD #231 AC3 requires cannot hold.
 	ErrAmbiguousTemplate = errors.New("junit-xml: id_template placeholders need a literal separator")
+	// ErrNoPlaceholder is an id_template that expands nothing — "classname#name" with the
+	// braces forgotten, or a "{" that never closes. It renders the SAME id for every case
+	// in the report, so de-duplication collapses the suite to one row whose status is
+	// whichever case happened to be last and the run reports that one outcome, green.
+	ErrNoPlaceholder = errors.New("junit-xml: id_template must name at least one placeholder")
 )
 
 // idPlaceholders is the vocabulary internal/adapter's validateTemplates already enforces
@@ -41,6 +46,7 @@ type idSegment struct {
 // is shared so RenderID and ParseID reject exactly the same templates.
 func splitTemplate(tmpl string) ([]idSegment, error) {
 	var segs []idSegment
+	named := false
 	rest := tmpl
 	for {
 		open := strings.Index(rest, "{")
@@ -49,7 +55,10 @@ func splitTemplate(tmpl string) ([]idSegment, error) {
 		}
 		close := strings.Index(rest[open:], "}")
 		if close < 0 {
-			break
+			// A "{" that never closes is a typo for a placeholder, not a selector syntax
+			// that happens to contain a brace. Kept as a literal it renders one constant
+			// id for every case, which is the silent failure ErrNoPlaceholder names.
+			return nil, fmt.Errorf("report: %w: id_template %q: unterminated placeholder %q", ErrNoPlaceholder, tmpl, rest[open:])
 		}
 		close += open
 		ph := rest[open : close+1]
@@ -64,13 +73,14 @@ func splitTemplate(tmpl string) ([]idSegment, error) {
 			return nil, fmt.Errorf("report: %w: %q", ErrAmbiguousTemplate, tmpl)
 		}
 		segs = append(segs, idSegment{text: ph, placeholder: true})
+		named = true
 		rest = rest[close+1:]
 	}
 	if rest != "" {
 		segs = append(segs, idSegment{text: rest})
 	}
-	if len(segs) == 0 {
-		return nil, fmt.Errorf("report: id_template %q names no placeholder", tmpl)
+	if !named {
+		return nil, fmt.Errorf("report: %w: id_template %q names no placeholder; name at least one of {file}, {classname} or {name}", ErrNoPlaceholder, tmpl)
 	}
 	return segs, nil
 }
