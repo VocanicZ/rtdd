@@ -18,10 +18,10 @@ import (
 //  2. T2 escalations (full-escalate file, drift guard);
 //  3. T1 escalations (merge commit, opaque file, import-time-only file, stale row);
 //  4. T0;
-//  5. TS — static correspondence, reached only when the coverage relation cannot
-//     answer: an unseeded map, or an adapter declaring selection: static. TS never
-//     overrides a usable map (spec §4.1), so steps 3 and 4 are skipped on this path
-//     and a seeded repository never reaches it;
+//  5. TS — static correspondence and imports, reached only when the coverage relation
+//     cannot answer: an unseeded map, or an adapter declaring selection: static. TS
+//     never overrides a usable map (spec §4.1), so steps 3 and 4 are skipped on this
+//     path and a seeded repository never reaches it;
 //  6. TierEmpty, reported explicitly with a Reason — or, when the static tier had
 //     nothing to offer either, the full suite at T2 with a reason naming what was
 //     missing.
@@ -203,7 +203,13 @@ func escalateT1(in Inputs, m *mapstore.Map, cfg Config, t0 []string) (extra []st
 	}
 
 	if in.Distance != nil && cfg.StaleCommits > 0 {
-		for _, id := range t0 {
+		// t0 arrives in mapstore's map-iteration order, which Go randomises per run. The
+		// scan below names ONE row in the reason, so an unordered scan would put map
+		// iteration order into the answer: identical inputs, a different sentence each
+		// run, and a seeded repository whose selection is no longer byte-identical.
+		scan := append([]string(nil), t0...)
+		sort.Strings(scan)
+		for _, id := range scan {
 			r, ok := m.Get(id)
 			if !ok {
 				continue

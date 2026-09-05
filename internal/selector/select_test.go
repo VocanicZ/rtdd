@@ -443,8 +443,39 @@ func TestSelectEmptyReasonNamesADeletedTestFile(t *testing.T) {
 	}
 }
 
+// A Selection's REASON is part of its answer, so it has to be as reproducible as its
+// test list. mapstore.TestsCovering walks a Go map, so the order T1's staleness scan sees
+// its candidates in is randomised per run; naming "the first stale row" out of that order
+// made the reason — and the seeded-repository golden that pins it — differ between runs
+// on identical inputs. The row named is the lexicographically first stale one, every run.
+func TestSelectStaleReasonNamesTheSameRowEveryRun(t *testing.T) {
+	rows := []mapstore.Row{
+		{T: "tests/test_a.py::test_one", F: []string{"src/auth.py"}, C: "aaa1111", D: 1, S: "pass"},
+		{T: "tests/test_b.py::test_one", F: []string{"src/auth.py"}, C: "aaa1111", D: 2, S: "pass"},
+		{T: "tests/test_c.py::test_one", F: []string{"src/auth.py"}, C: "aaa1111", D: 3, S: "pass"},
+		{T: "tests/test_d.py::test_one", F: []string{"src/auth.py"}, C: "aaa1111", D: 4, S: "pass"},
+		{T: "tests/test_e.py::test_one", F: []string{"src/auth.py"}, C: "aaa1111", D: 5, S: "pass"},
+		{T: "tests/test_f.py::test_one", F: []string{"src/auth.py"}, C: "aaa1111", D: 6, S: "pass"},
+	}
+	const want = "row tests/test_a.py::test_one is 999 commits stale (limit 50)"
+
+	for i := 0; i < 20; i++ {
+		in := baseInputs()
+		in.Map = mapOf(rows...)
+		in.Changes = []gitctx.Change{mod("src/auth.py")}
+		in.Distance = func(string) int { return 999 }
+
+		if got := Select(in).Reason; got != want {
+			t.Fatalf("run %d: Reason = %q, want %q: map iteration order reached the reason",
+				i, got, want)
+		}
+	}
+}
+
 // The static tier answers where the coverage relation cannot: no map, an adapter that
 // declares selection: static, and a test_for template naming a file that exists.
+// Both admitting levels reach the selection, and the fourth test — near the change but
+// vouched for by neither level — does not.
 func TestSelectResolvesTS(t *testing.T) {
 	in := staticInputs()
 
@@ -453,8 +484,19 @@ func TestSelectResolvesTS(t *testing.T) {
 	if got.Tier != TierTS {
 		t.Fatalf("Tier = %v (%s), want TierTS", got.Tier, got.Reason)
 	}
-	if len(got.Tests) != 1 || got.Tests[0] != "src/auth/token.test.ts" {
-		t.Errorf("Tests = %#v, want only the corresponding test", got.Tests)
+	want := []string{
+		"src/auth/token.test.ts",   // level 1, declared correspondence
+		"src/auth/session.test.ts", // level 2, 1 hop
+		"src/api/gateway.test.ts",  // level 2, 3 hops
+	}
+	if len(got.Tests) != len(want) {
+		t.Fatalf("Tests = %#v, want the three related tests and not the fourth", got.Tests)
+	}
+	for i := range want {
+		if got.Tests[i] != want[i] {
+			t.Fatalf("Tests = %#v, want %#v: correspondence first, then shortest import path",
+				got.Tests, want)
+		}
 	}
 }
 
@@ -465,8 +507,60 @@ func TestSelectTSReasonNamesItsEvidenceAndNotCoverage(t *testing.T) {
 	if contains(got.Reason, "recorded coverage") {
 		t.Errorf("Reason = %q, must not contain %q", got.Reason, "recorded coverage")
 	}
-	if !contains(got.Reason, "correspondence") {
-		t.Errorf("Reason = %q, want it to name correspondence", got.Reason)
+	if !contains(got.Reason, "correspondence") && !contains(got.Reason, "import") {
+		t.Errorf("Reason = %q, want it to name correspondence or imports", got.Reason)
+	}
+}
+
+// PRD #230 AC7. An adapter's importscan key is optional by contract, so an adapter that
+// omits it is not a broken adapter: level 2 is skipped, the other levels still produce a
+// TS selection, and no error, no warning and no escalation follows from the absence.
+func TestSelectWithoutImportscanIsSkippedNotFatal(t *testing.T) {
+	in := staticInputs()
+	in.ImportDistance = nil // the adapter declares no importscan
+
+	got := Select(in)
+
+	if got.Tier != TierTS {
+		t.Fatalf("Tier = %v (%s), want TierTS: a missing importscan skips a level, "+
+			"it does not escalate", got.Tier, got.Reason)
+	}
+	if len(got.Tests) != 1 || got.Tests[0] != "src/auth/token.test.ts" {
+		t.Errorf("Tests = %#v, want only the corresponding test", got.Tests)
+	}
+	for _, unwanted := range []string{"importscan", "error", "recorded coverage"} {
+		if contains(got.Reason, unwanted) {
+			t.Errorf("Reason = %q, must not contain %q: the absence is not a fault",
+				got.Reason, unwanted)
+		}
+	}
+}
+
+// A selection resting on imports alone says so, and still never borrows the words an
+// execution-derived selection uses.
+func TestSelectTSImportDerivedReasonNamesImports(t *testing.T) {
+	in := staticInputs()
+	ad := staticFixtureAdapter()
+	ad.TestFor = nil // imports are the only evidence there is
+	ad.Importscan = &adapter.Importscan{Command: "node {script}", Script: "scan.js"}
+	in.Adapter = ad
+
+	got := Select(in)
+
+	if got.Tier != TierTS {
+		t.Fatalf("Tier = %v (%s), want TierTS", got.Tier, got.Reason)
+	}
+	if !contains(got.Reason, "import") {
+		t.Errorf("Reason = %q, want it to name imports", got.Reason)
+	}
+	if contains(got.Reason, "recorded coverage") {
+		t.Errorf("Reason = %q, must not contain %q", got.Reason, "recorded coverage")
+	}
+	want := []string{"src/auth/session.test.ts", "src/api/gateway.test.ts"}
+	for i := range want {
+		if got.Tests[i] != want[i] {
+			t.Fatalf("Tests = %#v, want %#v: shortest import path first", got.Tests, want)
+		}
 	}
 }
 
@@ -479,6 +573,7 @@ func TestSelectFidelityNoneIsAFullSuiteThatSaysWhy(t *testing.T) {
 	ad := staticFixtureAdapter()
 	ad.TestFor = nil
 	in.Adapter = ad
+	in.ImportDistance = nil // no test_for and no importscan: fidelity none
 
 	got := Select(in)
 
@@ -504,6 +599,7 @@ func TestSelectFidelityNoneIsAFullSuiteThatSaysWhy(t *testing.T) {
 func TestSelectAStaticAdapterThatFindsNothingIsAFullSuite(t *testing.T) {
 	in := staticInputs()
 	in.Exists = existsIn() // the templates expand, and name nothing that is there
+	in.ImportDistance = func(string) map[string]int { return nil }
 
 	got := Select(in)
 

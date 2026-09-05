@@ -22,8 +22,9 @@ type staticCandidate struct {
 // the changed set at all, by evidence rather than by neighbourhood.
 //
 // A missing resolver is a skipped level, never an error. An adapter with no test_for
-// templates still gets whichever level it can answer; an adapter that can answer none
-// returns nothing, and Select turns that into an honest T2 rather than an empty TS.
+// templates, or one that declares no importscan, still gets whichever level it can
+// answer (PRD #230 AC7); an adapter that can answer none returns nothing, and Select
+// turns that into an honest T2 rather than an empty TS.
 func staticCandidates(in Inputs) []staticCandidate {
 	byTest := map[string]staticCandidate{}
 
@@ -57,6 +58,13 @@ func staticCandidates(in Inputs) []staticCandidate {
 				add(test, 1, 0)
 			}
 		}
+		// Level 2. A nil ImportDistance is an adapter that declares no importscan: the
+		// level is skipped and the selection is narrower, not absent and not an error.
+		if in.ImportDistance != nil {
+			for test, hops := range in.ImportDistance(c.Path) {
+				add(test, 2, hops)
+			}
+		}
 	}
 
 	out := make([]staticCandidate, 0, len(byTest))
@@ -71,17 +79,27 @@ func staticCandidates(in Inputs) []staticCandidate {
 // rankStatic orders the candidate set by spec §4.1's levels, most confident first, and
 // falls back to lexicographic order so a full tie is reproducible.
 //
-// Level 1 — declared test_for correspondence — is the only level this slice admits and
-// orders. The level-2 key (import distance, shortest transitive path first) and the
-// level-3 key (path proximity over changedFiles, longest shared directory prefix first)
-// are added by the two sibling slices; changedFiles is the input that level-3 tiebreak
-// will read.
+//  1. declared test_for correspondence;
+//  2. import distance, shortest transitive path first.
+//
+// The level key is compared before the distance key, so a level-1 candidate that also
+// happens to carry an import distance is never reordered by it: correspondence outranks
+// any import relationship. The distance key is read only WITHIN level 2, where every
+// candidate was admitted by an import and the hop count is therefore the evidence
+// itself — at level 1 a distance of zero means "never reached through imports", not
+// "reached in zero hops", and ordering on it would be ordering on a sentinel.
+//
+// The level-3 key (path proximity over changedFiles, longest shared directory prefix
+// first) is added by the sibling slice; changedFiles is the input that tiebreak will read.
 func rankStatic(cands []staticCandidate, changedFiles []string) []string {
 	ranked := append([]staticCandidate(nil), cands...)
 	sort.Slice(ranked, func(i, j int) bool {
 		a, b := ranked[i], ranked[j]
 		if a.Level != b.Level {
 			return a.Level < b.Level
+		}
+		if a.Level == 2 && a.Distance != b.Distance {
+			return a.Distance < b.Distance
 		}
 		return a.Test < b.Test
 	})
