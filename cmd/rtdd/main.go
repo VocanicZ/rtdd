@@ -107,7 +107,7 @@ func (e *env) noAdapterReason() string {
 //
 // An explicit --adapter path is an OVERRIDE, not a hint: a path the caller named and that
 // does not exist is a configuration error, never a silent fall back to detection.
-func loadEnv(adapterPath string) (*env, int, error) {
+func loadEnv(adapterPath string, warn io.Writer) (*env, int, error) {
 	wd, err := os.Getwd()
 	if err != nil {
 		return nil, 3, err
@@ -154,7 +154,7 @@ func loadEnv(adapterPath string) (*env, int, error) {
 	case explicit:
 		return nil, 2, fmt.Errorf("--adapter %s: %w", adapterPath, statErr)
 	default:
-		if ad, derr := detectAdapter(root); derr != nil {
+		if ad, derr := detectAdapter(root, warn); derr != nil {
 			e.adErr = derr
 		} else {
 			e.ad, e.adDetected = ad, true

@@ -88,7 +88,7 @@ func cmdExplain(args []string, stdout, stderr io.Writer) int {
 	}
 	arg := fs.Arg(0)
 
-	e, code, err := loadEnv("")
+	e, code, err := loadEnv("", stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "rtdd explain: %v\n", err)
 		return code

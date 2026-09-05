@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -35,15 +36,41 @@ func findRepoRoot(start string) (string, error) {
 	}
 }
 
-// detectAdapter picks the one adapter that matches repoRoot, from the set embedded
-// in the binary. Zero matches and more than one match are both configuration
-// errors (exit 2): rtdd never guesses which language it is looking at.
-func detectAdapter(repoRoot string) (*adapter.Adapter, error) {
-	all, err := adapter.Builtin()
+// detectAdapter picks the one adapter that matches repoRoot, from the built-in set
+// overlaid with the repo's own .rtdd/adapters/*.yaml. Zero matches and more than one
+// match are both configuration errors (exit 2): rtdd never guesses which language it
+// is looking at.
+//
+// A host adapter that failed to load is reported on warn and then skipped, never fatal:
+// a repo where someone is halfway through authoring one still runs on the adapters that
+// are valid. Skipping it silently would let a typo in a host override read as the
+// built-in simply winning, so the file and the failing field are always named.
+func detectAdapter(repoRoot string, warn io.Writer) (*adapter.Adapter, error) {
+	all, invalid, err := adapter.AvailableReport(repoRoot)
 	if err != nil {
 		return nil, err
 	}
+	warnInvalidAdapters(warn, repoRoot, invalid)
 	return adapter.Detect(repoRoot, all)
+}
+
+// warnInvalidAdapters prints one line per host adapter that did not load.
+func warnInvalidAdapters(warn io.Writer, repoRoot string, invalid []adapter.Invalid) {
+	if warn == nil {
+		return
+	}
+	for _, bad := range invalid {
+		fmt.Fprintf(warn, "rtdd: ignoring %s: %v\n", relToRoot(repoRoot, bad.Path), bad.Err)
+	}
+}
+
+// relToRoot renders a path the way someone standing in the repo would type it.
+func relToRoot(repoRoot, p string) string {
+	rel, err := filepath.Rel(repoRoot, p)
+	if err != nil {
+		return p
+	}
+	return filepath.ToSlash(rel)
 }
 
 // rowsFrom joins a run's coverage and its test report into map rows, one row per

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -79,6 +80,12 @@ type Adapter struct {
 	TestFor    []string      `yaml:"test_for"`    // path-correspondence templates, tried IN ORDER
 	Importscan *Importscan   `yaml:"importscan"`
 	Requires   []Requirement `yaml:"requires"`
+
+	// Src is the file this adapter was read from — an fs path inside the embedded set
+	// ("python.yaml") or an on-disk path for a host-authored one. It is never declared in
+	// YAML: it is how doctor and every error message name the file an adapter came from,
+	// and a declaration could lie about it. Spec §4.5.
+	Src string `yaml:"-"`
 }
 
 // The placeholders each template field may use. They are separate vocabularies because the
@@ -149,7 +156,20 @@ func LoadFS(fsys fs.FS, dir string) ([]*Adapter, error) {
 }
 
 // LoadAll reads every *.yaml in the on-disk directory dir.
-func LoadAll(dir string) ([]*Adapter, error) { return LoadFS(os.DirFS(dir), ".") }
+//
+// os.DirFS makes every path fs-relative, so LoadFS records Src as a bare file name.
+// Rewrite it to the path the caller can actually open: Src exists to be printed back to
+// someone who has to go and fix the file.
+func LoadAll(dir string) ([]*Adapter, error) {
+	out, err := LoadFS(os.DirFS(dir), ".")
+	if err != nil {
+		return nil, err
+	}
+	for _, a := range out {
+		a.Src = filepath.Join(dir, filepath.FromSlash(a.Src))
+	}
+	return out, nil
+}
 
 // Builtin returns the adapters embedded in the binary, so rtdd resolves "python"
 // without any adapter file on disk.
@@ -164,6 +184,7 @@ func parse(b []byte, src string) (*Adapter, error) {
 	if err := dec.Decode(&a); err != nil {
 		return nil, fmt.Errorf("adapter: %s: %w", src, err)
 	}
+	a.Src = src
 	a.applyDefaults()
 	if err := a.validate(); err != nil {
 		return nil, fmt.Errorf("adapter: %s: %w", src, err)
