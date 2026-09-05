@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/VocanicZ/rtdd/internal/adapter"
 	"github.com/VocanicZ/rtdd/internal/gitctx"
 	"github.com/VocanicZ/rtdd/internal/mapstore"
 	"github.com/VocanicZ/rtdd/internal/runner"
@@ -88,6 +89,10 @@ func cmdRun(args []string) int {
 	fb := newImportFallback(root, m, pre.UnmappedFiles)
 
 	merge, _ := gitctx.IsMergeCommit(root, "HEAD")
+	// The static tier's two resolvers, wired exactly as `which` wires them (staticResolvers
+	// in static.go). A resolver `run` did not supply is a level skipped, so an unwired
+	// `run` would execute the full suite in a repository `which` had narrowed to one test.
+	exists, importDistance, staticScanErr := staticResolvers(root, ad)
 	choose := func(allTests []string) selector.Selection {
 		return selector.Select(selector.Inputs{
 			Map:      m,
@@ -102,9 +107,11 @@ func cmdRun(args []string) int {
 				}
 				return d
 			},
-			Cycles:     mt.Cycles,
-			Merge:      merge,
-			ImportOnly: fb.testsImporting,
+			Cycles:         mt.Cycles,
+			Merge:          merge,
+			ImportOnly:     fb.testsImporting,
+			Exists:         exists,
+			ImportDistance: importDistance,
 		})
 	}
 
@@ -152,7 +159,13 @@ func cmdRun(args []string) int {
 		fmt.Fprintf(os.Stderr, "rtdd run: %s\n", importScanNote(scanErr))
 	}
 
-	warnings := runNotes(sel, scanErr)
+	// The declared scanner's failure, if any, is read AFTER selection: the scan runs inside
+	// Select, through the resolver above.
+	if err := staticScanErr(); err != nil {
+		fmt.Fprintf(os.Stderr, "rtdd run: %s\n", adapterImportScanNote(ad.Name, err))
+	}
+
+	warnings := runNotes(sel, scanErr, adapterScanWarning(ad, staticScanErr()))
 
 	if sel.Tier == selector.TierEmpty || len(sel.Tests) == 0 {
 		if *asJSON {
@@ -283,7 +296,7 @@ func cmdRun(args []string) int {
 // is skipped entirely. Without this warning the document an agent front-end reads is
 // indistinguishable from a green run of a real subset, which is precisely the silent
 // narrowing the contract forbids.
-func runNotes(sel selector.Selection, scanErr error) []string {
+func runNotes(sel selector.Selection, scanErr error, extra ...string) []string {
 	var out []string
 	if sel.Tier == selector.TierEmpty || len(sel.Tests) == 0 {
 		out = append(out, "an empty selection is not a pass. Nothing was checked.")
@@ -291,7 +304,22 @@ func runNotes(sel selector.Selection, scanErr error) []string {
 	if scanErr != nil {
 		out = append(out, importScanNote(scanErr))
 	}
+	for _, e := range extra {
+		if e != "" {
+			out = append(out, e)
+		}
+	}
 	return out
+}
+
+// adapterScanWarning is the declared scanner's failure as a document warning, or "" when
+// there was none. Under --json a consumer discards stderr, so a degradation that lives
+// only there is one the agent front-end never learns about.
+func adapterScanWarning(ad *adapter.Adapter, err error) string {
+	if err == nil || ad == nil {
+		return ""
+	}
+	return adapterImportScanNote(ad.Name, err)
 }
 
 // importScanNote is the one wording for a failed static import scan, shared by `run` and
