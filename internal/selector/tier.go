@@ -17,6 +17,11 @@ const (
 	TierDirect
 	TierT0
 	TierT1
+	// TierTS is the static tier (spec §4.1): tests chosen from declared test_for
+	// correspondence and transitive imports, used when the coverage relation cannot
+	// answer. It sits between T1 and T2 in confidence — narrower than the full suite,
+	// and never a substitute for a usable map.
+	TierTS
 	TierT2
 )
 
@@ -30,6 +35,8 @@ func (t Tier) String() string {
 		return "T0"
 	case TierT1:
 		return "T1"
+	case TierTS:
+		return "TS"
 	case TierT2:
 		return "T2"
 	}
@@ -74,4 +81,15 @@ type Inputs struct {
 	Cycles     int                       // from meta.json, for DriftGuard
 	Merge      bool                      // HEAD is a merge commit; escalates to T1
 	ImportOnly func(rel string) []string // static-import fallback; see M2
+
+	// Exists reports whether the repository has this repo-relative path. It resolves
+	// test_for templates (spec §4.2) without the selector touching a filesystem.
+	// nil means level-1 correspondence is skipped, not that it failed.
+	Exists func(rel string) bool
+
+	// ImportDistance maps a changed file to the test files that transitively import it,
+	// valued by the shortest number of import hops. It is the level-2 signal of spec
+	// §4.1. nil — an adapter declaring no importscan — means level 2 is skipped, not
+	// that it failed.
+	ImportDistance func(changed string) map[string]int
 }

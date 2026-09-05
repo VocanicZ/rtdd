@@ -442,3 +442,117 @@ func TestSelectEmptyReasonNamesADeletedTestFile(t *testing.T) {
 		t.Errorf("Reason = %q, want it to name the deleted test file", got.Reason)
 	}
 }
+
+// The static tier answers where the coverage relation cannot: no map, an adapter that
+// declares selection: static, and a test_for template naming a file that exists.
+func TestSelectResolvesTS(t *testing.T) {
+	in := staticInputs()
+
+	got := Select(in)
+
+	if got.Tier != TierTS {
+		t.Fatalf("Tier = %v (%s), want TierTS", got.Tier, got.Reason)
+	}
+	if len(got.Tests) != 1 || got.Tests[0] != "src/auth/token.test.ts" {
+		t.Errorf("Tests = %#v, want only the corresponding test", got.Tests)
+	}
+}
+
+// The whole point of spec §2's two-axis split: a static selection must never describe
+// itself with the words an execution-derived one uses.
+func TestSelectTSReasonNamesItsEvidenceAndNotCoverage(t *testing.T) {
+	got := Select(staticInputs())
+	if contains(got.Reason, "recorded coverage") {
+		t.Errorf("Reason = %q, must not contain %q", got.Reason, "recorded coverage")
+	}
+	if !contains(got.Reason, "correspondence") {
+		t.Errorf("Reason = %q, want it to name correspondence", got.Reason)
+	}
+}
+
+// Decision 2 of docs/plans/06-m6b-static-tier.md: fidelity none declares selection:
+// static, so the gate opens, but it can produce no candidate and path proximity may not
+// fill the gap. The honest answer is the full suite at T2, with a reason naming what the
+// adapter is missing — the same fact its rtdd doctor line reports.
+func TestSelectFidelityNoneIsAFullSuiteThatSaysWhy(t *testing.T) {
+	in := staticInputs()
+	ad := staticFixtureAdapter()
+	ad.TestFor = nil
+	in.Adapter = ad
+
+	got := Select(in)
+
+	if got.Tier != TierT2 {
+		t.Fatalf("Tier = %v (%s), want TierT2", got.Tier, got.Reason)
+	}
+	if len(got.Tests) != len(in.AllTests) {
+		t.Errorf("Tests = %#v, want the full suite", got.Tests)
+	}
+	for _, want := range []string{"typescript", "test_for", "importscan"} {
+		if !contains(got.Reason, want) {
+			t.Errorf("Reason = %q, want it to mention %q", got.Reason, want)
+		}
+	}
+	if contains(got.Reason, "recorded coverage") {
+		t.Errorf("Reason = %q, must not contain %q", got.Reason, "recorded coverage")
+	}
+}
+
+// A static adapter that HAS declarations but finds nothing for this particular change is
+// also the full suite, with its own reason — never an empty TS, which would report a tier
+// that narrowed nothing.
+func TestSelectAStaticAdapterThatFindsNothingIsAFullSuite(t *testing.T) {
+	in := staticInputs()
+	in.Exists = existsIn() // the templates expand, and name nothing that is there
+
+	got := Select(in)
+
+	if got.Tier != TierT2 {
+		t.Fatalf("Tier = %v (%s), want TierT2", got.Tier, got.Reason)
+	}
+	if len(got.Tests) != len(in.AllTests) {
+		t.Errorf("Tests = %#v, want the full suite", got.Tests)
+	}
+	if contains(got.Reason, "recorded coverage") {
+		t.Errorf("Reason = %q, must not contain %q", got.Reason, "recorded coverage")
+	}
+}
+
+// A seeded map that covers nothing in the changed set is an honest empty. Turning it into
+// a speculative static selection would replace a true "nothing is related" with a guess:
+// TS is for a map that CANNOT answer, not for one that answered zero.
+func TestSelectASeededMapSelectingNothingStaysEmpty(t *testing.T) {
+	in := baseInputs()
+	in.Changes = []gitctx.Change{mod("src/untouched.py")}
+	in.Exists = existsIn("tests/test_untouched.py")
+	in.Adapter = fixtureAdapter()
+	in.Adapter.TestFor = []string{"tests/test_{name}.py"}
+
+	got := Select(in)
+
+	if got.Tier != TierEmpty {
+		t.Fatalf("Tier = %v (%s), want TierEmpty: a seeded map answered", got.Tier, got.Reason)
+	}
+	if len(got.Tests) != 0 {
+		t.Errorf("Tests = %#v, want empty", got.Tests)
+	}
+}
+
+// An unseeded COVERAGE adapter keeps today's answer word for word — seeding really is
+// the fix for it, and adapters/python.yaml declares no static capability.
+func TestSelectAnUnseededCoverageRepoIsUnchanged(t *testing.T) {
+	in := baseInputs()
+	in.Map = mapstore.New()
+	in.Changes = []gitctx.Change{mod("src/auth.py")}
+	in.AllTests = []string{"tests/test_auth.py::test_login"}
+
+	got := Select(in)
+
+	if got.Tier != TierT2 {
+		t.Fatalf("Tier = %v, want TierT2", got.Tier)
+	}
+	const want = "the map is unseeded, so no selection is trustworthy: run rtdd seed"
+	if got.Reason != want {
+		t.Errorf("Reason = %q, want %q", got.Reason, want)
+	}
+}

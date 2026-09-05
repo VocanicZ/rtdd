@@ -1,0 +1,72 @@
+== direct only, brand new test file
+tier:   direct
+direct: tests/test_brand_new.py
+tests:  tests/test_brand_new.py
+reason: changed test files only; no mapped test covers the changed set
+
+== direct before mapped
+tier:   T0
+direct: tests/test_db.py
+tests:  tests/test_db.py tests/test_auth.py::test_logout tests/test_auth.py::test_login
+reason: tests whose recorded coverage intersects the changed set
+
+== deleted test file is not run
+tier:   empty
+direct: 
+tests:  
+reason: no test in the map covers the changed set; the only changed test files were deleted and cannot be run: tests/test_auth.py
+
+== T0 one source file
+tier:   T0
+direct: 
+tests:  tests/test_auth.py::test_logout tests/test_auth.py::test_login
+reason: tests whose recorded coverage intersects the changed set
+
+== T0 two source files
+tier:   T0
+direct: 
+tests:  tests/test_auth.py::test_logout tests/test_db.py::test_query tests/test_auth.py::test_login
+reason: tests whose recorded coverage intersects the changed set
+
+== T0 through a rename's old path
+tier:   T0
+direct: 
+tests:  tests/test_auth.py::test_logout tests/test_auth.py::test_login
+reason: tests whose recorded coverage intersects the changed set
+
+== empty, nothing covers the change
+tier:   empty
+direct: 
+tests:  
+reason: no test in the map covers the changed set, and no test file changed
+
+== T1 merge commit
+tier:   T1
+direct: 
+tests:  tests/test_auth.py::test_logout tests/test_auth.py::test_login
+reason: HEAD is a merge commit: a union-merged map can be stale relative to the merged code
+
+== T1 opaque file
+tier:   T1
+direct: 
+tests:  tests/test_render.py::test_page
+reason: opaque file changed (coverage cannot see inside it): templates/page.html
+
+== T1 stale row
+tier:   T1
+direct: 
+tests:  tests/test_auth.py::test_logout tests/test_auth.py::test_login
+reason: row tests/test_auth.py::test_login is 999 commits stale (limit 50)
+
+== T2 full-escalate file
+tier:   T2
+direct: 
+tests:  tests/test_auth.py::test_login tests/test_auth.py::test_logout tests/test_db.py::test_query tests/test_render.py::test_page
+reason: full-escalate file changed: requirements.txt
+
+== T2 drift guard
+tier:   T2
+direct: 
+tests:  tests/test_auth.py::test_login tests/test_auth.py::test_logout tests/test_db.py::test_query tests/test_render.py::test_page
+reason: drift guard reached: 100 cycles since the last full run (limit 100)
+

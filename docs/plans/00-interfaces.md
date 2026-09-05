@@ -1213,3 +1213,60 @@ suite may install it later.
 the duplicate-host-name error. A repo can be wrong in two ways at once, and the duplicate
 must not swallow the malformed-file report — that report is the only thing naming the file
 and the field to edit.
+
+---
+
+## M6b amendments — the `TS` static selection tier
+
+Added by [`06-m6b-static-tier.md`](06-m6b-static-tier.md). These are part of the contract.
+The `TS` ranking's later levels and the `cmd/rtdd` wiring land with the sibling slices;
+what is recorded here is what exists.
+
+### internal/selector
+
+```go
+// TierTS is the static tier (spec §4.1), ordered between TierT1 and TierT2. Its String()
+// is "TS". The documented resolution order in select.go is now: T2 escalations, T1
+// escalations, T0, TS, empty.
+//
+// TS is attempted when, and only when, the coverage relation cannot answer:
+//
+//     (in.Adapter != nil && in.Adapter.Selection == adapter.SelectionStatic) || map.Len() == 0
+//
+// A SEEDED map that selects nothing stays an explicit TierEmpty. A static adapter that
+// can produce no candidate returns the full suite at T2 with a reason naming what it
+// lacks — never an empty TS, and never advice to run `rtdd seed`.
+
+type Inputs struct {
+    // … M1a fields …
+
+    // Exists reports whether the repository has this repo-relative path; it resolves
+    // test_for templates without the selector touching a filesystem. nil skips level 1.
+    Exists func(rel string) bool
+
+    // ImportDistance maps a changed file to the tests that transitively import it,
+    // valued by the shortest number of hops. nil skips level 2.
+    ImportDistance func(changed string) map[string]int
+}
+```
+
+Ranking inside `TS`, most to least confident: declared `test_for` correspondence; import
+distance, shortest first; longest shared directory prefix. **The third level orders a
+selection and never contributes to one** — proximity alone is the `path` baseline spec §7
+pre-registers this tier against, so a test that only sits near a changed file is not a
+candidate.
+
+`internal/selector` imports nothing that touches the world, and
+`TestSelectorPackageStaysPure` enforces it across the package: every question about the
+repository arrives through `Inputs` as an injected function.
+
+### internal/adapter
+
+```go
+// TestForCandidate resolves this adapter's test_for templates against one changed source
+// file and returns the first template naming a file the repository actually has.
+// Templates are tried in declaration order; exists is injected so every caller up to
+// selector.Select stays pure. {dir} and {name} are the only placeholders, already
+// enforced by validateTemplates at load time.
+func (a *Adapter) TestForCandidate(rel string, exists func(string) bool) (string, bool)
+```
