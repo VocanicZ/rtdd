@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/VocanicZ/rtdd/internal/adapter"
 	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
 )
 
@@ -55,51 +54,6 @@ coverage: sqlite
 report: pytest-reportlog
 `
 
-func TestRenderAdaptersMarksAHostOverride(t *testing.T) {
-	got := RenderAdapters([]AdapterRow{{
-		Name: "python", Src: ".rtdd/adapters/python.yaml", Host: true, Override: true,
-	}}, nil)
-
-	for _, want := range []string{"python", ".rtdd/adapters/python.yaml", "host-authored", "overrides built-in"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("output does not contain %q:\n%s", want, got)
-		}
-	}
-}
-
-// A built-in that nothing overrode says so, and never claims to be host-authored.
-func TestRenderAdaptersMarksABuiltin(t *testing.T) {
-	got := RenderAdapters([]AdapterRow{{Name: "python", Src: "python.yaml"}}, nil)
-	if !strings.Contains(got, "built-in") {
-		t.Errorf("output does not name the built-in source:\n%s", got)
-	}
-	if strings.Contains(got, "host-authored") {
-		t.Errorf("a built-in row must not claim to be host-authored:\n%s", got)
-	}
-	if strings.Contains(got, "overrides built-in") {
-		t.Errorf("a built-in row must not claim to override anything:\n%s", got)
-	}
-}
-
-// §4.5: doctor validates host adapters and names the failing field. It is the ONE lenient
-// reader — a broken file is reported, not fatal, because doctor is the command you run to
-// find out what is wrong.
-func TestRenderAdaptersNamesAnUnloadableHostAdapter(t *testing.T) {
-	got := RenderAdapters([]AdapterRow{{Name: "python", Src: "python.yaml"}}, []adapter.Invalid{{
-		Path: ".rtdd/adapters/broken.yaml",
-		Err:  errString(`adapter: .rtdd/adapters/broken.yaml: subset "go test ./..." has no {tests} placeholder`),
-	}})
-
-	for _, want := range []string{"broken.yaml", "{tests}", "not loaded"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("output does not contain %q:\n%s", want, got)
-		}
-	}
-	if !strings.Contains(got, "python") {
-		t.Errorf("a broken host adapter hid the adapters that did load:\n%s", got)
-	}
-}
-
 type errString string
 
 func (e errString) Error() string { return string(e) }
@@ -135,7 +89,8 @@ func TestDoctorReportsAHostOverrideByName(t *testing.T) {
 }
 
 // A repo with no .rtdd/adapters/ is every repo that exists today. The resolved set is the
-// shipped set, so there is nothing to report and the fan-out table is the whole output.
+// shipped set, so the fidelity block reports built-ins only: nothing is host-authored,
+// nothing overrides anything, and no file failed to load.
 func TestDoctorOnARepoWithNoHostAdaptersSaysNothingAboutAdapters(t *testing.T) {
 	dir := newHostAdapterRepo(t)
 

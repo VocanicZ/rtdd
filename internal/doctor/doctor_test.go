@@ -72,3 +72,13 @@ func TestCaveatNamesEveryOncePerProcessMechanism(t *testing.T) {
 		}
 	}
 }
+
+// Spec §6: the static-tier caveat states BOTH halves — what a static selection can miss,
+// and what passing one is worth. Either half alone reads as a failure or as a licence.
+func TestStaticCaveatNamesTheMissAndTheWeakerEvidence(t *testing.T) {
+	for _, needle := range []string{"static", "miss", "execution-derived", "weaker evidence"} {
+		if !strings.Contains(StaticCaveat, needle) {
+			t.Fatalf("StaticCaveat is missing %q:\n%s", needle, StaticCaveat)
+		}
+	}
+}
