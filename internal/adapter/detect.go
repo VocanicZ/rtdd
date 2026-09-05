@@ -33,7 +33,7 @@ var skipDirs = map[string]bool{
 //
 // Markers are files. A directory named pyproject.toml declares nothing.
 func Detect(repoRoot string, adapters []*Adapter) (*Adapter, error) {
-	matched, err := detectAll(repoRoot, adapters)
+	matched, err := DetectAll(repoRoot, adapters)
 	if err != nil {
 		return nil, err
 	}
@@ -52,10 +52,15 @@ func Detect(repoRoot string, adapters []*Adapter) (*Adapter, error) {
 	}
 }
 
-// detectAll walks repoRoot ONCE and reports every adapter with a matching marker. One
-// walk rather than one per pattern keeps detection linear in the size of the repo however
-// many adapters are installed, and it stops early once nothing is left to decide.
-func detectAll(repoRoot string, adapters []*Adapter) ([]*Adapter, error) {
+// DetectAll walks repoRoot ONCE and reports every adapter with a matching marker, in the
+// order the adapters were given (adapter.Available sorts them by name). One walk rather
+// than one per pattern keeps detection linear in the size of the repo however many
+// adapters are installed, and it stops early once nothing is left to decide.
+//
+// Detect stays the one-adapter arity check over it. `rtdd init` gates on "at least one"
+// (spec §5), which is a weaker question than selection asks: a repo two adapters match
+// is a repo RTDD can be installed into, even though v1 will not select in it.
+func DetectAll(repoRoot string, adapters []*Adapter) ([]*Adapter, error) {
 	hit := make([]bool, len(adapters))
 	undecided := 0
 	for _, a := range adapters {

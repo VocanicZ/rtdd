@@ -302,6 +302,25 @@ type UnmetFinding struct {
 // Exactly one match required; zero or multiple is an error (polyglot is out of scope in v1).
 func Detect(repoRoot string, adapters []*Adapter) (*Adapter, error)
 
+// DetectAll is the single repo walk Detect is the arity check over: it reports every
+// adapter with a matching marker, in the order the adapters were given. `rtdd init`
+// gates on "at least one" (spec §5), which is a weaker question than selection asks —
+// a repo two adapters match is still a repo RTDD can be installed into.
+func DetectAll(repoRoot string, adapters []*Adapter) ([]*Adapter, error)
+
+// UnsupportedMarkers maps a well-known toolchain marker to the language it announces,
+// keyed by file name or `*.ext`. It drives ONE message — init's refusal, which spec §5
+// requires to name what the repository does contain — and nothing else: it is never
+// consulted by detection, selection or classification, and an entry is not a claim of
+// support. Only an adapter supports a language.
+var UnsupportedMarkers map[string]string
+
+// UnsupportedToolchains names the markers present in repoRoot as sorted
+// "package.json (JavaScript/TypeScript)" strings. It reads the ROOT only,
+// non-recursively: a marker deep in the tree is as likely to belong to a fixture or an
+// example as to the repository itself.
+func UnsupportedToolchains(repoRoot string) []string
+
 // IsTestFile: matches TestGlobs AND is not a FullEscalate match. The FullEscalate term
 // is a deliberate narrowing of the predicate: a fixture module such as tests/conftest.py
 // matches a broad test glob like tests/**/*.py but collects no tests, and naming it as a
