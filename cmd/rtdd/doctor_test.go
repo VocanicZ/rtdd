@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/VocanicZ/rtdd/internal/doctor"
+	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
 )
 
 func TestRenderDoctorTable(t *testing.T) {
@@ -119,6 +120,9 @@ func TestRenderDoctorSingularTestCount(t *testing.T) {
 
 func TestDoctorCommandRanksFilesByFanOut(t *testing.T) {
 	dir := newTestRepo(t)
+	// The python adapter's detection marker: doctor reports fidelity per DETECTED
+	// adapter, so the golden output below is what a plain seeded Python repo prints.
+	gittest.Write(t, dir, "pyproject.toml", "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n")
 	installRTDD(t, dir, headShort(t, dir), 0)
 
 	code, stdout, stderr := rtdd(t, dir, "doctor")

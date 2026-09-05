@@ -6,6 +6,7 @@ import (
 
 	"github.com/VocanicZ/rtdd/internal/adapter"
 	"github.com/VocanicZ/rtdd/internal/doctor"
+	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
 )
 
 func TestRenderFidelityExecutionDerived(t *testing.T) {
@@ -219,6 +220,9 @@ requires:
 // every adapter it resolved, host-authored ones included, with the reason attached.
 func TestDoctorReportsStaticFidelityWithItsReasonAndCaveat(t *testing.T) {
 	dir := newHostAdapterRepo(t)
+	// The marker, not just the file: doctor reports the fidelity a repository can
+	// achieve, so an adapter has to be DETECTED here before its row is that claim.
+	gittest.Write(t, dir, "vitest.config.ts", "export default {}\n")
 	writeHostAdapter(t, dir, "vitest.yaml", hostStaticVitestYAML)
 
 	code, stdout, stderr := rtdd(t, dir, "doctor")
@@ -243,6 +247,7 @@ func TestDoctorReportsStaticFidelityWithItsReasonAndCaveat(t *testing.T) {
 // consequence and the fix — never as a bare verdict, and never dressed up as `static`.
 func TestDoctorReportsNoneWithTheConsequenceAndTheFix(t *testing.T) {
 	dir := newHostAdapterRepo(t)
+	gittest.Write(t, dir, "mix.exs", "defmodule Demo.MixProject do\nend\n")
 	writeHostAdapter(t, dir, "elixir.yaml", hostNothingElixirYAML)
 
 	code, stdout, stderr := rtdd(t, dir, "doctor")
@@ -265,6 +270,7 @@ func TestDoctorReportsNoneWithTheConsequenceAndTheFix(t *testing.T) {
 // adapter that needs it and the declared reason — and doctor still exits 0.
 func TestDoctorReportsAnUnmetPrerequisiteAndStillExitsZero(t *testing.T) {
 	dir := newHostAdapterRepo(t)
+	gittest.Write(t, dir, "vitest.config.ts", "export default {}\n")
 	writeHostAdapter(t, dir, "vitest.yaml", hostRequiresYAML)
 
 	code, stdout, stderr := rtdd(t, dir, "doctor")
@@ -300,6 +306,7 @@ func TestDoctorIsSilentAboutPrerequisitesWhenNoneAreMissing(t *testing.T) {
 // different questions and neither substitutes for the other.
 func TestDoctorPrintsBothCaveats(t *testing.T) {
 	dir := newHostAdapterRepo(t)
+	gittest.Write(t, dir, "mix.exs", "defmodule Demo.MixProject do\nend\n")
 	writeHostAdapter(t, dir, "elixir.yaml", hostNothingElixirYAML)
 
 	code, stdout, stderr := rtdd(t, dir, "doctor")
@@ -310,5 +317,174 @@ func TestDoctorPrintsBothCaveats(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("doctor output does not contain:\n%s\ngot:\n%s", want, stdout)
 		}
+	}
+}
+
+// newVitestRepo is a TypeScript repo the built-in python adapter does NOT detect: the
+// bug this fixture exists for is a TS repo being told `python … execution-derived`.
+func newVitestRepo(t *testing.T) string {
+	t.Helper()
+	dir := gittest.Init(t)
+	gittest.Write(t, dir, "package.json", "{\"name\":\"demo\"}\n")
+	gittest.Write(t, dir, "vitest.config.ts", "export default {}\n")
+	gittest.Write(t, dir, "src/logic.ts", "export const add = (a: number, b: number) => a + b\n")
+	gittest.Write(t, dir, "src/logic.test.ts", "test('add', () => {})\n")
+	gittest.Write(t, dir, ".gitignore", ".rtdd/\n")
+	gittest.Commit(t, dir, "init")
+	return dir
+}
+
+// fidelityBlock is the part of doctor's output that answers "what can THIS repository
+// achieve" — everything above the separately headed undetected section, with the caveat
+// stripped so its legitimate mention of execution-derived is not read as a row's claim.
+func fidelityBlock(t *testing.T, stdout string) string {
+	t.Helper()
+	block := stdout
+	if i := strings.Index(block, undetectedHeading); i >= 0 {
+		block = block[:i]
+	}
+	return strings.ReplaceAll(block, doctor.StaticCaveat, "")
+}
+
+// Spec §6 / PRD #229 AC8: the fidelity report is per DETECTED adapter. A TypeScript repo
+// must never be told `python … execution-derived` — under a heading that reads `selection
+// fidelity`, an undetected row is a fidelity claim this repository cannot cash.
+func TestDoctorScopesFidelityToTheDetectedAdapters(t *testing.T) {
+	dir := newVitestRepo(t)
+	writeHostAdapter(t, dir, "vitest.yaml", hostStaticVitestYAML)
+
+	code, stdout, stderr := rtdd(t, dir, "doctor")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	block := fidelityBlock(t, stdout)
+	if !strings.Contains(block, "vitest") || !strings.Contains(block, "static") {
+		t.Errorf("the detected adapter is missing from the fidelity block:\n%s", block)
+	}
+	if strings.Contains(block, "python") {
+		t.Errorf("doctor presented the undetected built-in python as this repository's fidelity:\n%s", block)
+	}
+	if strings.Contains(block, "execution-derived") {
+		t.Errorf("doctor claimed a fidelity this repository cannot achieve:\n%s", block)
+	}
+}
+
+// AC5: an adapter that resolved but detects nothing here is still visible — "I wrote
+// .rtdd/adapters/vitest.yaml and doctor says nothing" is a worse diagnostic than the bug —
+// under a heading that cannot be read as this repository's fidelity, with its markers.
+func TestDoctorListsAResolvedButUndetectedAdapterUnderItsOwnHeading(t *testing.T) {
+	dir := newVitestRepo(t)
+	writeHostAdapter(t, dir, "vitest.yaml", hostStaticVitestYAML)
+	writeHostAdapter(t, dir, "elixir.yaml", hostNothingElixirYAML)
+
+	code, stdout, stderr := rtdd(t, dir, "doctor")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	i := strings.Index(stdout, undetectedHeading)
+	if i < 0 {
+		t.Fatalf("doctor dropped the resolved-but-undetected adapters entirely:\n%s", stdout)
+	}
+	tail := stdout[i:]
+	for _, want := range []string{"elixir", "mix.exs", "python", "pyproject.toml"} {
+		if !strings.Contains(tail, want) {
+			t.Errorf("the undetected section does not name %q:\n%s", want, tail)
+		}
+	}
+	if strings.Contains(tail, string(adapter.FidelityExecution)) {
+		t.Errorf("the undetected section stated a fidelity, which is exactly what it must not do:\n%s", tail)
+	}
+}
+
+// AC2: the `none` verdict is reachable end-to-end, through cmdDoctor and not only through
+// RenderFidelity — this is the state `rtdd init --force` leaves behind.
+func TestDoctorPrintsTheNoneVerdictWhenNoAdapterDetectsTheRepository(t *testing.T) {
+	dir := gittest.Init(t)
+	gittest.Write(t, dir, "README.md", "# demo\n")
+	gittest.Write(t, dir, ".gitignore", ".rtdd/\n")
+	gittest.Commit(t, dir, "init")
+
+	code, stdout, stderr := rtdd(t, dir, "doctor")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	for _, want := range []string{"selection fidelity", "none", "full suite", "Fix:", doctor.StaticCaveat} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("doctor output does not contain %q:\n%s", want, stdout)
+		}
+	}
+	if strings.Contains(fidelityBlock(t, stdout), "execution-derived") {
+		t.Errorf("a repo no adapter detects was told it can reach execution-derived selection:\n%s", stdout)
+	}
+}
+
+// AC3: the caveat describes the DETECTED selection. An undetected static adapter is not
+// this repository's weakness, so it must not drag the caveat in.
+func TestDoctorOmitsTheStaticCaveatWhenTheDetectedAdapterIsExecutionDerived(t *testing.T) {
+	dir := newHostAdapterRepo(t)
+	writeHostAdapter(t, dir, "vitest.yaml", hostStaticVitestYAML)
+
+	code, stdout, stderr := rtdd(t, dir, "doctor")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	if strings.Contains(stdout, doctor.StaticCaveat) {
+		t.Errorf("the static caveat was printed for an adapter this repository does not use:\n%s", stdout)
+	}
+}
+
+// AC4: prerequisites are the detected adapters' prerequisites. Naming a binary nothing
+// here needs sends an agent to install a toolchain this repository never runs.
+func TestDoctorReportsPrerequisitesOnlyForDetectedAdapters(t *testing.T) {
+	dir := newHostAdapterRepo(t)
+	writeHostAdapter(t, dir, "vitest.yaml", hostRequiresYAML)
+
+	code, stdout, stderr := rtdd(t, dir, "doctor")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	if strings.Contains(stdout, "rtdd-no-such-binary") {
+		t.Errorf("doctor demanded a binary only an undetected adapter needs:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "prerequisites") {
+		t.Errorf("doctor printed a prerequisites heading with nothing detected to need one:\n%s", stdout)
+	}
+}
+
+func TestRenderUndetectedIsSilentWhenEverythingIsDetected(t *testing.T) {
+	if got := RenderUndetected(nil); got != "" {
+		t.Errorf("RenderUndetected(nil) = %q, want the empty string", got)
+	}
+}
+
+// The section names the adapter, where it came from, and the markers that would have
+// matched — and states no fidelity, because an adapter this repository does not use has
+// no fidelity here to state.
+func TestRenderUndetectedNamesTheMarkersAndStatesNoFidelity(t *testing.T) {
+	got := RenderUndetected([]FidelityRow{{
+		Name: "python", Src: "python.yaml", Fidelity: adapter.FidelityExecution,
+		Why:     "selection: coverage with coverage: sqlite",
+		Markers: []string{"pytest.ini", "pyproject.toml"},
+	}})
+	for _, want := range []string{undetectedHeading, "python", "python.yaml", "pytest.ini", "pyproject.toml"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output does not contain %q:\n%s", want, got)
+		}
+	}
+	for _, unwanted := range []string{string(adapter.FidelityExecution), "selection: coverage"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("the undetected section stated %q, which cannot be read as this repo's fidelity:\n%s", unwanted, got)
+		}
+	}
+}
+
+// An adapter with no detect: globs can never be detected; saying "no file matches its
+// markers" about an empty list would be a riddle.
+func TestRenderUndetectedExplainsAnAdapterWithNoMarkers(t *testing.T) {
+	got := RenderUndetected([]FidelityRow{{
+		Name: "nomarkers", Src: ".rtdd/adapters/nomarkers.yaml", Host: true, Fidelity: adapter.FidelityNone,
+	}})
+	if !strings.Contains(got, "no detect: markers") {
+		t.Errorf("output does not explain the empty marker list:\n%s", got)
 	}
 }
