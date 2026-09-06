@@ -19,8 +19,10 @@ import (
 
 // cmdRun selects, executes, refreshes the map, and reports.
 //
-// It exits nonzero ONLY when a test failed. An empty selection is exit 0 and is
-// reported explicitly, so it can never read as "all passed" (spec §5).
+// It exits nonzero when a test failed, and when an adapter never got as far as running —
+// a subset or an enumeration that could not start is an environment failure, not a pass.
+// A GENUINELY empty selection, one no failure caused, is exit 0 and is reported
+// explicitly, so it can never read as "all passed" (spec §5).
 //
 // `f` is UNIONED, never replaced (spec §4, decision D11, audit A4): a subset run
 // legitimately records less coverage than the seed, because import-time and
@@ -140,6 +142,19 @@ func cmdRun(args []string) int {
 	}
 
 	if selectionIsEmpty(sel) {
+		// An adapter whose enumeration failed is reported HERE too, and folds its code.
+		// The empty selection is a CONSEQUENCE of that failure — a T2 block whose
+		// enumeration never returned a list has nothing to run — so returning 0 from this
+		// branch, ahead of the loop below that exists to report EnumErr, turns a broken
+		// toolchain into "nothing to do here" on both output paths (PRD #232 AC7).
+		enumRuns := enumFailures(blocks)
+		for _, r := range enumRuns {
+			warnings = append(warnings, adapterFailureNote(r.Adapter, r.Err, true))
+		}
+		code := FoldExitCodes(enumRuns)
+		if anyAdapterFailedToRun(enumRuns) {
+			fmt.Fprint(os.Stderr, renderAdapterRuns(enumRuns))
+		}
 		if *asJSON {
 			// Nothing executed, so there is no fresh coverage and therefore no honest
 			// uncovered report: UncoveredOK stays false and `files` is omitted rather
@@ -158,13 +173,14 @@ func cmdRun(args []string) int {
 				Warnings:        warnings,
 				Blocks:          blocks,
 			})
+			out.ExitCode = code
 			if err := emitJSON(out); err != nil {
 				return 2
 			}
-			return finishCycle(root, mt, 0)
+			return finishCycle(root, mt, code)
 		}
 		fmt.Println("EMPTY SELECTION - nothing ran. This is not a pass.")
-		return finishCycle(root, mt, 0)
+		return finishCycle(root, mt, code)
 	}
 
 	sha, err := gitctx.HeadSHA(root)
@@ -217,7 +233,7 @@ func cmdRun(args []string) int {
 			runs = append(runs, AdapterRun{Adapter: blk.Adapter, Err: err, Code: code, Hints: hints})
 			// The warning reaches the --json document too: a consumer discards stderr,
 			// and a run whose Maven half never started must not read as a green one.
-			warnings = append(warnings, fmt.Sprintf("%s: the subset invocation failed: %v", blk.Adapter, err))
+			warnings = append(warnings, adapterFailureNote(blk.Adapter, err, blk.EnumErr != nil))
 			continue
 		}
 		for _, row := range rowsFrom(res, sha, blk.Adapter) {
@@ -415,6 +431,33 @@ func finishCycle(root string, mt meta, code int) int {
 		return 3
 	}
 	return code
+}
+
+// enumFailures is the per-adapter report for every block whose enumeration failed, with
+// the same exit code and operator hints the subset path derives from a runner error: for
+// a `report: junit-xml` adapter enumerating IS running, so the two are one class of
+// failure and must not be classified two ways.
+func enumFailures(blocks []AdapterSelection) []AdapterRun {
+	var runs []AdapterRun
+	for _, blk := range blocks {
+		if blk.EnumErr == nil {
+			continue
+		}
+		code, hints := runErrClass(blk.EnumErr)
+		runs = append(runs, AdapterRun{Adapter: blk.Adapter, Err: blk.EnumErr, Code: code, Hints: hints})
+	}
+	return runs
+}
+
+// adapterFailureNote is the document warning for an adapter that produced no results,
+// worded by WHICH invocation failed. An enumeration that could not start never got as far
+// as a subset, and calling it "the subset invocation" would send an operator to the wrong
+// command — the enumeration is the one to reproduce.
+func adapterFailureNote(name string, err error, enum bool) string {
+	if enum {
+		return fmt.Sprintf("%s: enumerating the suite failed: %v", name, err)
+	}
+	return fmt.Sprintf("%s: the subset invocation failed: %v", name, err)
 }
 
 // anyAdapterFailedToRun reports whether some adapter's subset invocation never produced a
