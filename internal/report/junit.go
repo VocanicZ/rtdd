@@ -179,36 +179,39 @@ func ReadJUnitFile(path string) ([]JUnitCase, error) {
 	var suites []junitSuite
 	switch root.Name.Local {
 	case "testsuites":
-		// Failure and Error are direct children of the ROOT — a <failure> inside a
-		// <testsuite> is that suite's and stays walkSuite's, because encoding/xml matches
-		// a plain field name against direct children only. Decoding <testsuite> alone
-		// dropped a root-level one silently, which is the same report-says-it-blew-up,
-		// parser-says-nothing-ran false green AC5 refuses one element lower.
-		var wrapper struct {
-			Name    string       `xml:"name,attr"`
-			Suites  []junitSuite `xml:"testsuite"`
-			Failure *junitDetail `xml:"failure"`
-			Error   *junitDetail `xml:"error"`
-		}
+		// The root is read by the SAME explicit walk a <testsuite> gets, and for the same
+		// reason: struct tags name the children they want and encoding/xml discards every
+		// other one without a word. Decoding <testsuite>, <failure> and <error> alone
+		// therefore dropped a <testcase> written directly under the root — go-junit-report
+		// and jest-junit both emit one for a test belonging to no suite — and took its
+		// result with it. In a single-file report ErrNoTestcases caught the fallout; in a
+		// DIRECTORY report a sibling file supplies the tests, so a failing case simply
+		// disappeared behind a green run. Reusing junitSuite keeps the root's cases in
+		// document order beside its suites, so the case is reported rather than refused.
+		var wrapper junitSuite
 		if err := dec.DecodeElement(&wrapper, &root); err != nil {
 			return nil, fmt.Errorf("report: %w: %s: %v", ErrMalformedReport, path, err)
 		}
-		// A root owns no <testcase> — the schema does not permit one — so unlike a suite
-		// there is no "this is a summary, the cases carry the detail" reading of a
-		// root-level failure. It is decided before the suites are walked so the outer
-		// cause wins over any inner symptom, and so the suites that did report are not
-		// handed back as the run: they are the part that happened to survive.
-		name := wrapper.Name
-		if name == "" {
-			name = "<" + root.Name.Local + ">"
+		// An unnamed root still has to say something a human can act on, so it falls back
+		// to the element itself — as the suite of its own cases as well as in its errors.
+		if wrapper.Name == "" {
+			wrapper.Name = "<" + root.Name.Local + ">"
 		}
+		// A root-level <failure> is decided here rather than left to walkSuite's gate,
+		// which spares a suite carrying cases of its own on the "this is a summary, the
+		// cases carry the detail" reading. A root gets no such reading: the schema does
+		// not permit it a <testcase> at all, so one written there says nothing about
+		// whether the run the root declares dead actually ran. Deciding it before the walk
+		// also keeps the outer cause winning over any inner symptom, and keeps the suites
+		// that did report from being handed back as the run — they are the part that
+		// happened to survive.
 		if detail := wrapper.Failure; detail != nil {
-			return nil, suiteFailure(path, name, detail)
+			return nil, suiteFailure(path, wrapper.Name, detail)
 		}
 		if detail := wrapper.Error; detail != nil {
-			return nil, suiteFailure(path, name, detail)
+			return nil, suiteFailure(path, wrapper.Name, detail)
 		}
-		suites = wrapper.Suites
+		suites = []junitSuite{wrapper}
 	case "testsuite":
 		var s junitSuite
 		if err := dec.DecodeElement(&s, &root); err != nil {

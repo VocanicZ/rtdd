@@ -939,3 +939,89 @@ func TestReadJUnitReportRefusesADirectoryWhoseFilesAllNameNoTest(t *testing.T) {
 		t.Fatalf("error = %v, want ErrNoTestcases", err)
 	}
 }
+
+// ErrNoTestcases is decided for the report as a WHOLE, so a directory report where a
+// sibling file reports tests never reaches it — and a root-level <testcase> the parser
+// dropped therefore took its failure out of the run with no error at all: one passing test
+// and exit 0. The root-level case is read, so the failing one is in the outcomes.
+func TestReadJUnitReportDoesNotDropARootLevelTestcaseInADirectoryReport(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "reports")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	write("TEST-a.xml", `<testsuites name="a"><testcase classname="X" name="lost"><failure message="boom"/></testcase></testsuites>`)
+	write("TEST-b.xml", `<testsuites name="b"><testsuite name="b"><testcase classname="Y" name="kept"/></testsuite></testsuites>`)
+
+	p, err := NewReportPath(root, "reports/")
+	if err != nil {
+		t.Fatalf("NewReportPath: %v", err)
+	}
+	outs, err := ReadJUnitReport(p, "{classname}#{name}")
+	if err != nil {
+		t.Fatalf("ReadJUnitReport: %v", err)
+	}
+	if len(outs) != 2 {
+		t.Fatalf("outcomes = %+v, want both the root-level case and the sibling file's", outs)
+	}
+	var lost *Outcome
+	for i := range outs {
+		if outs[i].Test == "X#lost" {
+			lost = &outs[i]
+		}
+	}
+	if lost == nil {
+		t.Fatalf("outcomes = %+v, want one named %q — a failing case a sibling file hides is a false green", outs, "X#lost")
+	}
+	if lost.Status != "fail" {
+		t.Errorf("%q status = %q, want %q", lost.Test, lost.Status, "fail")
+	}
+}
+
+// The same shape as a SINGLE-file report: the root-level case is read there too, so the
+// new behaviour is distinguishable from ErrNoTestcases rather than hidden behind it.
+func TestReadJUnitReportReadsARootLevelTestcaseFromASingleFileReport(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "junit.xml"),
+		[]byte(`<testsuites name="a"><testcase classname="X" name="lost"><failure message="boom"/></testcase></testsuites>`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	p, err := NewReportPath(root, "junit.xml")
+	if err != nil {
+		t.Fatalf("NewReportPath: %v", err)
+	}
+	outs, err := ReadJUnitReport(p, "{classname}#{name}")
+	if err != nil {
+		t.Fatalf("ReadJUnitReport: %v", err)
+	}
+	if len(outs) != 1 || outs[0].Test != "X#lost" || outs[0].Status != "fail" {
+		t.Fatalf("outcomes = %+v, want the one failing root-level case", outs)
+	}
+}
+
+// The empty rendered id reaches the report reader as an error rather than as a folded row:
+// two cases with no classname= under a "{classname}" template used to become ONE outcome
+// named "", carrying whichever status ranked worst and hiding the other case entirely.
+func TestReadJUnitReportRefusesCasesWhoseIDRendersEmpty(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "junit.xml"),
+		[]byte(`<testsuite name="s"><testcase name="one" time="0.01"/><testcase name="two" time="0.02"><failure message="boom"/></testcase></testsuite>`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	p, err := NewReportPath(root, "junit.xml")
+	if err != nil {
+		t.Fatalf("NewReportPath: %v", err)
+	}
+	outs, err := ReadJUnitReport(p, "{classname}")
+	if err == nil {
+		t.Fatalf("ReadJUnitReport = %+v, nil error; two cases folded into one row named \"\"", outs)
+	}
+	if !errors.Is(err, ErrEmptyRenderedID) {
+		t.Fatalf("error = %v, want errors.Is(_, ErrEmptyRenderedID)", err)
+	}
+}

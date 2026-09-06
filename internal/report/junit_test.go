@@ -591,3 +591,75 @@ func TestReadJUnitFileRootGuardDoesNotClaimANestedSuitesFailure(t *testing.T) {
 		t.Errorf("error %q must name the SUITE that failed, not the root", err)
 	}
 }
+
+// A <testcase> written directly under the <testsuites> ROOT is not in the schema, and the
+// root wrapper decoded <testsuite>, <failure> and <error> by struct tag — so encoding/xml
+// discarded it, silently, along with whatever it reported. go-junit-report and jest-junit
+// both emit one for a test that belongs to no suite, and a failing case that vanishes is
+// the false green this parser refuses everywhere else: the case is surfaced, attributed to
+// the root, rather than dropped.
+func TestReadJUnitFileSurfacesATestcaseWrittenDirectlyUnderTheRoot(t *testing.T) {
+	const rootCase = `<?xml version="1.0"?>
+<testsuites name="go test">
+  <testcase classname="pkg" name="TestLost" time="0.02"><failure message="boom"/></testcase>
+  <testsuite name="pkg/inner"><testcase classname="pkg.inner" name="TestKept"/></testsuite>
+</testsuites>
+`
+	cases, err := ReadJUnitFile(writeXML(t, rootCase))
+	if err != nil {
+		t.Fatalf("ReadJUnitFile: %v", err)
+	}
+	if len(cases) != 2 {
+		t.Fatalf("ReadJUnitFile = %+v, want the root-level case AND the nested suite's case", cases)
+	}
+	// Document order: the root-level case was written first.
+	lost := cases[0]
+	if lost.Name != "TestLost" || lost.Classname != "pkg" {
+		t.Fatalf("first case = %+v, want the root-level TestLost", lost)
+	}
+	if lost.Status != "fail" {
+		t.Errorf("root-level case status = %q, want %q — its <failure> travels with it", lost.Status, "fail")
+	}
+	if lost.DurationMS != 20 {
+		t.Errorf("root-level case DurationMS = %d, want 20", lost.DurationMS)
+	}
+	if lost.Suite != "go test" {
+		t.Errorf("root-level case Suite = %q, want the root's own name %q", lost.Suite, "go test")
+	}
+	if cases[1].Name != "TestKept" {
+		t.Errorf("second case = %+v, want the nested suite's TestKept", cases[1])
+	}
+}
+
+// The root's name is what every message in this package points a human at, and a root that
+// names itself nothing still has to say something: the element itself, exactly as the
+// root-level failure message already falls back to.
+func TestReadJUnitFileNamesAnUnnamedRootAsTheSuiteOfItsOwnTestcase(t *testing.T) {
+	const rootCase = `<testsuites><testcase classname="pkg" name="TestLoose"/></testsuites>`
+	cases, err := ReadJUnitFile(writeXML(t, rootCase))
+	if err != nil {
+		t.Fatalf("ReadJUnitFile: %v", err)
+	}
+	if len(cases) != 1 {
+		t.Fatalf("ReadJUnitFile = %+v, want the one root-level case", cases)
+	}
+	if cases[0].Suite != "<testsuites>" {
+		t.Errorf("Suite = %q, want %q", cases[0].Suite, "<testsuites>")
+	}
+}
+
+// A root-level <failure> still wins over a root-level <testcase>: there is no summary
+// reading of a root, so a report that says the run itself blew up is never traded for the
+// part of it that happened to be written.
+func TestReadJUnitFileRootLevelFailureWinsOverARootLevelTestcase(t *testing.T) {
+	const both = `<testsuites name="run"><failure message="root blew up"/>
+  <testcase classname="pkg" name="TestLoose"/>
+</testsuites>`
+	got, err := ReadJUnitFile(writeXML(t, both))
+	if err == nil {
+		t.Fatalf("ReadJUnitFile = %v, nil error", got)
+	}
+	if !errors.Is(err, ErrSuiteFailure) || !strings.Contains(err.Error(), "root blew up") {
+		t.Fatalf("error = %v, want the root's own message under ErrSuiteFailure", err)
+	}
+}
