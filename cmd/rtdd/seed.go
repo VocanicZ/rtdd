@@ -44,20 +44,23 @@ func cmdSeed(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "rtdd:", err)
 		return 2
 	}
-	// TODO(#320): seeding a polyglot repository seeds every coverage adapter in the
-	// detected set; until Task 11 lands it seeds the first, exactly as it did when
-	// detection could only ever return one. The set is already recorded in meta.json
-	// below, so the map it writes says which adapter produced every row.
-	ad := detected[0]
-	// Seeding is advice that only applies to an adapter that records coverage. A
-	// selection: static adapter declares coverage: none, so there is no map to build and
-	// nothing this command could do. Exiting 0 here would be the worse failure: it leaves
-	// the caller believing a map exists, and every later command would be read against a
-	// map that was never written. Exit 2 — the adapter's declaration is what makes the
-	// request impossible, which is a configuration error.
-	if msg := staticSeedRefusal(ad); msg != "" {
+	// Decision 6: a mixed repository seeds its coverage half and NAMES its static half.
+	// The exit-2 refusal is for a repository whose coverage half is empty — refusing here
+	// would strand the map the Python half of a polyglot repository genuinely needs.
+	//
+	// Exiting 0 having built no map is the worse failure of the two: it leaves the caller
+	// believing a map exists, and every later command is then read against a map that was
+	// never written. So an empty coverage half is exit 2 — the adapters' own declarations
+	// are what make the request impossible, which is a configuration error.
+	plan, msg := seedPlan(detected)
+	if len(plan) == 0 {
 		fmt.Fprint(stderr, msg)
 		return 2
+	}
+	// The static half's sentence goes to stdout beside the work, not to stderr: nothing
+	// went wrong, and the reader needs it to know why the map holds no vitest row.
+	if msg != "" {
+		fmt.Fprint(stdout, msg)
 	}
 
 	sha, err := gitctx.HeadSHA(root)
@@ -66,15 +69,30 @@ func cmdSeed(args []string, stdout, stderr io.Writer) int {
 		return 3
 	}
 
-	fmt.Fprintf(stdout, "seeding with the %s adapter (one full instrumented run)\n", ad.Name)
-	res, err := runner.Seed(ad, root)
-	if err != nil {
-		return reportRunErr(err)
-	}
-
+	// One instrumented run per coverage adapter, each row tagged with the adapter that
+	// produced it so no adapter is ever served another's ids (PRD #232 AC6).
+	//
+	// A run that fails outright still returns here rather than folding a per-adapter code:
+	// seed writes the map once, at the end, and a half-written map is worse than none.
+	// Decision 5's fold is about `run`, which has a result per adapter to keep.
 	m := mapstore.New()
-	for _, row := range rowsFrom(res, sha, ad.Name) {
-		m.Replace(row) // seed only; see the doc comment above
+	code := 0
+	var failed []string
+	for _, ad := range plan {
+		fmt.Fprintf(stdout, "seeding with the %s adapter (one full instrumented run)\n", ad.Name)
+		res, err := runner.Seed(ad, root)
+		if err != nil {
+			return reportRunErr(err)
+		}
+		for _, row := range rowsFrom(res, sha, ad.Name) {
+			m.Replace(row) // seed only; see the doc comment above
+		}
+		failed = append(failed, res.Failed...)
+		// Worst wins, never last: an adapter whose suite failed must not be reported as
+		// success because the next one happened to pass.
+		if res.ExitCode > code {
+			code = res.ExitCode
+		}
 	}
 	if err := os.MkdirAll(rtddDir(root), 0o755); err != nil {
 		fmt.Fprintln(stderr, "rtdd:", err)
@@ -87,18 +105,20 @@ func cmdSeed(args []string, stdout, stderr io.Writer) int {
 	// `adapters` records the whole detected set, `adapter` the coverage adapter that
 	// produced this map (decision 4). Both are written: the plural is what a polyglot
 	// repository's commands read, and the singular is what says whose the untagged rows
-	// of a map seeded by an older rtdd are.
-	if err := writeMeta(root, meta{V: 1, Adapter: ad.Name, Adapters: detectedSet(detected),
+	// of a map seeded by an older rtdd are. With several coverage adapters the singular
+	// names the first — every row this seed wrote carries its own tag, so the singular is
+	// only ever consulted for rows an older binary left behind.
+	if err := writeMeta(root, meta{V: 1, Adapter: plan[0].Name, Adapters: detectedSet(detected),
 		SeededAt: sha, Cycles: 0}); err != nil {
 		fmt.Fprintln(stderr, "rtdd:", err)
 		return 3
 	}
 
 	fmt.Fprintf(stdout, "seeded %d tests at %s\n", m.Len(), sha)
-	if len(res.Failed) > 0 {
-		fmt.Fprintf(stdout, "%d failed during seeding: %v\n", len(res.Failed), res.Failed)
+	if len(failed) > 0 {
+		fmt.Fprintf(stdout, "%d failed during seeding: %v\n", len(failed), failed)
 	}
-	return res.ExitCode
+	return code
 }
 
 // staticSeedRefusal is why `rtdd seed` cannot run against ad, or "" when ad records
@@ -112,9 +132,7 @@ func staticSeedRefusal(ad *adapter.Adapter) string {
 	if ad == nil || ad.Selection != adapter.SelectionStatic {
 		return ""
 	}
-	return fmt.Sprintf("rtdd seed: the %s adapter declares selection: static, so it records nothing "+
-		"and there is no map to build.\n"+
-		"  Nothing was written; seeding applies only to an adapter that records coverage.\n"+
-		"  Run `rtdd which` instead: it selects from declared test_for correspondence and imports.\n",
-		ad.Name)
+	// One wording, rendered in one place: staticSeedRefusalFor answers for the whole
+	// static set, and a second copy of the sentence here is a copy that drifts.
+	return staticSeedRefusalFor([]*adapter.Adapter{ad})
 }
