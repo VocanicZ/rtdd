@@ -663,3 +663,105 @@ func TestReadJUnitFileRootLevelFailureWinsOverARootLevelTestcase(t *testing.T) {
 		t.Fatalf("error = %v, want the root's own message under ErrSuiteFailure", err)
 	}
 }
+
+// #305: an element a suite carries that the parser neither models nor allowlists is the
+// last open half of the silent-drop family (#284, #294, #302). The blanket `d.Skip()`
+// discarded it, so a runner shape nobody thought about disappeared without a trace.
+//
+// This test asserts the INVARIANT, not a shape: the element it feeds is deliberately a
+// name no JUnit runner emits and no future parser will model, so the test keeps meaning
+// when the allowlist grows. It must not need editing when a new runner emits a new shape.
+func TestReadJUnitFileRefusesAnUnmodelledElementInsideASuite(t *testing.T) {
+	const unmodelled = `<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="tests/alpha.ts" tests="1">
+    <rtdd-element-no-parser-models/>
+    <testcase classname="Alpha" name="passes" time="0.1"/>
+  </testsuite>
+</testsuites>
+`
+	path := writeXML(t, unmodelled)
+	_, err := ReadJUnitFile(path)
+	if err == nil {
+		t.Fatalf("ReadJUnitFile = nil error; an unmodelled element inside a suite must never be skipped silently")
+	}
+	if !errors.Is(err, ErrUnknownElement) {
+		t.Fatalf("ReadJUnitFile error = %v, want ErrUnknownElement", err)
+	}
+	// The element, its parent and the report path are the whole diagnosis: without all
+	// three a human cannot find the element in the file that carries it.
+	for _, want := range []string{"rtdd-element-no-parser-models", "tests/alpha.ts", path} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("ReadJUnitFile error %q does not name %q", err, want)
+		}
+	}
+}
+
+// The same invariant at the root: <testsuites> is read by the same walk, so an element
+// nothing models under the root is named too, not dropped.
+func TestReadJUnitFileRefusesAnUnmodelledElementUnderTheRoot(t *testing.T) {
+	const unmodelled = `<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="all">
+  <rtdd-element-no-parser-models/>
+  <testsuite name="tests/alpha.ts" tests="1">
+    <testcase classname="Alpha" name="passes" time="0.1"/>
+  </testsuite>
+</testsuites>
+`
+	path := writeXML(t, unmodelled)
+	_, err := ReadJUnitFile(path)
+	if !errors.Is(err, ErrUnknownElement) {
+		t.Fatalf("ReadJUnitFile error = %v, want ErrUnknownElement", err)
+	}
+	for _, want := range []string{"rtdd-element-no-parser-models", "all", path} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("ReadJUnitFile error %q does not name %q", err, want)
+		}
+	}
+}
+
+// The allowlist is the whole point: erroring on every unknown child would refuse real
+// reports, because <properties>, <system-out> and <system-err> are standard JUnit and
+// genuinely carry nothing this parser reads. They stay skipped, with their cases intact.
+func TestReadJUnitFileSkipsTheElementsKnownToCarryNothing(t *testing.T) {
+	const withNoise = `<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="all">
+  <properties>
+    <property name="java.version" value="21"/>
+  </properties>
+  <system-out><![CDATA[root chatter]]></system-out>
+  <testsuite name="tests/alpha.ts" tests="1">
+    <properties>
+      <property name="seed" value="7"/>
+    </properties>
+    <testcase classname="Alpha" name="passes" time="0.1"/>
+    <system-out><![CDATA[stdout]]></system-out>
+    <system-err><![CDATA[stderr]]></system-err>
+  </testsuite>
+</testsuites>
+`
+	cases, err := ReadJUnitFile(writeXML(t, withNoise))
+	if err != nil {
+		t.Fatalf("ReadJUnitFile: %v", err)
+	}
+	want := []JUnitCase{{Suite: "tests/alpha.ts", Classname: "Alpha", Name: "passes", Status: "pass", DurationMS: 100}}
+	if len(cases) != len(want) || cases[0] != want[0] {
+		t.Fatalf("cases = %+v, want %+v", cases, want)
+	}
+}
+
+// ErrUnknownElement is its own sentinel: a caller that can tell "this report carries a
+// shape rtdd has not taught its parser" from "this file is not XML" can report the first
+// as a parser gap rather than as a broken runner.
+func TestReadJUnitFileUnknownElementIsDistinctFromMalformed(t *testing.T) {
+	const unmodelled = `<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="tests/alpha.ts"><rtdd-element-no-parser-models/></testsuite>
+`
+	_, err := ReadJUnitFile(writeXML(t, unmodelled))
+	if !errors.Is(err, ErrUnknownElement) {
+		t.Fatalf("ReadJUnitFile error = %v, want ErrUnknownElement", err)
+	}
+	if errors.Is(err, ErrMalformedReport) {
+		t.Errorf("ReadJUnitFile error %v also matches ErrMalformedReport; the two must stay distinct", err)
+	}
+}
