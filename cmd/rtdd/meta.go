@@ -3,6 +3,7 @@ package main
 import (
 	"path/filepath"
 
+	"github.com/VocanicZ/rtdd/internal/adapter"
 	"github.com/VocanicZ/rtdd/internal/mapstore"
 )
 
@@ -27,3 +28,39 @@ func mapPath(repoRoot string) string  { return filepath.Join(rtddDir(repoRoot), 
 func readMeta(repoRoot string) (meta, error) { return mapstore.LoadMeta(metaPath(repoRoot)) }
 
 func writeMeta(repoRoot string, m meta) error { return mapstore.SaveMeta(metaPath(repoRoot), m) }
+
+// coverageAdapterName is meta.json's singular `adapter` for a detected set: the COVERAGE
+// adapter that produced the map (decision 4 of docs/plans/06-m6d-shipped-adapters.md), and
+// "" where every detected adapter is static.
+//
+// It is shared by `seed` and `run` because the field is load-bearing on the READ path:
+// mapstore.ForAdapter serves every UNTAGGED row to the adapter this field names and
+// withholds it from everyone else. A static adapter's name here hands a legacy map's
+// pytest nodeids to `mvn -B test -Dtest=...`, which matches nothing and exits 0 — a false
+// pass wearing a real id, and the exact outcome the tag exists to prevent (PRD #232 AC6).
+// An all-static repository leaves it empty: no adapter here recorded a row, so there is
+// nothing for the field to speak for.
+func coverageAdapterName(detected []*adapter.Adapter) string {
+	_, coverage := selectionSplit(detected)
+	if len(coverage) == 0 {
+		return ""
+	}
+	return coverage[0].Name
+}
+
+// metaAfterRun is the meta.json `rtdd run` writes back: the one it loaded, with the fields
+// a run may fill in.
+//
+// Only fields that were EMPTY are filled. The singular `adapter` says whose the untagged
+// rows of an existing map are, so a repository that gains a second toolchain must not have
+// that answer rewritten underneath it — and a repository that never had one gets the
+// coverage adapter, not whichever name detection happened to return first.
+func metaAfterRun(mt meta, detected []*adapter.Adapter) meta {
+	if mt.Adapter == "" {
+		mt.Adapter = coverageAdapterName(detected)
+	}
+	if mt.V == 0 {
+		mt.V = 1
+	}
+	return mt
+}

@@ -300,12 +300,10 @@ func cmdRun(args []string) int {
 		return 3
 	}
 
-	if mt.Adapter == "" && len(blocks) > 0 {
-		mt.Adapter = blocks[0].Adapter
-	}
-	if mt.V == 0 {
-		mt.V = 1
-	}
+	// The detected set, NOT the blocks: blocks are ordered by adapter name, and the
+	// singular `adapter` names the coverage adapter that produced the map rather than
+	// whichever name sorts first. See coverageAdapterName.
+	mt = metaAfterRun(mt, ads)
 
 	if *asJSON {
 		out := BuildOutput(OutputInput{

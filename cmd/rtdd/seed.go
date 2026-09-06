@@ -108,7 +108,7 @@ func cmdSeed(args []string, stdout, stderr io.Writer) int {
 	// of a map seeded by an older rtdd are. With several coverage adapters the singular
 	// names the first — every row this seed wrote carries its own tag, so the singular is
 	// only ever consulted for rows an older binary left behind.
-	if err := writeMeta(root, meta{V: 1, Adapter: plan[0].Name, Adapters: detectedSet(detected),
+	if err := writeMeta(root, meta{V: 1, Adapter: coverageAdapterName(detected), Adapters: detectedSet(detected),
 		SeededAt: sha, Cycles: 0}); err != nil {
 		fmt.Fprintln(stderr, "rtdd:", err)
 		return 3
