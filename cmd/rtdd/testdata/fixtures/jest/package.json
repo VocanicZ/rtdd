@@ -1,0 +1,5 @@
+{
+  "name": "rtdd-fixture-jest",
+  "private": true,
+  "devDependencies": { "jest": "*", "jest-junit": "*" }
+}

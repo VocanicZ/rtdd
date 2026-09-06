@@ -93,9 +93,17 @@ report: junit-xml            # new universal parser (see 4.3)
 report_path: ".rtdd/junit.xml"
 id_template: "{file}::{name}"   # how a parsed test id is rendered back into `subset`
 test_for:                    # path-correspondence templates, tried in order
-  - "{dir}/{name}.test.ts"
+  - "{dir}/{name}.test.ts"     # {dir}    = the changed file's directory
   - "{dir}/__tests__/{name}.test.ts"
   - "tests/{name}.test.ts"
+  - "src/test/java/{subdir}/{name}Test.java"  # {subdir} = {dir} or any TRAILING part of
+                               # it, longest first. A test tree usually mirrors a suffix
+                               # of the source tree — src/main/java/calc/Calc.java
+                               # corresponds to src/test/java/calc/CalcTest.java — and how
+                               # many leading segments the source root occupies is a
+                               # property of the repository, not of the adapter. A
+                               # candidate still counts only when the file exists, so the
+                               # longest suffix that names something wins.
 importscan:
   command: "node {script}"   # optional; omitted means import ranking is skipped
   script: "scan-imports.mjs" # shipped beside the adapter, run like internal/importscan does

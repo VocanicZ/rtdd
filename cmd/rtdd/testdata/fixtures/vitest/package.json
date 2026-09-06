@@ -1,0 +1,5 @@
+{
+  "name": "rtdd-fixture-vitest",
+  "private": true,
+  "devDependencies": { "vitest": "*" }
+}

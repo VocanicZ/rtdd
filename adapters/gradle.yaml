@@ -11,6 +11,10 @@
 # form. {classname} itself contains dots, so report.ParseID splits at the FIRST dot;
 # nothing downstream consumes the halves and render->parse->render is stable either way.
 #
+# `test_for` uses {subdir} for the reason maven's does: the mirrored part of the path is
+# the package, and the source root in front of it is the repository's business, not the
+# adapter's. {subdir} is {dir} or any trailing part of it, longest first.
+#
 # `./gradlew` is the wrapper, not a PATH binary, so there is nothing for `requires` to
 # look up: Gradle ships JUnit XML with nothing extra installed.
 name: gradle
@@ -24,7 +28,7 @@ report: junit-xml
 report_path: "build/test-results/test/"
 id_template: "{classname}.{name}"
 failfast_flag: "--fail-fast"
-test_for: ["src/test/java/{dir}/{name}Test.java", "src/test/kotlin/{dir}/{name}Test.kt"]
+test_for: ["src/test/java/{subdir}/{name}Test.java", "src/test/java/{subdir}/{name}Tests.java", "src/test/kotlin/{subdir}/{name}Test.kt"]
 test_globs: ["src/test/java/**/*.java", "src/test/kotlin/**/*.kt"]
 source_globs: ["src/main/java/**/*.java", "src/main/kotlin/**/*.kt", "src/test/java/**/*.java", "src/test/kotlin/**/*.kt"]
 opaque: ["src/main/resources/**", "src/test/resources/**", "**/*.properties", "**/*.xml"]
