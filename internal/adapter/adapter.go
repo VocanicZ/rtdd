@@ -91,6 +91,23 @@ type Adapter struct {
 	TestFlag string `yaml:"test_flag"` // emit "<flag> <id>" for each id
 	TestJoin string `yaml:"test_join"` // join every id into ONE argv token
 
+	// TestSelector is how a selected test FILE PATH becomes the ONE selector token
+	// `subset` splices (spec §4.2, plan 06-m6d decision 13). It exists because the two
+	// halves of a static selection speak different vocabularies: the TS tier names test
+	// FILES — that is what `test_for` correspondence resolves to — while six of the nine
+	// shipped runners select by test NAME. Splicing a path into a name selector matches
+	// nothing and reports a green run over zero executed tests (#334).
+	//
+	// The vocabulary is the test file's own path and nothing else: {file}, {dir} and
+	// {name}. No report has been written when a selection is made, so an id_template
+	// spelling would name an attribute that does not exist yet; Load rejects it.
+	//
+	// It is optional. An omitted key is the identity — the id reaches `subset` exactly as
+	// the tier produced it, which is every v1 adapter's behaviour unchanged — and it is
+	// permitted only under `selection: static`, because a coverage adapter's ids come
+	// from the map and are already selectors, not paths.
+	TestSelector string `yaml:"test_selector"`
+
 	// ReportCmd is an optional command run AFTER the subset invocation and BEFORE
 	// report_path is read. It exists for exactly one shape the argv-only engine cannot
 	// express: a runner that writes its machine-readable output to stdout and a converter
@@ -134,6 +151,15 @@ var (
 		"{file}":      true, // the file the test case was parsed from
 		"{classname}": true, // the JUnit <testcase classname=...> attribute
 		"{name}":      true, // the JUnit <testcase name=...> attribute
+	}
+	// test_selector answers a third question — how a selected test FILE becomes a
+	// runner selector — and it is asked BEFORE anything has run, so the only facts it
+	// has are the path's own three parts. Sharing test_for's spellings is deliberate:
+	// both fields talk about a path, and {name} means the same thing in each.
+	testSelectorPlaceholders = map[string]bool{
+		"{file}": true, // the selected test file, repo-relative
+		"{dir}":  true, // its directory, "." for a file at the repo root
+		"{name}": true, // its base name without extension
 	}
 )
 
@@ -271,6 +297,13 @@ func (a *Adapter) validate() error {
 	case a.TestFlag != "" && a.TestJoin != "":
 		return fmt.Errorf("test_flag %q and test_join %q are mutually exclusive; declare one, or neither for bare {tests} splicing", a.TestFlag, a.TestJoin)
 
+	// test_selector translates a test FILE PATH into a selector, and only the static
+	// tier ever hands `subset` a path: a coverage adapter's ids come from the map and are
+	// already the runner's own selectors, so rendering {dir} over a pytest node id would
+	// mangle a selection that was correct (plan 06-m6d decision 13).
+	case a.TestSelector != "" && a.Selection != SelectionStatic:
+		return fmt.Errorf("test_selector %q requires selection: static, got selection %q; under %q the ids are map ids, not test file paths", a.TestSelector, a.Selection, a.Selection)
+
 	case a.Selection == SelectionCoverage && a.Coverage != "sqlite":
 		return fmt.Errorf("unsupported coverage %q (only \"sqlite\" and \"none\")", a.Coverage)
 
@@ -355,7 +388,23 @@ func (a *Adapter) validateTemplates() error {
 			return fmt.Errorf("test_for[%d] %q: unknown placeholder %s", i, tmpl, bad)
 		}
 	}
+	if a.TestSelector != "" {
+		if bad := unknownPlaceholder(a.TestSelector, testSelectorPlaceholders); bad != "" {
+			return fmt.Errorf("test_selector %q: unknown placeholder %s (only {file}, {dir} and {name}; a selection is made before any report exists)", a.TestSelector, bad)
+		}
+		if !namesAPlaceholder(a.TestSelector) {
+			return fmt.Errorf("test_selector %q: names no placeholder; every selected test file would render the same selector and the tests the tier chose would never run", a.TestSelector)
+		}
+	}
 	return nil
+}
+
+// namesAPlaceholder reports whether tmpl contains at least one {…} group. An unterminated
+// "{" does not count: the runner's own selector syntax may contain a brace, and
+// test_selector is spliced verbatim rather than parsed back.
+func namesAPlaceholder(tmpl string) bool {
+	open := strings.Index(tmpl, "{")
+	return open >= 0 && strings.Contains(tmpl[open:], "}")
 }
 
 // validateIDTemplateNamesAPlaceholder rejects an id_template that expands nothing. Unlike

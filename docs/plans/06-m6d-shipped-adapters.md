@@ -142,7 +142,11 @@ strand the map the Python half of a polyglot repository genuinely needs, which i
 defect, not the safeguard.
 
 **7. Three of the nine render a FILE-granular id; six render a case-granular one** (Task 4,
-Task 6). Spec §4.3 names Vitest and RSpec as having no single-token selector for one case;
+Task 6). **Amended by decision 13 (issue #334): the "round-trips back into `subset`"
+justification below is WRONG for the six case-granular adapters, and the column headed
+"round-trip proven by" proves render→parse→render stability over a captured report, not
+that `subset` accepts the result. `id_template` is the REPORTING vocabulary; `test_selector`
+is the selection one. Read decision 13 before reading the table.** Spec §4.3 names Vitest and RSpec as having no single-token selector for one case;
 Jest joins them once its classname is reconfigured (decision 10). A file-granular id is
 shared by every case in the file and folds worst-status-wins, which `report.FoldOutcome`
 already does — so an id is green only when every case behind it passed.
@@ -161,9 +165,11 @@ already does — so an id is green only when every case behind it passed.
 
 `gradle` and `dotnet` use `.` as the separator, and `{classname}` itself contains dots, so
 `report.ParseID` splits them at the *first* dot rather than the last. That is recorded here
-as harmless and asserted as such: only the **rendered** id is ever spliced into `subset`,
-and render→parse→render is stable regardless of where the split lands. Nothing downstream
-consumes the split halves.
+as harmless and asserted as such: render→parse→render is stable regardless of where the
+split lands, and nothing downstream consumes the split halves. (The original wording of this
+paragraph said "only the **rendered** id is ever spliced into `subset`". That was the
+mistaken premise decision 13 corrects: no `id_template`-shaped id is ever spliced into
+`subset` on the `TS` path, because no report has been written when a selection is made.)
 
 **8. `{tests}` gains two optional, declarative shapes: `test_flag` and `test_join`** (Task
 2). `ExpandTests` splices each id as its own bare argv element, which is right for pytest,
@@ -249,6 +255,67 @@ runs the list command and reads `report_path`. The cost is stated, not hidden �
 static adapter a T2 enumeration is a full suite run — and it is the run T2 was about to
 make anyway, so `cmd/rtdd/run.go` must **use the outcomes that run produced** rather than
 re-running the same suite as a subset. Task 9 owns that consequence.
+
+**13. `test_selector` is the SELECTION vocabulary, and it is not `id_template`** (issue
+#334, amending decision 7). Decision 7 justified each case-granular `id_template` with "it
+round-trips back into `subset`". It does not, because the two ends of that trip never meet:
+the `TS` tier's output is a test **file path** — that is what `test_for` correspondence
+resolves to — and `id_template` renders a `<testcase>` from a report that, on the `TS` path,
+has not been written yet. `selection: static` makes `mapCannotAnswer` unconditionally true
+(`internal/selector/static.go`), so a shipped adapter reaches only `TS` or `T2`; `T2` reuses
+the enumerated `SuiteResult` and never re-invokes (`cmd/rtdd/polyglot.go`). `TS` is therefore
+the *only* path on which a selection reaches `subset`, and it spliced a file path into
+`-run`, `-Dtest=`, `--tests` and `--filter` — selectors that take test **names**. The runner
+matched nothing and exited 0, so `rtdd run` reported a pass over zero executed tests.
+
+Of the three options the issue weighed, this is option 2: declare, per adapter, how a test
+file path maps to a selector, and translate before splicing. Option 3 — making the `TS` tier
+emit ids in the adapter's own vocabulary — cannot be done from a path: `{name}` is a *test
+function name*, and recovering one means parsing nine languages, which D8 forbids the engine
+from doing. Option 1 collapses into this one as soon as it is written down, because "a
+file-granular selector form" IS a declaration of how the path becomes a selector.
+
+So the contract gains ONE optional key:
+
+```yaml
+test_selector: "./{dir}"     # how ONE selected test FILE becomes ONE selector token
+```
+
+Its vocabulary is the test file's own path and nothing else — `{file}`, `{dir}`, `{name}`,
+with `{name}` meaning what it means in `test_for` (base name without extension). An
+id_template spelling is rejected at load (exit 2), because it names a report attribute that
+does not exist when a selection is made. The key is permitted **only** under `selection:
+static`: a coverage adapter's ids come from the map and are already the runner's own
+selectors, so rendering `{dir}` over a pytest node id would break a selection that was
+correct. Omitting it is the identity, which is `adapters/python.yaml` — byte-frozen —
+unchanged.
+
+Rendering happens in `runner.Run`, before `Chunk`, for two reasons: the argv byte budget
+must measure what is actually spliced, and two test files that render one selector must
+collapse to one before a chunk boundary can separate them. `rtdd which` keeps printing the
+test **files**; the translation is at the invocation boundary and nowhere earlier.
+
+| adapter | `test_selector` | what the runner matches |
+|---|---|---|
+| `vitest` | `{file}` | the identity: vitest takes the test file positionally |
+| `jest` | `{file}` | the identity: jest positionals are path regexes |
+| `rspec` | `{file}` | the identity: `rspec a_spec.rb` takes the spec file |
+| `go` | `./{dir}` | a PACKAGE. `-run` is gone from `subset` — it is a regex over test names, and a path cannot be one — so `subset` becomes `go test -json {tests}` and `test_join` goes with it, because package patterns are separate argv elements |
+| `cargo-nextest` | `binary({name}) \| test(/{name}::/)` | a filterset covering both `test_for` shapes: `tests/calc.rs` is the integration binary `calc`, and `{dir}/{name}/tests.rs` is the `<module>::tests` module in the lib. `-E` is repeatable, so `test_flag: "-E"` replaces bare positionals |
+| `maven` | `{name}` | Surefire's `-Dtest=` takes a class; a Java test file's base name IS its simple class name |
+| `gradle` | `*{name}` | `--tests` takes a pattern over the FQCN, and the package is not recoverable from the path alone, so the base name behind a `*` is the shape Gradle documents |
+| `dotnet` | `FullyQualifiedName~{name}` | `--filter`'s documented substring form over the fully qualified test name |
+| `phpunit` | `{name}` | `--filter` is a regex over `Class::method`, and a PHPUnit test file's base name is its class name |
+
+The gate is `cmd/rtdd/selectormatch_test.go`: for each of the nine, the `TS` selection over
+that adapter's committed fixture is rendered, spliced through `ExpandTests`, and matched
+against the identity that runner would give the fixture's one test — under that runner's own
+selector semantics, written down. A tenth `report: junit-xml` adapter with no row fails it.
+`cmd/rtdd/selectorexec_test.go` is the one real invocation: `go` is the only one of the nine
+toolchains already present, and it asserts both that the fixed selection runs `TestAdd` and
+that the pre-#334 shape still runs nothing, so the guard cannot pass for the wrong reason.
+This does **not** overturn "proving a real runner accepts a rendered id" below — the other
+eight still need their toolchains, and #233 still owns that.
 
 ## What is already true in the tree
 
@@ -742,6 +809,7 @@ detect: ["vitest.config.js", "vitest.config.ts", "vitest.config.mjs", "vitest.co
 selection: static
 coverage: none
 subset: "npx vitest run {tests} --reporter=junit --outputFile={report}"
+test_selector: "{file}"
 list: "npx vitest run --reporter=junit --outputFile={report}"
 report: junit-xml
 report_path: ".rtdd/junit.xml"
@@ -764,6 +832,7 @@ env:
   JEST_JUNIT_OUTPUT_DIR: ".rtdd"
   JEST_JUNIT_OUTPUT_NAME: "junit.xml"
 subset: "npx jest --reporters=jest-junit {tests}"
+test_selector: "{file}"
 list: "npx jest --reporters=jest-junit"
 report: junit-xml
 report_path: ".rtdd/junit.xml"
@@ -784,8 +853,8 @@ name: go
 detect: ["go.mod"]
 selection: static
 coverage: none
-subset: "go test -json -run {tests} ./..."
-test_join: "|"
+subset: "go test -json {tests}"
+test_selector: "./{dir}"
 report_cmd: "go-junit-report -parser gojson -in {log} -out {report}"
 list: "go test -json ./..."
 report: junit-xml
@@ -808,6 +877,8 @@ detect: [".config/nextest.toml"]
 selection: static
 coverage: none
 subset: "cargo nextest run --profile rtdd {tests}"
+test_flag: "-E"
+test_selector: "binary({name}) | test(/{name}::/)"
 list: "cargo nextest run --profile rtdd"
 report: junit-xml
 report_path: "target/nextest/rtdd/junit.xml"
@@ -830,6 +901,7 @@ selection: static
 coverage: none
 subset: "mvn -B test -Dtest={tests} -DfailIfNoSpecifiedTests=false"
 test_join: ","
+test_selector: "{name}"
 list: "mvn -B test"
 report: junit-xml
 report_path: "target/surefire-reports/"
@@ -849,6 +921,7 @@ selection: static
 coverage: none
 subset: "./gradlew test {tests}"
 test_flag: "--tests"
+test_selector: "*{name}"
 list: "./gradlew test"
 report: junit-xml
 report_path: "build/test-results/test/"
@@ -867,6 +940,7 @@ detect: [".rspec", "spec/spec_helper.rb"]
 selection: static
 coverage: none
 subset: "bundle exec rspec --format RspecJunitFormatter --out {report} {tests}"
+test_selector: "{file}"
 list: "bundle exec rspec --format RspecJunitFormatter --out {report}"
 report: junit-xml
 report_path: ".rtdd/junit.xml"
@@ -889,6 +963,7 @@ selection: static
 coverage: none
 subset: "dotnet test --logger junit --results-directory {report} --filter {tests}"
 test_join: "|"
+test_selector: "FullyQualifiedName~{name}"
 list: "dotnet test --logger junit --results-directory {report}"
 report: junit-xml
 report_path: "TestResults/"
@@ -910,6 +985,7 @@ selection: static
 coverage: none
 subset: "vendor/bin/phpunit --log-junit {report} --filter {tests}"
 test_join: "|"
+test_selector: "{name}"
 list: "vendor/bin/phpunit --log-junit {report}"
 report: junit-xml
 report_path: ".rtdd/junit.xml"

@@ -8,17 +8,25 @@
 # invocation and before the report is read. A non-zero exit is fatal, never a silent
 # empty report.
 #
-# `test_join` is DECISION 8: `-run` takes ONE regex, so every id joins into a single argv
-# token separated by `|` — the regex alternation `-run` already understands.
+# `test_selector` is DECISION 13, and it is why `-run` is gone from `subset`. The TS tier
+# names a test FILE, and `-run` takes a regex over test NAMES — a file path spliced there
+# matches nothing and `go test` exits 0 with "no tests to run" (#334). What a test file
+# does tell us is its PACKAGE, and a package is a selector `go test` takes: the directory
+# holding `calc/calc_test.go` is `./calc`, and two test files in one package render one
+# selector rather than running it twice.
 #
-# The id is CASE-granular: `-run` selects by test name, and `classname` is the package,
-# which is not part of the selector.
+# `test_join` is gone with it: package patterns are separate argv elements, and joining
+# them with `|` would produce one nonexistent package.
+#
+# `id_template` stays CASE-granular. It is the REPORTING vocabulary — `FAILED TestAdd` is
+# what an agent needs from a report that has already been written — and decision 13 is the
+# statement that reporting and selection are two vocabularies, not one.
 name: go
 detect: ["go.mod"]
 selection: static
 coverage: none
-subset: "go test -json -run {tests} ./..."
-test_join: "|"
+subset: "go test -json {tests}"
+test_selector: "./{dir}"
 report_cmd: "go-junit-report -parser gojson -in {log} -out {report}"
 list: "go test -json ./..."
 report: junit-xml

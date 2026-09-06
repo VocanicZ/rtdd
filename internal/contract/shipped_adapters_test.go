@@ -181,7 +181,7 @@ func TestNoShippedAdapterEditIsAllowedToTouchThePythonAdapter(t *testing.T) {
 		t.Errorf("the python adapter digest changed; PRD #232 licenses no edit to adapters/python.yaml (M6d global constraints)")
 	}
 	yaml := readRepoFile(t, "adapters/python.yaml")
-	for _, key := range []string{"test_flag:", "test_join:", "report_cmd:"} {
+	for _, key := range []string{"test_flag:", "test_join:", "report_cmd:", "test_selector:"} {
 		if strings.Contains(yaml, "\n"+key) {
 			t.Errorf("adapters/python.yaml declares %q; every M6d key is optional and python declares none", key)
 		}

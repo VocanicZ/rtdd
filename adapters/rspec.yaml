@@ -12,11 +12,14 @@ name: rspec
 detect: [".rspec", "spec/spec_helper.rb"]
 selection: static
 coverage: none
+# `test_selector: "{file}"` is DECISION 13's identity: `rspec a_spec.rb` takes the spec file
+# itself, so a TS selection is already the selector.
 subset: "bundle exec rspec --format RspecJunitFormatter --out {report} {tests}"
 list: "bundle exec rspec --format RspecJunitFormatter --out {report}"
 report: junit-xml
 report_path: ".rtdd/junit.xml"
 id_template: "{file}"
+test_selector: "{file}"
 failfast_flag: "--fail-fast"
 requires:
   - bin: rspec

@@ -13,8 +13,13 @@ name: phpunit
 detect: ["phpunit.xml", "phpunit.xml.dist", "phpunit.dist.xml"]
 selection: static
 coverage: none
+# `test_selector` is DECISION 13. `--filter` is a regular expression over `Class::method`,
+# and the TS tier names a FILE — so the selector is the file's base name, which for a PHPUnit
+# test file is its class name. `tests/CalcTest.php` spliced verbatim matches nothing and
+# PHPUnit exits 0 having run nothing (#334).
 subset: "vendor/bin/phpunit --log-junit {report} --filter {tests}"
 test_join: "|"
+test_selector: "{name}"
 list: "vendor/bin/phpunit --log-junit {report}"
 report: junit-xml
 report_path: ".rtdd/junit.xml"

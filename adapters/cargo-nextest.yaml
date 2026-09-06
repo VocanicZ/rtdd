@@ -16,7 +16,15 @@ name: cargo-nextest
 detect: [".config/nextest.toml"]
 selection: static
 coverage: none
+# `test_selector` is DECISION 13. The TS tier names a test FILE, and nextest's positional
+# filters are substrings of test NAMES — `tests/calc.rs` matches nothing. What the file name
+# does say is which target it compiles into: `tests/calc.rs` is the integration binary
+# `calc`, and `{dir}/{name}/tests.rs` is the `<module>::tests` module inside the lib. One
+# filterset covers both — `binary(calc) | test(/calc::/)` — and `-E` is repeatable, so each
+# selected file contributes its own expression and the union is what runs.
 subset: "cargo nextest run --profile rtdd {tests}"
+test_flag: "-E"
+test_selector: "binary({name}) | test(/{name}::/)"
 list: "cargo nextest run --profile rtdd"
 report: junit-xml
 report_path: "target/nextest/rtdd/junit.xml"
