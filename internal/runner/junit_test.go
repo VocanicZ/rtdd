@@ -320,3 +320,44 @@ func TestRunDoesNotLoseAFailureToACaseSharingItsID(t *testing.T) {
 		t.Errorf("ExitCode = %d, want 1: a failing case is in the report", res.ExitCode)
 	}
 }
+
+// PRD #231 AC6 at the runner: a runner that exits 0 having run nothing must not produce a
+// green RTDD run. `go test ./... -run TestDoesNotExist` is exactly this — exit 0 and a
+// report naming no test — so a non-empty selection whose ids the runner did not match
+// would otherwise print "0 ran, 0 failed" and exit 0, which is the false green the whole
+// PRD exists to prevent. The stub exits 0 deliberately: the guard is the report's content,
+// not the process's exit code, which exit_codes cannot substitute for.
+func TestRunRefusesAReportThatNamesNoTest(t *testing.T) {
+	repo := t.TempDir()
+	a := junitStubAdapter(t, repo, nil)
+	xml := writeStubXML(t, repo, "none.xml", `<?xml version="1.0"?><testsuites><testsuite name="pkg" tests="0"></testsuite></testsuites>`)
+	a.Env["RTDD_STUB_XML"] = xml
+
+	res, err := Run(a, repo, []string{"s.A#one"}, false)
+	if err == nil {
+		t.Fatalf("Run = %+v, nil error; a run whose report names no test must not be a success", res)
+	}
+	if !errors.Is(err, report.ErrNoTestcases) {
+		t.Fatalf("error = %v, want errors.Is(_, report.ErrNoTestcases)", err)
+	}
+}
+
+// The same guard for a report whose ROOT carries the failure: the runner blew up before it
+// named a suite, and reading only <testsuite> children turned that into a run of nothing.
+func TestRunSurfacesARootLevelReportFailure(t *testing.T) {
+	repo := t.TempDir()
+	a := junitStubAdapter(t, repo, nil)
+	xml := writeStubXML(t, repo, "rootfail.xml", `<testsuites name="run"><failure message="config blew up"/></testsuites>`)
+	a.Env["RTDD_STUB_XML"] = xml
+
+	res, err := Run(a, repo, []string{"s.A#one"}, false)
+	if err == nil {
+		t.Fatalf("Run = %+v, nil error for a report whose root carries a <failure>", res)
+	}
+	if !errors.Is(err, report.ErrSuiteFailure) {
+		t.Fatalf("error = %v, want errors.Is(_, report.ErrSuiteFailure)", err)
+	}
+	if !strings.Contains(err.Error(), "config blew up") {
+		t.Errorf("error %q does not carry the runner's own message", err)
+	}
+}
