@@ -77,6 +77,11 @@ type env struct {
 	m        *mapstore.Map
 	meta     mapstore.Meta
 	ad       *adapter.Adapter // nil only when no file was present AND detection resolved nothing
+	// ads is every adapter this repository resolved, since adapter.Detect returns a set
+	// (#309). A named --adapter file, or a .rtdd/adapter.yaml, is a deliberate override
+	// of the whole question and yields exactly one; detection yields as many as matched.
+	// ad is ads[0] and stays the answer for the commands that speak of one adapter.
+	ads []*adapter.Adapter
 	// adDetected records that ad came from detection rather than from adPath, so every
 	// message about the adapter names where it actually came from.
 	adDetected bool
@@ -143,7 +148,7 @@ func loadEnv(adapterPath string, warn io.Writer) (*env, int, error) {
 	// Detection replaces the file default (docs/plans/00-interfaces.md:912): `rtdd init`
 	// writes no .rtdd/adapter.yaml, so on the documented setup path the file is absent and
 	// only detection can answer. Without this fallback these commands classified nothing
-	// while `rtdd run` and `rtdd seed`, which call detectOneAdapter directly, classified the
+	// while `rtdd run` and `rtdd seed`, which call detectAdapters directly, classified the
 	// same repo as python — the advisory command and the executing command disagreeing
 	// about one tree.
 	switch _, statErr := os.Stat(abs); {
@@ -151,13 +156,14 @@ func loadEnv(adapterPath string, warn io.Writer) (*env, int, error) {
 		if e.ad, err = adapter.Load(abs); err != nil {
 			return nil, 2, err
 		}
+		e.ads = []*adapter.Adapter{e.ad}
 	case explicit:
 		return nil, 2, fmt.Errorf("--adapter %s: %w", adapterPath, statErr)
 	default:
-		if ad, derr := detectOneAdapter(root, warn); derr != nil {
+		if ads, derr := detectAdapters(root, warn); derr != nil {
 			e.adErr = derr
 		} else {
-			e.ad, e.adDetected = ad, true
+			e.ads, e.ad, e.adDetected = ads, ads[0], true
 		}
 	}
 	return e, 0, nil

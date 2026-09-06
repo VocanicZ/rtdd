@@ -509,7 +509,13 @@ func TestCmdRunFiresTheStaticImportFallbackAndAgreesWithWhich(t *testing.T) {
 }
 
 // The comment that deferred the fallback to M2 is stale: this IS M2, and a reader who
-// believes it will not look for the wiring. run.go must build the same scan `which` does.
+// believes it will not look for the wiring. run must build the same scan `which` does.
+//
+// Since per-adapter selection (#317) both commands reach it through selectPerAdapter,
+// which is a stronger guarantee than each file wiring its own: there is now exactly one
+// place the fallback can be built, so the advisory command and the executing command
+// cannot drift apart. The guard therefore asserts run.go goes through that path and that
+// the path itself builds the scan.
 func TestRunWiresTheSharedImportFallbackHelper(t *testing.T) {
 	b, err := os.ReadFile("run.go")
 	if err != nil {
@@ -519,11 +525,18 @@ func TestRunWiresTheSharedImportFallbackHelper(t *testing.T) {
 	if strings.Contains(src, "static import fallback lands in M2") {
 		t.Error("run.go still carries the stale \"lands in M2\" comment")
 	}
-	if !strings.Contains(src, "newImportFallback(") {
-		t.Error("run.go does not build the shared importFallbackScan `which` uses")
+	if !strings.Contains(src, "selectPerAdapter(") {
+		t.Error("run.go does not select through selectPerAdapter, the one path that wires the fallback")
 	}
 	if strings.Contains(src, "ImportOnly: func(string) []string { return nil }") {
 		t.Error("run.go still passes a stub for selector.Inputs.ImportOnly")
+	}
+	shared, err := os.ReadFile("polyglot.go")
+	if err != nil {
+		t.Fatalf("read polyglot.go: %v", err)
+	}
+	if !strings.Contains(string(shared), "newImportFallback(") {
+		t.Error("selectPerAdapter does not build the shared importFallbackScan")
 	}
 }
 

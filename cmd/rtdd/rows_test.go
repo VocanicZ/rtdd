@@ -38,7 +38,7 @@ func TestRowsFrom(t *testing.T) {
 		},
 	}
 
-	got := rowsFrom(res, "a3f21e0")
+	got := rowsFrom(res, "a3f21e0", "python")
 	want := []mapRow{
 		{T: "tests/test_a.py::test_add", F: []string{"src/logic.py", "tests/helpers.py", "tests/test_a.py"}, C: "a3f21e0", D: 412, S: "pass"},
 		{T: "tests/test_b.py::test_fail", F: []string{"src/logic.py"}, C: "a3f21e0", D: 2, S: "fail"},
@@ -93,7 +93,7 @@ func TestRowsFromKeepsTestOwnedFiles(t *testing.T) {
 			}},
 		}},
 	}
-	got := rowsFrom(res, "a3f21e0")
+	got := rowsFrom(res, "a3f21e0", "python")
 	if len(got) != 1 {
 		t.Fatalf("len(rowsFrom) = %d, want 1", len(got))
 	}
@@ -126,7 +126,7 @@ func TestRowsFromEveryCoveredRowIsComplete(t *testing.T) {
 		}},
 	}
 	valid := map[string]bool{"pass": true, "fail": true, "skip": true, "error": true}
-	for _, r := range rowsFrom(res, "a3f21e0") {
+	for _, r := range rowsFrom(res, "a3f21e0", "python") {
 		if len(r.F) == 0 {
 			t.Errorf("row %q has an empty f but its test recorded coverage", r.T)
 		}
@@ -148,7 +148,7 @@ func TestRowsFromWithoutCoverage(t *testing.T) {
 	res := &runner.RunResult{
 		Outcomes: []report.Outcome{{Test: "tests/test_a.py::test_add", Status: "pass", DurationMS: 4}},
 	}
-	got := rowsFrom(res, "beef")
+	got := rowsFrom(res, "beef", "python")
 	if len(got) != 1 || got[0].T != "tests/test_a.py::test_add" || got[0].C != "beef" {
 		t.Fatalf("rowsFrom with a nil Coverage = %+v", got)
 	}
@@ -161,7 +161,7 @@ func TestMetaRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readMeta on a fresh repo: %v", err)
 	}
-	if (got != meta{}) {
+	if !reflect.DeepEqual(got, meta{}) {
 		t.Fatalf("readMeta on a fresh repo = %+v, want the zero value", got)
 	}
 
@@ -173,7 +173,7 @@ func TestMetaRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readMeta: %v", err)
 	}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("readMeta = %+v, want %+v", got, want)
 	}
 
@@ -336,5 +336,20 @@ func TestOnlySeedCallsMapstoreReplace(t *testing.T) {
 	if len(offenders) > 0 {
 		t.Fatalf("mapstore.Replace is called outside cmd/rtdd/seed.go: %v\n"+
 			"Only rtdd seed may shrink a row (spec §4, D11). Everything else must Union.", offenders)
+	}
+}
+
+// PRD #232 AC6, on the write path: a row records the adapter that produced it, so a
+// polyglot map.jsonl holding a pytest nodeid and a vitest file path can serve each id
+// back to the only runner that can execute it.
+func TestRowsFromTagsEveryRowWithItsAdapter(t *testing.T) {
+	res := &runner.RunResult{Outcomes: []report.Outcome{
+		{Test: "tests/test_a.py::test_one", Status: "pass", DurationMS: 3},
+		{Test: "tests/test_b.py::test_two", Status: "fail", DurationMS: 5},
+	}}
+	for _, row := range rowsFrom(res, "a3f21e0", "python") {
+		if row.A != "python" {
+			t.Errorf("row %q carries adapter %q, want python", row.T, row.A)
+		}
 	}
 }

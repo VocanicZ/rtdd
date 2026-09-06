@@ -60,21 +60,6 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 		return 3
 	}
 
-	// Cov is nil on purpose: which ran nothing. sig.Reports is therefore NOT a report of
-	// anything and is deliberately discarded — only Instrumentable and UnmappedFiles, both
-	// computable from the map alone, survive into the output.
-	sig := BuildSignal(SignalInput{
-		Changes:          changes,
-		Cov:              nil,
-		IsInstrumentable: e.ad.IsInstrumentable,
-		Map:              e.m,
-	})
-
-	// allTests is the enumerated suite. Enumerating it costs a collection run, which
-	// `which` does not pay: a T2 selection is therefore a partial list, and the note
-	// below says so.
-	var allTests []string
-
 	merge, _ := gitctx.IsMergeCommit(e.root, "HEAD")
 	distance := func(sha string) int {
 		d, derr := gitctx.CommitDistance(e.root, sha)
@@ -84,29 +69,30 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 		return d
 	}
 
-	fb := newImportFallback(e.root, e.m, sig.UnmappedFiles)
-
-	// The static tier's two resolvers (spec §4.1). internal/selector is pure, so the
-	// filesystem and the adapter's declared importscan reach it only through these; a nil
-	// one is a level SKIPPED, which is why `which` supplied neither until issue #275 and
-	// no repository could reach TS from the CLI at all.
-	exists, importDistance, staticScanErr := staticResolvers(e.root, e.ad)
-
-	sel := selector.Select(selector.Inputs{
-		Map:            e.m,
-		Changes:        changes,
-		Adapter:        e.ad,
-		Cfg:            selector.DefaultConfig(),
-		AllTests:       allTests,
-		Cycles:         e.meta.Cycles,
-		Merge:          merge,
-		Distance:       distance,
-		ImportOnly:     fb.testsImporting,
-		Exists:         exists,
-		ImportDistance: importDistance,
+	// One block per detected adapter (spec §4.4): each adapter selects over its own rows,
+	// so no adapter can ever be handed another's test ids. Enumerate stays nil — `which`
+	// does not pay a collection run, so a T2 selection is a partial list and the note
+	// below says so in as many words.
+	blocks, err := selectPerAdapter(e.root, e.ads, e.m, e.meta, selectionContext{
+		Changes:  changes,
+		Cfg:      selector.DefaultConfig(),
+		Cycles:   e.meta.Cycles,
+		Merge:    merge,
+		Distance: distance,
 	})
+	if err != nil {
+		fmt.Fprintf(stderr, "rtdd which: %v\n", err)
+		return 2
+	}
 
-	notes := whichNotes(e, sel, allTests, fb, staticScanErr())
+	// The flat half of the output is the fold of the blocks, and with one adapter it IS
+	// that block — which is what keeps a single-adapter repository's output byte-identical.
+	sel, sig, importFallback, _ := foldBlocks(blocks)
+
+	var notes []string
+	for _, blk := range blocks {
+		notes = append(notes, whichNotes(e, blk, len(blocks) > 1)...)
+	}
 
 	if *asJSON {
 		// The notes go BOTH ways. Structured, they are `complete` and `warnings` inside
@@ -117,7 +103,7 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 		for _, n := range notes {
 			fmt.Fprintf(stderr, "rtdd which: %s\n", n)
 		}
-		return emitWhichJSON(stdout, stderr, e, *base, changes, sel, sig, fb.fired, notes)
+		return emitWhichJSON(stdout, stderr, blocks, *base, changes, sel, sig, importFallback, notes)
 	}
 
 	fmt.Fprintf(stdout, "base:     %s\n", *base)
@@ -129,46 +115,57 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "  %-9s %s\n", c.Status.String(), c.Path)
 		}
 	}
-	fmt.Fprint(stdout, RenderWhich(sel, sig.UnmappedFiles, e.ad))
+	fmt.Fprint(stdout, RenderSelections(blocks))
 	for _, n := range notes {
 		fmt.Fprintf(stdout, "\nNOTE: %s\n", n)
 	}
 	return 0
 }
 
-// whichNotes are the conditions under which the selection is narrower, or less
-// authoritative, than it looks. Each is a sentence a reader can act on.
+// whichNotes are the conditions under which THIS adapter's selection is narrower, or
+// less authoritative, than it looks. Each is a sentence a reader can act on.
 //
 // `status` already reports a missing adapter; `which` is the command agents call, and it
 // used to run with file classification silently disabled.
-func whichNotes(e *env, sel selector.Selection, allTests []string, fb *importFallbackScan,
-	staticScanErr error) []string {
+//
+// In a polyglot repository every note names its adapter: two adapters produce two sets of
+// caveats, and an unattributed one sends the reader to the wrong half of the repository.
+// A single-adapter repository prints them exactly as it always did — there is nothing to
+// disambiguate, and the prefix would be churn in every existing Python repo.
+func whichNotes(e *env, blk AdapterSelection, multi bool) []string {
 	var out []string
-	if e.ad == nil {
-		out = append(out, fmt.Sprintf("no adapter (%s) - file classification is disabled: "+
-			"no changed file can be recognised as a test file, so the direct tier is empty",
-			e.noAdapterReason()))
+	note := func(format string, args ...any) {
+		s := fmt.Sprintf(format, args...)
+		if multi {
+			s = blk.Adapter + ": " + s
+		}
+		out = append(out, s)
 	}
-	if sel.Tier == selector.TierEmpty {
-		out = append(out, "an empty selection is not a pass. Nothing was checked.")
+	if blk.Ad == nil {
+		note("no adapter (%s) - file classification is disabled: "+
+			"no changed file can be recognised as a test file, so the direct tier is empty",
+			e.noAdapterReason())
+	}
+	if blk.Selection.Tier == selector.TierEmpty {
+		note("an empty selection is not a pass. Nothing was checked.")
 	}
 	// Gated on the suite being unenumerated, not on the selection being empty: a T2
 	// selection that also carries a direct test is still a partial list of the full suite,
 	// and reading it as "T2 satisfied by one test" is exactly the under-run this note
 	// exists to prevent.
-	if sel.Tier == selector.TierT2 && len(allTests) == 0 {
-		out = append(out, fmt.Sprintf("T2 means the full suite. rtdd does not enumerate it here, "+
-			"so the %d test id(s) listed above are not the whole run.", len(sel.Tests)))
+	if blk.Selection.Tier == selector.TierT2 && !blk.SuiteEnumerated {
+		note("T2 means the full suite. rtdd does not enumerate it here, "+
+			"so the %d test id(s) listed above are not the whole run.", len(blk.Selection.Tests))
 	}
-	if err := fb.err(); err != nil {
-		out = append(out, importScanNote(err))
+	if blk.FallbackErr != nil {
+		note("%s", importScanNote(blk.FallbackErr))
 	}
 	// A DECLARED scanner that failed is a level that could not run. Without this note the
 	// selection is narrower than the adapter promises and nothing says so — and the tier's
 	// own reason, which only knows the resolver was supplied, reads as though the imports
 	// were checked and found nothing.
-	if staticScanErr != nil && e.ad != nil {
-		out = append(out, adapterImportScanNote(e.ad.Name, staticScanErr))
+	if blk.ScanErr != nil && blk.Ad != nil {
+		note("%s", adapterImportScanNote(blk.Ad.Name, blk.ScanErr))
 	}
 	return out
 }
@@ -255,17 +252,13 @@ func testFileOf(id string) string {
 
 // emitWhichJSON writes the frozen v1 document — the same schema `rtdd run --json` emits,
 // so a front-end binds once and reads both.
-func emitWhichJSON(stdout, stderr io.Writer, e *env, base string, changes []gitctx.Change,
-	sel selector.Selection, sig SignalOutput, importFallback map[string][]string,
-	warnings []string) int {
-	adapterName := ""
-	if e.ad != nil {
-		adapterName = e.ad.Name
-	}
+func emitWhichJSON(stdout, stderr io.Writer, blocks []AdapterSelection, base string,
+	changes []gitctx.Change, sel selector.Selection, sig SignalOutput,
+	importFallback map[string][]string, warnings []string) int {
 	out := BuildOutput(OutputInput{
 		Command:        "which",
 		Base:           base,
-		Adapter:        adapterName,
+		Adapter:        blocksAdapterName(blocks),
 		Sel:            sel,
 		Changes:        changes,
 		Instrumentable: sig.Instrumentable,
@@ -277,6 +270,7 @@ func emitWhichJSON(stdout, stderr io.Writer, e *env, base string, changes []gitc
 		Warnings:        warnings,
 		UnmappedFiles:   sig.UnmappedFiles,
 		ImportFallback:  importFallback,
+		Blocks:          blocks,
 	})
 
 	enc := json.NewEncoder(stdout)

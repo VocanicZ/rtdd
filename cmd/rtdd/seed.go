@@ -39,11 +39,16 @@ func cmdSeed(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "rtdd:", err)
 		return 2
 	}
-	ad, err := detectOneAdapter(root, stderr)
+	detected, err := detectAdapters(root, stderr)
 	if err != nil {
 		fmt.Fprintln(stderr, "rtdd:", err)
 		return 2
 	}
+	// TODO(#320): seeding a polyglot repository seeds every coverage adapter in the
+	// detected set; until Task 11 lands it seeds the first, exactly as it did when
+	// detection could only ever return one. The set is already recorded in meta.json
+	// below, so the map it writes says which adapter produced every row.
+	ad := detected[0]
 	// Seeding is advice that only applies to an adapter that records coverage. A
 	// selection: static adapter declares coverage: none, so there is no map to build and
 	// nothing this command could do. Exiting 0 here would be the worse failure: it leaves
@@ -68,7 +73,7 @@ func cmdSeed(args []string, stdout, stderr io.Writer) int {
 	}
 
 	m := mapstore.New()
-	for _, row := range rowsFrom(res, sha) {
+	for _, row := range rowsFrom(res, sha, ad.Name) {
 		m.Replace(row) // seed only; see the doc comment above
 	}
 	if err := os.MkdirAll(rtddDir(root), 0o755); err != nil {
@@ -79,7 +84,12 @@ func cmdSeed(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "rtdd:", err)
 		return 3
 	}
-	if err := writeMeta(root, meta{V: 1, Adapter: ad.Name, SeededAt: sha, Cycles: 0}); err != nil {
+	// `adapters` records the whole detected set, `adapter` the coverage adapter that
+	// produced this map (decision 4). Both are written: the plural is what a polyglot
+	// repository's commands read, and the singular is what says whose the untagged rows
+	// of a map seeded by an older rtdd are.
+	if err := writeMeta(root, meta{V: 1, Adapter: ad.Name, Adapters: detectedSet(detected),
+		SeededAt: sha, Cycles: 0}); err != nil {
 		fmt.Fprintln(stderr, "rtdd:", err)
 		return 3
 	}

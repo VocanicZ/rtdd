@@ -1,0 +1,7 @@
+base:     HEAD
+changed:  1 files
+  modified  src/auth.py
+  tier: T0  (2 tests selected, ranked)
+  reason: tests whose recorded coverage intersects the changed set
+    tests/test_auth.py::test_logout
+    tests/test_auth.py::test_login
