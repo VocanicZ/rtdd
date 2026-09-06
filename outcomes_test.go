@@ -45,3 +45,31 @@ func TestBothOutcomeFilesExist(t *testing.T) {
 		}
 	}
 }
+
+// PRD #233 AC11: "It is Python only." was true before the static tier and is not true
+// after it. The replacement is the two-tier statement, not a deletion — the Python-only
+// LIMIT is still real for execution-derived selection, and dropping the bullet would
+// quietly upgrade every non-Python repository's evidence.
+func TestREADMEStatesTheTwoTiersRatherThanPythonOnly(t *testing.T) {
+	for _, name := range []string{
+		"README.md",
+		filepath.Join("docs", "outcomes", "README.positive.md"),
+		filepath.Join("docs", "outcomes", "README.negative.md"),
+	} {
+		b, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(b)
+		for _, stale := range []string{"**It is Python only.**", "Python only, today."} {
+			if strings.Contains(text, stale) {
+				t.Errorf("%s still claims %q", name, stale)
+			}
+		}
+		for _, needle := range []string{"execution-derived", "static", "weaker evidence"} {
+			if !strings.Contains(text, needle) {
+				t.Errorf("%s does not state %q", name, needle)
+			}
+		}
+	}
+}
