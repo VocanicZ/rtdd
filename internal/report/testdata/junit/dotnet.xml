@@ -1,0 +1,33 @@
+<testsuites>
+  <testsuite name="Calc.Tests.dll" tests="3" skipped="1" failures="1" errors="0" time="0.0216525" timestamp="2026-09-06T09:58:50" hostname="4066af43fa3c" id="0" package="Calc.Tests.dll">
+    <properties />
+    <testcase classname="Calc.Tests.CalcTest" name="FailsOnAWrongSum" time="0.0194730">
+      <failure type="failure" message="Assert.Equal() Failure: Values differ&#xA;Expected: 4&#xA;Actual:   3">at Calc.Tests.CalcTest.FailsOnAWrongSum() in /work/CalcTest.cs:line 16
+   at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)</failure>
+    </testcase>
+    <testcase classname="Calc.Tests.CalcTest" name="AddsTwoNumbers" time="0.0011795" />
+    <testcase classname="Calc.Tests.CalcTest" name="IsNotImplementedYet" time="0.0010000">
+      <skipped />
+    </testcase>
+    <system-out>
+Test Framework Informational Messages:
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.5.7+8f2703126a (64-bit .NET 8.0.30)
+[xUnit.net 00:00:00.21]   Discovering: Calc.Tests
+[xUnit.net 00:00:00.30]   Discovered:  Calc.Tests
+[xUnit.net 00:00:00.31]   Starting:    Calc.Tests
+[xUnit.net 00:00:00.49]       Assert.Equal() Failure: Values differ
+[xUnit.net 00:00:00.49]       Expected: 4
+[xUnit.net 00:00:00.49]       Actual:   3
+[xUnit.net 00:00:00.49]       Stack Trace:
+[xUnit.net 00:00:00.49]         /work/CalcTest.cs(16,0): at Calc.Tests.CalcTest.FailsOnAWrongSum()
+[xUnit.net 00:00:00.49]            at System.RuntimeMethodHandle.InvokeMethod(Object target, Void** arguments, Signature sig, Boolean isConstructor)
+[xUnit.net 00:00:00.49]            at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.51]       not implemented yet
+[xUnit.net 00:00:00.51]   Finished:    Calc.Tests
+</system-out>
+    <system-err>Error - [xUnit.net 00:00:00.49]     Calc.Tests.CalcTest.FailsOnAWrongSum [FAIL]
+Warning - [xUnit.net 00:00:00.51]     Calc.Tests.CalcTest.IsNotImplementedYet [SKIP]
+</system-err>
+  </testsuite>
+</testsuites>

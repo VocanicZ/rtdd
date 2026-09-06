@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" tests="2" failures="1" errors="0" uuid="f6f58e5e-f12e-443b-b216-14f122a49b78" timestamp="2026-09-06T09:58:25.414+00:00" time="0.010">
+    <testsuite name="calc" tests="2" disabled="0" errors="0" failures="1">
+        <testcase name="tests::adds_two_numbers" classname="calc" timestamp="2026-09-06T09:58:25.414+00:00" time="0.008">
+        </testcase>
+        <testcase name="tests::fails_on_a_wrong_sum" classname="calc" timestamp="2026-09-06T09:58:25.415+00:00" time="0.008">
+            <failure type="test failure"/>
+            <system-out>
+running 1 test
+test tests::fails_on_a_wrong_sum ... FAILED
+
+failures:
+
+failures:
+    tests::fails_on_a_wrong_sum
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+</system-out>
+            <system-err>
+thread &apos;tests::fails_on_a_wrong_sum&apos; (4637) panicked at src/lib.rs:16:9:
+assertion `left == right` failed
+  left: 3
+ right: 4
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+    </testsuite>
+</testsuites>
