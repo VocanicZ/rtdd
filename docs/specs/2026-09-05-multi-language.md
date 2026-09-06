@@ -99,7 +99,19 @@ test_for:                    # path-correspondence templates, tried in order
 importscan:
   command: "node {script}"   # optional; omitted means import ranking is skipped
   script: "scan-imports.mjs" # shipped beside the adapter, run like internal/importscan does
+
+test_flag: "--tests"         # emit "<flag> <id>" for each id at the {tests} position
+test_join: ","               # OR join every id into ONE argv token, substituted wherever
+                             # {tests} appears inside a token (`-Dtest={tests}`)
 ```
+
+`test_flag` and `test_join` are optional and **mutually exclusive** — declaring both is a
+load-time error. Declaring neither is today's rule unchanged: one bare argv element per id
+at the token that is exactly `{tests}`, which is what pytest, vitest, jest, rspec and
+nextest all take. Gradle needs its flag before *each* id; Surefire, PHPUnit, `dotnet test`
+and `go test -run` each take one argument holding every id joined by a separator. Under
+`test_join`, an id containing the separator is refused by name rather than spliced into a
+token that would split back into two selectors.
 
 `seed` becomes optional when `selection: static` — there is nothing to seed.
 
