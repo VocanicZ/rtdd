@@ -19,7 +19,7 @@ var (
 	// directory report. Merging them silently would drop one outcome and report the
 	// other's status under both names, which is a false green wearing the right id.
 	ErrDuplicateTestID = errors.New("junit-xml: duplicate test id across report files")
-	// ErrReportPathSymlink is a report_path whose final element is a SYMLINK. It is
+	// ErrReportPathSymlink is a report_path ANY element of which is a SYMLINK. It is
 	// refused rather than followed: Clear empties the path before every invocation, and
 	// a link resolves to a directory the repository does not own, so following one turns
 	// "clear the previous run's report" into deleting files outside the repo root.
@@ -40,6 +40,13 @@ var (
 type ReportPath struct {
 	Abs   string // absolute, cleaned
 	IsDir bool
+
+	// Root is the repository root Abs was resolved against, cleaned. The clear and the
+	// read walk from it down to Abs to refuse a symlink at ANY element the declaration
+	// names, so they have to know where the declaration's own elements begin: a link
+	// ABOVE the root — a checkout under /tmp reached through /tmp -> /private/tmp — is
+	// not the declaration's doing and is not its author's to fix.
+	Root string
 
 	// Declared is the report_path exactly as the adapter wrote it, and Adapter is the
 	// adapter that declared it. Both exist so an error can say WHOSE declaration is
@@ -71,6 +78,7 @@ func NewReportPathFor(adapter, repoRoot, declared string) (ReportPath, error) {
 	}
 	return ReportPath{
 		Abs:      filepath.Join(repoRoot, filepath.FromSlash(clean)),
+		Root:     filepath.Clean(repoRoot),
 		IsDir:    isDir,
 		Declared: declared,
 		Adapter:  adapter,
@@ -96,22 +104,25 @@ func (p ReportPath) prefix() string { return adapterPrefix(p.Adapter) }
 //
 // Nothing outside p.Abs is ever touched, and three rules together are what make that true:
 // NewReportPathFor has already refused an absolute path and one that climbs out of the repo
-// root; a p.Abs that is itself a SYMLINK is refused here rather than followed, because a
-// link resolves to a directory the repo root does not contain; and the removals are then
-// p.Abs itself or its direct children — each removed with os.Remove, which unlinks a
-// symlinked child without touching what it points at. The declared shape decides which, so
-// a file-shaped declaration pointing at a directory removes nothing and is named instead —
-// a directory the adapter did not name is not this function's to delete.
+// root; EVERY element the declaration names, from the repository root down to p.Abs, is
+// refused here rather than followed if it is a SYMLINK, because a link at any of them —
+// "build" as readily as "build/reports" — resolves to a directory the repo root does not
+// contain; and the removals are then p.Abs itself or its direct children — each removed
+// with os.Remove, which unlinks a symlinked child without touching what it points at. The
+// declared shape decides which, so a file-shaped declaration pointing at a directory
+// removes nothing and is named instead — a directory the adapter did not name is not this
+// function's to delete.
 func (p ReportPath) Clear() error {
-	// The kind check comes FIRST: MkdirAll on a path where a file sits, and Remove on a
-	// directory that happens to be empty, would each answer the disagreement themselves.
-	// It is an Lstat, not a Stat: Stat answers for the symlink's TARGET, so a link would
-	// pass the kind check on behalf of a directory this repository does not own and then
-	// be emptied through.
+	// The symlink walk comes first, before anything that would resolve one: MkdirAll and
+	// Remove both follow the parent chain, so an intermediate link reaches the target
+	// even when p.Abs itself does not exist yet.
+	if err := p.symlinkChainErr(); err != nil {
+		return err
+	}
+	// Then the kind check, before MkdirAll on a path where a file sits or Remove on a
+	// directory that happens to be empty — each would answer the disagreement itself. It
+	// is an Lstat, not a Stat, for the same reason the walk uses one.
 	if info, err := os.Lstat(p.Abs); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 {
-			return p.symlinkErr()
-		}
 		if info.IsDir() != p.IsDir {
 			return p.kindErr(info.IsDir())
 		}
@@ -159,13 +170,58 @@ func (p ReportPath) kindErr(onDiskIsDir bool) error {
 		p.prefix(), ErrReportPathKind, p.Declared, kindWord(p.IsDir), p.Abs, kindWord(onDiskIsDir))
 }
 
-// symlinkErr is a report_path whose final element is a link. It names the adapter and the
-// declaration because the fix is in the declaration: only the adapter's author can say
-// which real path was meant, and RTDD guessing — by resolving the link and checking that
-// the target is still inside the root — would bless a link that is repointed tomorrow.
-func (p ReportPath) symlinkErr() error {
+// symlinkErr is a report_path one of whose elements is a link. It names the adapter, the
+// declaration and the OFFENDING element, because the fix is in the declaration and the
+// element says which part of it to change: only the adapter's author can say which real
+// path was meant, and RTDD guessing — by resolving the link and checking that the target
+// is still inside the root — would bless a link that is repointed tomorrow.
+func (p ReportPath) symlinkErr(elem string) error {
 	return fmt.Errorf("%s%w: report_path %q: %s is a symlink, which RTDD clears before every invocation and will not follow; declare the path it points at",
-		p.prefix(), ErrReportPathSymlink, p.Declared, p.Abs)
+		p.prefix(), ErrReportPathSymlink, p.Declared, elem)
+}
+
+// symlinkChainErr walks the elements the declaration names — from p.Root down to p.Abs,
+// inclusive — and refuses the path if any one of them is a symlink. Checking p.Abs alone
+// would miss the ordinary case: "build", "target" and "reports" are exactly the
+// directories a monorepo links into a shared out-of-tree output area, and an Lstat of
+// build/reports/ says nothing about build. The walk starts AT the root and not above it
+// because a link on the way to the root — a checkout under /tmp on macOS, reached through
+// /tmp -> /private/tmp — belongs to the checkout rather than to the declaration, and
+// refusing it would refuse every report_path in that repository.
+func (p ReportPath) symlinkChainErr() error {
+	if p.Root == "" {
+		// A ReportPath built by hand rather than by the constructor has no root to walk
+		// from, and no way to tell the declaration's own elements from the ones above
+		// them. The final element is still checked, which is what #286 guaranteed.
+		return p.elementSymlinkErr(p.Abs)
+	}
+	rel, err := filepath.Rel(p.Root, p.Abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		// p.Abs is not under p.Root — which the constructor's own checks already rule
+		// out — so there is no element chain to walk, only the path itself.
+		return p.elementSymlinkErr(p.Abs)
+	}
+	at := p.Root
+	if rel != "." {
+		for _, e := range strings.Split(rel, string(filepath.Separator)) {
+			at = filepath.Join(at, e)
+			if err := p.elementSymlinkErr(at); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// elementSymlinkErr is the refusal for ONE element, and nil for everything else: an
+// element that does not exist yet is not a link, and one Lstat cannot answer for is left
+// to the clear or the read, which report the OS error with the context it belongs to.
+func (p ReportPath) elementSymlinkErr(elem string) error {
+	info, err := os.Lstat(elem)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		return nil
+	}
+	return p.symlinkErr(elem)
 }
 
 // clearErr names the path the clear stumbled on and keeps the OS error inspectable, so a
@@ -178,18 +234,18 @@ func (p ReportPath) clearErr(path string, err error) error {
 // DIRECTLY inside the directory. Sorted rather than readdir order so a merged report is
 // reproducible.
 func (p ReportPath) Files() ([]string, error) {
-	// Lstat for the same reason Clear uses it, and refused here too: a path Clear will
-	// not empty is not one this run may read either, and the two disagreeing is how a
-	// report gets read out of a directory nothing cleared.
+	// The same symlink walk Clear does, and refused here too — every element of it: a
+	// path Clear will not empty is not one this run may read either, and the two
+	// disagreeing is how a report gets read out of a directory nothing cleared.
+	if err := p.symlinkChainErr(); err != nil {
+		return nil, err
+	}
 	info, err := os.Lstat(p.Abs)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("%s%w: %s", p.prefix(), ErrNoReport, p.Abs)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("%sreading %s: %w", p.prefix(), p.Abs, err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return nil, p.symlinkErr()
 	}
 	if info.IsDir() != p.IsDir {
 		return nil, p.kindErr(info.IsDir())
