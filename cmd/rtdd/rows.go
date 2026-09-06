@@ -127,23 +127,39 @@ func rowsFrom(res *runner.RunResult, sha, adapterName string) []mapstore.Row {
 // included — says the environment cannot produce a trustworthy map, which is
 // exit 3. Neither is exit 1: a test did not fail.
 func reportRunErr(err error) int {
+	code, hints := runErrClass(err)
 	if err == nil {
-		return 0
+		return code
+	}
+	fmt.Fprintln(os.Stderr, "rtdd:", err)
+	for _, h := range hints {
+		fmt.Fprintln(os.Stderr, "rtdd:", h)
+	}
+	return code
+}
+
+// runErrClass is reportRunErr without the printing: the exit code a runner error maps to,
+// and the operator hints that explain it.
+//
+// The split exists for the polyglot loop, which must not print as it goes — one adapter's
+// failure is rendered in the block that names the adapter, beside the adapters that ran
+// (PRD #232 AC7), and a line emitted mid-loop would arrive detached from both.
+func runErrClass(err error) (int, []string) {
+	if err == nil {
+		return 0, nil
 	}
 	if errors.Is(err, runner.ErrSysmonContext) {
-		fmt.Fprintln(os.Stderr, "rtdd:", err)
-		fmt.Fprintln(os.Stderr, "rtdd: coverage.py dropped dynamic contexts; the map would be ~90% empty on a run that exits 0.")
-		fmt.Fprintln(os.Stderr, "rtdd: the python adapter forces COVERAGE_CORE=ctrace - check for a wrapper script or CI setting that overrides it.")
-		return 3
+		return 3, []string{
+			"coverage.py dropped dynamic contexts; the map would be ~90% empty on a run that exits 0.",
+			"the python adapter forces COVERAGE_CORE=ctrace - check for a wrapper script or CI setting that overrides it.",
+		}
 	}
 	var fe *runner.FatalExitError
 	if errors.As(err, &fe) {
-		fmt.Fprintln(os.Stderr, "rtdd:", err)
 		if fe.Code == 4 {
-			fmt.Fprintln(os.Stderr, "rtdd: the test ids rtdd produced were rejected by the runner; the map may be stale. Try: rtdd seed")
+			return 2, []string{"the test ids rtdd produced were rejected by the runner; the map may be stale. Try: rtdd seed"}
 		}
-		return 2
+		return 2, nil
 	}
-	fmt.Fprintln(os.Stderr, "rtdd:", err)
-	return 3
+	return 3, nil
 }
