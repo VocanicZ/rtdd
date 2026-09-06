@@ -10,10 +10,33 @@ import (
 // Meta is .rtdd/meta.json. It is kept out of map.jsonl because the JSONL is union-merged
 // and these fields must not be duplicated by a merge.
 type Meta struct {
-	V        int    `json:"v"`
-	Adapter  string `json:"adapter"`
-	SeededAt string `json:"seeded_at"`
-	Cycles   int    `json:"cycles"`
+	V int `json:"v"`
+	// Adapter is the COVERAGE adapter that produced the map, and it is kept rather than
+	// widened into a list: turning it into one would make every meta.json written before
+	// the detected set existed unreadable by the new binary and every meta.json written
+	// after it unreadable by the old one. It is also the answer to "whose is this untagged
+	// row?" that Map.TestsCoveringFor asks, and deleting the field deletes that answer.
+	Adapter string `json:"adapter"`
+	// Adapters is the full detected set at seed time, sorted. `omitempty` for the same
+	// reason Row.A carries it: a repository that seeded before the set existed must not
+	// get a meta.json diff it never asked for.
+	Adapters []string `json:"adapters,omitempty"`
+	SeededAt string   `json:"seeded_at"`
+	Cycles   int      `json:"cycles"`
+}
+
+// DetectedAdapters is the set this Meta names, newest key first: `adapters` when present,
+// otherwise the singular `adapter`, otherwise nothing. A pre-PRD meta.json has only the
+// singular, and reading it as a one-element set is what keeps a repository that seeded
+// under an older rtdd selecting exactly as it did before.
+func (m Meta) DetectedAdapters() []string {
+	if len(m.Adapters) > 0 {
+		return append([]string(nil), m.Adapters...)
+	}
+	if m.Adapter != "" {
+		return []string{m.Adapter}
+	}
+	return nil
 }
 
 // LoadMeta reads .rtdd/meta.json. A missing file returns the zero Meta and a nil error.

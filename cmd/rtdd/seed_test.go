@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/VocanicZ/rtdd/internal/gitctx"
+	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
 	"github.com/VocanicZ/rtdd/internal/pytestfixture"
 )
 
@@ -315,4 +316,29 @@ func appendLine(path, line string) error {
 	defer f.Close()
 	_, err = f.WriteString(line + "\n")
 	return err
+}
+
+// This issue's second acceptance criterion: .rtdd/meta.json records the DETECTED SET, not
+// just the coverage adapter that produced the map. The singular stays — it is the answer
+// to "whose is this untagged row?" that every pre-PRD map.jsonl needs (decision 4).
+func TestCmdSeedRecordsTheDetectedAdapterSet(t *testing.T) {
+	repo := realRepo(t)
+	gittest.Write(t, repo, "package.json", "{\n  \"name\": \"demo\"\n}\n")
+	writeVitestAdapter(t, repo, "")
+	chdir(t, repo)
+	if code := cmdSeed(nil, io.Discard, io.Discard); code != 1 {
+		t.Fatalf("cmdSeed = %d, want 1", code)
+	}
+
+	m, err := readMeta(repo)
+	if err != nil {
+		t.Fatalf("readMeta: %v", err)
+	}
+	if got := m.DetectedAdapters(); len(got) != 2 || got[0] != "python" || got[1] != "vitest" {
+		t.Errorf("meta.DetectedAdapters() = %v, want [python vitest]", got)
+	}
+	if m.Adapter != "python" {
+		t.Errorf("meta.Adapter = %q, want python: the singular still names the COVERAGE adapter "+
+			"that produced the map", m.Adapter)
+	}
 }

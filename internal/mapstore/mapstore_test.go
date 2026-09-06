@@ -510,3 +510,111 @@ func TestGetIsDeterministicWhenTwoAdaptersShareOneID(t *testing.T) {
 		}
 	}
 }
+
+// ForAdapter is TestsCoveringFor's rule applied to the whole map: per-adapter selection
+// runs the existing pure selector once per adapter, and the only thing that may differ
+// between those runs is which rows the selector can see.
+func TestForAdapterKeepsOnlyThatAdaptersRows(t *testing.T) {
+	m := New()
+	m.Replace(Row{T: "tests/test_a.py::test_one", F: []string{"src/calc.py"}, A: "python"})
+	m.Replace(Row{T: "src/calc.test.ts", F: []string{"src/calc.ts"}, A: "vitest"})
+	m.Replace(Row{T: "tests/test_legacy.py::test_old", F: []string{"src/calc.py"}})
+
+	py := m.ForAdapter("python", "python")
+	if py.Len() != 2 {
+		t.Errorf("ForAdapter(python) holds %d rows, want 2 (its own and the untagged one meta names)", py.Len())
+	}
+	if _, ok := py.Get("src/calc.test.ts"); ok {
+		t.Error("ForAdapter(python) holds vitest's row; a row written by one adapter is never served to another")
+	}
+
+	vi := m.ForAdapter("vitest", "python")
+	if vi.Len() != 1 {
+		t.Errorf("ForAdapter(vitest) holds %d rows, want 1: the untagged row is python's", vi.Len())
+	}
+
+	orphan := m.ForAdapter("python", "")
+	if orphan.Len() != 1 {
+		t.Errorf("ForAdapter with no legacy adapter holds %d rows, want 1: an untagged row whose owner "+
+			"meta.json does not name is ignored for selection", orphan.Len())
+	}
+}
+
+// A submap must not alias the rows of the map it came from: the selector reads it, and a
+// later Union on the original would otherwise reach back into an answer already given.
+func TestForAdapterDoesNotAliasTheOriginal(t *testing.T) {
+	m := New()
+	m.Replace(Row{T: "tests/test_a.py::test_one", F: []string{"src/calc.py"}, A: "python"})
+	sub := m.ForAdapter("python", "")
+	m.Replace(Row{T: "tests/test_b.py::test_two", F: []string{"src/calc.py"}, A: "python"})
+	if sub.Len() != 1 {
+		t.Errorf("the submap grew to %d rows when the original did; it must be a copy", sub.Len())
+	}
+}
+
+// Decision 3: an untagged row IS the meta adapter's row. Writing back a tagged copy of it
+// would leave the map holding both — one line the runner selected from and one line it
+// wrote — and would put an `a` key on every row of a map.jsonl that had none, which is
+// the whole-file diff omitempty exists to prevent.
+func TestUnionForMergesIntoTheUntaggedRowItCameFrom(t *testing.T) {
+	m := New()
+	m.Replace(Row{T: "tests/test_a.py::test_one", F: []string{"src/calc.py"}, C: "abc1234", S: "pass"})
+
+	m.UnionFor(Row{T: "tests/test_a.py::test_one", F: []string{"src/util.py"}, C: "abc1234", S: "fail", A: "python"},
+		"python", nil)
+
+	if m.Len() != 1 {
+		t.Fatalf("map holds %d rows, want 1: the tagged row and the untagged one are the same row; got %+v", m.Len(), m.Rows())
+	}
+	got := m.Rows()[0]
+	if got.A != "" {
+		t.Errorf("row.A = %q, want \"\": merging must not tag a row a pre-PRD map.jsonl left untagged", got.A)
+	}
+	if len(got.F) != 2 {
+		t.Errorf("row.F = %v, want the union of both file sets", got.F)
+	}
+	if got.S != "fail" {
+		t.Errorf("row.S = %q, want the incoming status", got.S)
+	}
+}
+
+// The legacy rule is one adapter wide. Another adapter's run must never adopt the
+// untagged row: that is PRD #232 AC6's forbidden case, reached through the write path
+// instead of the read path.
+func TestUnionForLeavesAnotherAdaptersUntaggedRowAlone(t *testing.T) {
+	m := New()
+	m.Replace(Row{T: "shared-id", F: []string{"src/calc.py"}})
+
+	m.UnionFor(Row{T: "shared-id", F: []string{"src/calc.ts"}, A: "vitest"}, "python", nil)
+
+	if m.Len() != 2 {
+		t.Fatalf("map holds %d rows, want 2: an untagged python row and a tagged vitest one; got %+v", m.Len(), m.Rows())
+	}
+}
+
+// The upgrade case with both forms present: a map seeded by an older rtdd (untagged
+// rows) that a teammate's newer rtdd has since written tagged rows into. They are one
+// row per decision 3, so the map must not keep two lines for one test — Save would emit
+// both, Len would double-count, and a reader would see whichever line came last.
+func TestUnionForFoldsTheLegacyRowIntoTheTaggedOneWhenBothExist(t *testing.T) {
+	m := New()
+	m.Replace(Row{T: "tests/test_a.py::test_one", F: []string{"src/legacy.py"}, C: "abc1234", S: "pass"})
+	m.Replace(Row{T: "tests/test_a.py::test_one", F: []string{"src/calc.py"}, C: "abc1234", S: "pass", A: "python"})
+
+	m.UnionFor(Row{T: "tests/test_a.py::test_one", F: []string{"src/util.py"}, C: "abc1234", S: "fail", A: "python"},
+		"python", nil)
+
+	if m.Len() != 1 {
+		t.Fatalf("map holds %d rows, want 1: %+v", m.Len(), m.Rows())
+	}
+	got := m.Rows()[0]
+	if got.A != "python" {
+		t.Errorf("row.A = %q, want python: the tagged form wins once both exist", got.A)
+	}
+	if len(got.F) != 3 {
+		t.Errorf("row.F = %v, want every file both forms recorded; a union may never narrow", got.F)
+	}
+	if got.S != "fail" {
+		t.Errorf("row.S = %q, want the incoming status", got.S)
+	}
+}

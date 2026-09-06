@@ -119,6 +119,60 @@ func (m *Map) Union(r Row, older func(a, b string) string) {
 	}
 }
 
+// UnionFor is Union for a row produced by a KNOWN adapter, in a repository whose
+// map.jsonl may predate the adapter tag.
+//
+// An untagged row belongs to legacyAdapter and to no other (see TestsCoveringFor), so
+// when that is this row's adapter the two are the SAME row: merging under the tagged key
+// instead would leave the map holding both — one line the selection read and one line the
+// run wrote — and would put an `a` key on every row of a map.jsonl that had none, which
+// is exactly the whole-file diff `omitempty` exists to prevent. The merged row therefore
+// keeps the untagged identity. Every other case is plain Union.
+func (m *Map) UnionFor(r Row, legacyAdapter string, older func(a, b string) string) {
+	if r.A != "" && r.A == legacyAdapter {
+		untagged := rowKey("", r.T)
+		if legacy, ok := m.rows[untagged]; ok {
+			if _, tagged := m.rows[rowKey(r.A, r.T)]; !tagged {
+				// Nothing tagged yet: keep the legacy identity, so a map.jsonl that
+				// has never carried an `a` key does not grow one.
+				r.A = ""
+			} else {
+				// Both forms of one row — a map seeded by an older rtdd that a newer
+				// one has since written into. Keeping both would leave two lines for
+				// one test, so the legacy row's files are folded into the tagged row
+				// and the legacy line goes. A union may never narrow, so nothing it
+				// recorded is lost.
+				legacy.A = r.A
+				delete(m.rows, untagged)
+				m.Union(legacy, older)
+			}
+		}
+	}
+	m.Union(r, older)
+}
+
+// ForAdapter is TestsCoveringFor's rule applied to the whole map: a copy holding only the
+// rows this adapter may be served. It exists because internal/selector is a pure function
+// over a *Map, so per-adapter selection is one Select call per adapter over one submap
+// each — not a second ranking rule, and not a filter applied to somebody else's answer.
+//
+// legacyAdapter is .rtdd/meta.json's singular `adapter`. An untagged row is that
+// adapter's, and nobody else's; when meta names none, an untagged row is ignored for
+// selection and left untouched on write.
+func (m *Map) ForAdapter(adapterName, legacyAdapter string) *Map {
+	out := New()
+	for k, r := range m.rows {
+		keep := r.A == adapterName
+		if r.A == "" {
+			keep = legacyAdapter != "" && legacyAdapter == adapterName
+		}
+		if keep {
+			out.rows[k] = r
+		}
+	}
+	return out
+}
+
 // pickOlder resolves C. With a nil comparator the existing value wins, which is
 // deterministic but age-blind; callers that have git available pass gitctx.Older.
 func pickOlder(existing, incoming string, older func(a, b string) string) string {

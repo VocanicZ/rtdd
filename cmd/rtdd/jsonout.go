@@ -102,6 +102,21 @@ func (u JSONUncovered) MarshalJSON() ([]byte, error) {
 	return json.Marshal(w)
 }
 
+// JSONAdapterSelection is ONE adapter's answer inside a polyglot document.
+//
+// It exists because `selection.tests` is a single list and two adapters' ids must never
+// become one: a pytest nodeid handed to `npx vitest run` selects nothing and reports
+// green. A consumer that means to invoke a runner reads `selections` and takes exactly
+// one block's ids; the flat `selection` stays what it always was — everything rtdd
+// selected, in rank order — for the consumers that only display it.
+type JSONAdapterSelection struct {
+	Adapter   string        `json:"adapter"`
+	Tier      string        `json:"tier"`
+	Reason    string        `json:"reason"`
+	Complete  bool          `json:"complete"`
+	Selection JSONSelection `json:"selection"`
+}
+
 // Output is the top-level --json document. Field order here is the emitted key order:
 // the schema is a struct, never a map, so two identical runs marshal to identical bytes.
 //
@@ -125,7 +140,13 @@ type Output struct {
 	Run           JSONRun       `json:"run"`
 	Uncovered     JSONUncovered `json:"uncovered"`
 	UnmappedFiles []string      `json:"unmapped_files"`
-	ExitCode      int           `json:"exit_code"`
+	// Selections is the per-adapter split, present ONLY in a repository where more than
+	// one adapter was detected. `omitempty` is the compatibility promise: a
+	// single-adapter document is byte-identical to the one schema v1 has always emitted,
+	// so no existing consumer sees a new key, and one that does see it knows the flat
+	// `selection` spans toolchains.
+	Selections []JSONAdapterSelection `json:"selections,omitempty"`
+	ExitCode   int                    `json:"exit_code"`
 }
 
 // OutputInput is everything BuildOutput needs. It is a plain struct so the schema can be
@@ -150,6 +171,9 @@ type OutputInput struct {
 	UncoveredOK    bool
 	UnmappedFiles  []string
 	ImportFallback map[string][]string
+	// Blocks is the per-adapter split for a polyglot repository. One element — or none —
+	// leaves the document exactly as it was before per-adapter selection existed.
+	Blocks []AdapterSelection
 }
 
 // BuildOutput assembles the --json document.
@@ -172,11 +196,35 @@ func BuildOutput(in OutputInput) Output {
 		Warnings:  nonNilStrings(in.Warnings),
 	}
 
+	out.Selections = buildSelections(in)
 	out.UnmappedFiles = nonNilStrings(in.UnmappedFiles)
 	sort.Strings(out.UnmappedFiles)
 
 	if out.Run.Failed+out.Run.Errored > 0 {
 		out.ExitCode = 1
+	}
+	return out
+}
+
+// buildSelections renders the per-adapter blocks, and only when there is more than one:
+// a lone block says nothing the top-level `adapter` and `selection` do not already say,
+// and emitting it would put a new key in every single-adapter document.
+func buildSelections(in OutputInput) []JSONAdapterSelection {
+	if len(in.Blocks) < 2 {
+		return nil
+	}
+	out := make([]JSONAdapterSelection, 0, len(in.Blocks))
+	for _, blk := range in.Blocks {
+		out = append(out, JSONAdapterSelection{
+			Adapter:  blk.Adapter,
+			Tier:     blk.Selection.Tier.String(),
+			Reason:   blk.Selection.Reason,
+			Complete: blk.Selection.Tier != selector.TierT2 || blk.SuiteEnumerated,
+			Selection: buildSelection(OutputInput{
+				Sel:            blk.Selection,
+				ImportFallback: blk.ImportFallback,
+			}),
+		})
 	}
 	return out
 }

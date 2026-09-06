@@ -54,22 +54,6 @@ func detectAdapters(repoRoot string, warn io.Writer) ([]*adapter.Adapter, error)
 	return adapter.Detect(repoRoot, all)
 }
 
-// detectOneAdapter is the TEMPORARY narrowing for the command paths that still run a
-// single toolchain: `run`, `seed` and the `which`/`status` environment. It is an explicit,
-// named step rather than a bare [0] at each call site so the places that still assume one
-// adapter can be found and removed together.
-//
-// TODO(#317, #318): #317 gives selection a per-adapter shape and #318 gives `run` the
-// per-adapter loop and the exit-code fold. When both have landed, every caller below takes
-// the whole set from detectAdapters and this function goes away.
-func detectOneAdapter(repoRoot string, warn io.Writer) (*adapter.Adapter, error) {
-	detected, err := detectAdapters(repoRoot, warn)
-	if err != nil {
-		return nil, err
-	}
-	return detected[0], nil
-}
-
 // warnInvalidAdapters prints one line per host adapter that did not load.
 func warnInvalidAdapters(warn io.Writer, repoRoot string, invalid []adapter.Invalid) {
 	if warn == nil {
@@ -90,7 +74,11 @@ func relToRoot(repoRoot, p string) string {
 }
 
 // rowsFrom joins a run's coverage and its test report into map rows, one row per
-// OUTCOME. The outcome list is the spine: `s` and `d` exist in no coverage report,
+// OUTCOME, each tagged with the adapter that produced it (PRD #232 AC6).
+//
+// The tag is what stops a row reaching a runner that cannot execute its id: a polyglot
+// repository holds a pytest nodeid and a vitest file path in one map.jsonl, and
+// Map.TestsCoveringFor serves each only to the adapter named here. The outcome list is the spine: `s` and `d` exist in no coverage report,
 // and a test that ran without recording a single measurable line still needs its
 // status refreshed.
 //
@@ -103,7 +91,7 @@ func relToRoot(repoRoot, p string) string {
 //
 // Import-time lines belong to no test and are not in PerTest, so they cannot leak
 // into any `f`.
-func rowsFrom(res *runner.RunResult, sha string) []mapstore.Row {
+func rowsFrom(res *runner.RunResult, sha, adapterName string) []mapstore.Row {
 	byTest := map[string][]string{}
 	if res.Coverage != nil {
 		for _, tc := range res.Coverage.PerTest {
@@ -123,6 +111,7 @@ func rowsFrom(res *runner.RunResult, sha string) []mapstore.Row {
 			C: sha,
 			D: o.DurationMS,
 			S: o.Status,
+			A: adapterName,
 		})
 	}
 	return rows

@@ -5,10 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sort"
+	"strings"
 
 	"github.com/VocanicZ/rtdd/internal/adapter"
 	"github.com/VocanicZ/rtdd/internal/gitctx"
 	"github.com/VocanicZ/rtdd/internal/mapstore"
+	"github.com/VocanicZ/rtdd/internal/report"
 	"github.com/VocanicZ/rtdd/internal/runner"
 	"github.com/VocanicZ/rtdd/internal/selector"
 	"github.com/VocanicZ/rtdd/internal/uncovered"
@@ -43,7 +46,7 @@ func cmdRun(args []string) int {
 		fmt.Fprintln(os.Stderr, "rtdd:", err)
 		return 2
 	}
-	ad, err := detectOneAdapter(root, os.Stderr)
+	ads, err := detectAdapters(root, os.Stderr)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "rtdd:", err)
 		return 2
@@ -69,114 +72,78 @@ func cmdRun(args []string) int {
 		return 2
 	}
 
-	// The static-import fallback, wired exactly as `rtdd which` wires it (newImportFallback
-	// in which.go). Without it the advisory command and the executing command disagree:
-	// an import-time-only file is covered by no map row, so T0 finds nothing and the
-	// selection falls to empty — `which` says "run these tests", `run` runs none.
-	//
-	// The unmapped set is computed from the map alone, so Cov is nil here: this pre-run
-	// signal answers only "which changed files does no row cover", which is precisely the
-	// fallback's trigger (spec §6, D14). The post-run BuildSignal below, which classifies
-	// against fresh coverage, is a separate call and stays that way.
-	//
-	// newImportFallback builds no scanner when that set is empty, so the ordinary T0 loop
-	// pays no python subprocess at all.
-	pre := BuildSignal(SignalInput{
-		Changes:          changes,
-		IsInstrumentable: ad.IsInstrumentable,
-		Map:              m,
-	})
-	fb := newImportFallback(root, m, pre.UnmappedFiles)
-
 	merge, _ := gitctx.IsMergeCommit(root, "HEAD")
-	// The static tier's two resolvers, wired exactly as `which` wires them (staticResolvers
-	// in static.go). A resolver `run` did not supply is a level skipped, so an unwired
-	// `run` would execute the full suite in a repository `which` had narrowed to one test.
-	exists, importDistance, staticScanErr := staticResolvers(root, ad)
-	choose := func(allTests []string) selector.Selection {
-		return selector.Select(selector.Inputs{
-			Map:      m,
-			Changes:  changes,
-			Adapter:  ad,
-			Cfg:      selector.DefaultConfig(),
-			AllTests: allTests,
-			Distance: func(sha string) int {
-				d, derr := gitctx.CommitDistance(root, sha)
-				if derr != nil {
-					return -1 // unknown, never "fresh"
-				}
-				return d
-			},
-			Cycles:         mt.Cycles,
-			Merge:          merge,
-			ImportOnly:     fb.testsImporting,
-			Exists:         exists,
-			ImportDistance: importDistance,
-		})
+
+	// One selection per detected adapter (spec §4.4), through the same selectPerAdapter
+	// `rtdd which` calls: the advisory command and the executing command disagreeing
+	// about one tree is a defect this package has already shipped once.
+	//
+	// Enumerate is supplied here and nowhere else: runner.List costs a full collection,
+	// and T2 is the one tier whose test list IS the whole suite, so paying it on every T0
+	// run would put a collection on the critical path of the loop this tool exists to
+	// make fast.
+	blocks, err := selectPerAdapter(root, ads, m, mt, selectionContext{
+		Changes: changes,
+		Cfg:     selector.DefaultConfig(),
+		Cycles:  mt.Cycles,
+		Merge:   merge,
+		Distance: func(sha string) int {
+			d, derr := gitctx.CommitDistance(root, sha)
+			if derr != nil {
+				return -1 // unknown, never "fresh"
+			}
+			return d
+		},
+		Enumerate: func(ad *adapter.Adapter) ([]string, error) { return runner.List(ad, root) },
+	})
+	if err != nil {
+		return reportRunErr(err)
 	}
 
-	// Enumerate the suite ONLY for T2. runner.List costs a full pytest collection,
-	// and T2 is the one tier whose test list is the whole suite — AllTests reaches
-	// no other branch of Select. Paying it on every T0 run would put a collection
-	// on the critical path of the loop this tool exists to make fast.
-	sel := choose(nil)
-	// suiteEnumerated is what makes a T2 selection COMPLETE: `selection.tests` is then the
-	// whole suite rather than the map rows rtdd happened to know. It reaches the document
-	// as `complete`, so a consumer never has to guess whether the list is the run.
-	suiteEnumerated := false
-	if sel.Tier == selector.TierT2 {
-		all, listErr := runner.List(ad, root)
-		if listErr != nil {
-			return reportRunErr(listErr)
-		}
-		sel = choose(all)
-		suiteEnumerated = true
-	}
+	sel, pre, importFallback, suiteEnumerated := foldBlocks(blocks)
 
 	// Under --json the document is the WHOLE of stdout: a consumer pipes it straight
 	// into a parser, and a human-readable tier line ahead of it is a syntax error. The
 	// same facts are in the document as `tier`, `selection` and `run`.
 	if !*asJSON {
-		fmt.Printf("tier %s: %d selected", sel.Tier, len(sel.Tests))
-		if sel.Reason != "" {
-			fmt.Printf(" (%s)", sel.Reason)
-		}
-		fmt.Println()
+		fmt.Print(renderRunTiers(blocks))
 	}
-
-	// What the fallback actually produced, per file — `selection.import_fallback`. The map
-	// is always non-nil, so the key is present even when nothing fired and a front-end can
-	// bind to it unconditionally.
-	importFallback := fb.fired
 
 	// A failed scan DEGRADES selection; it never fails the command (internal/importscan:
 	// Scanner.Err). It stays on stderr for a human — that keeps --json's stdout a single
 	// document — and reaches the document itself as a `warnings` entry, because a --json
 	// consumer normally discards stderr and would otherwise never learn the selection was
 	// narrowed.
-	scanErr := fb.err()
-	if scanErr != nil {
-		fmt.Fprintf(os.Stderr, "rtdd run: %s\n", importScanNote(scanErr))
+	var warnings []string
+	for _, blk := range blocks {
+		if blk.FallbackErr != nil {
+			fmt.Fprintf(os.Stderr, "rtdd run: %s\n", importScanNote(blk.FallbackErr))
+		}
+		if blk.ScanErr != nil && blk.Ad != nil {
+			fmt.Fprintf(os.Stderr, "rtdd run: %s\n", adapterImportScanNote(blk.Ad.Name, blk.ScanErr))
+		}
+		// Attributed in a polyglot repository, for the reason whichNotes attributes its
+		// own: "an empty selection is not a pass" is a sentence about ONE adapter, and
+		// unattributed it reads as a claim about the whole run — which just executed
+		// another adapter's tests.
+		for _, n := range runNotes(blk.Selection, blk.FallbackErr, adapterScanWarning(blk.Ad, blk.ScanErr)) {
+			if len(blocks) > 1 {
+				n = blk.Adapter + ": " + n
+			}
+			warnings = append(warnings, n)
+		}
 	}
 
-	// The declared scanner's failure, if any, is read AFTER selection: the scan runs inside
-	// Select, through the resolver above.
-	if err := staticScanErr(); err != nil {
-		fmt.Fprintf(os.Stderr, "rtdd run: %s\n", adapterImportScanNote(ad.Name, err))
-	}
-
-	warnings := runNotes(sel, scanErr, adapterScanWarning(ad, staticScanErr()))
-
-	if sel.Tier == selector.TierEmpty || len(sel.Tests) == 0 {
+	if selectionIsEmpty(sel) {
 		if *asJSON {
 			// Nothing executed, so there is no fresh coverage and therefore no honest
 			// uncovered report: UncoveredOK stays false and `files` is omitted rather
 			// than sent as an empty list a consumer would read as "nothing uncovered".
-			// `pre` is exactly that Cov-less signal, already computed for the fallback.
+			// `pre` is exactly that Cov-less signal, already computed per adapter.
 			out := BuildOutput(OutputInput{
 				Command:         "run",
 				Base:            *base,
-				Adapter:         ad.Name,
+				Adapter:         blocksAdapterName(blocks),
 				Sel:             sel,
 				Changes:         changes,
 				Instrumentable:  pre.Instrumentable,
@@ -184,6 +151,7 @@ func cmdRun(args []string) int {
 				ImportFallback:  importFallback,
 				SuiteEnumerated: suiteEnumerated,
 				Warnings:        warnings,
+				Blocks:          blocks,
 			})
 			if err := emitJSON(out); err != nil {
 				return 2
@@ -194,34 +162,10 @@ func cmdRun(args []string) int {
 		return finishCycle(root, mt, 0)
 	}
 
-	res, err := runner.Run(ad, root, sel.Tests, *failFast)
-	if err != nil {
-		return reportRunErr(err)
-	}
-
 	sha, err := gitctx.HeadSHA(root)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "rtdd:", err)
 		return 3
-	}
-	for _, row := range rowsFrom(res, sha) {
-		// UNION, NEVER REPLACE. See the doc comment on cmdRun.
-		m.Union(row, older)
-	}
-	if err := os.MkdirAll(rtddDir(root), 0o755); err != nil {
-		fmt.Fprintln(os.Stderr, "rtdd:", err)
-		return 3
-	}
-	if err := m.Save(mapPath(root)); err != nil {
-		fmt.Fprintln(os.Stderr, "rtdd:", err)
-		return 3
-	}
-
-	if mt.Adapter == "" {
-		mt.Adapter = ad.Name
-	}
-	if mt.V == 0 {
-		mt.V = 1
 	}
 
 	// Populate the changed line ranges from git diff --unified=0. WithLines is
@@ -237,40 +181,114 @@ func cmdRun(args []string) int {
 		return 3
 	}
 
-	// Classify against the coverage THIS run just produced — never against map.jsonl,
-	// which carries no line data at all and could therefore only ever answer at whole-file
-	// granularity, on numbers that drifted the moment the file was edited (spec §4, §6).
-	sig := BuildSignal(SignalInput{
-		Changes:          changes,
-		Cov:              res.Coverage,
-		IsInstrumentable: ad.IsInstrumentable,
-		Map:              m,
-	})
+	// One subset invocation per adapter, each with ONLY its own selection's ids (spec
+	// §4.4). Handing a pytest nodeid to `npx vitest run` selects nothing and reports
+	// green, so the two lists never meet — not here, and not in the map rows below,
+	// which carry the adapter that produced them.
+	//
+	// TODO(#318): a per-adapter failure still returns here, so one broken toolchain
+	// discards another adapter's results. Task 9 of docs/plans/06-m6d-shipped-adapters.md
+	// makes the loop recover per adapter and folds the codes by the stated precedence;
+	// the "worst wins" fold below is that rule's arithmetic, not yet its recovery.
+	code := 0
+	var (
+		outcomes []report.Outcome
+		reports  []uncovered.FileReport
+		failed   []string
+		ran      int
+	)
+	sig := SignalOutput{Instrumentable: map[string]bool{}}
+	unmapped := map[string]bool{}
+	for _, blk := range blocks {
+		if selectionIsEmpty(blk.Selection) {
+			continue
+		}
+		res, err := runner.Run(blk.Ad, root, blk.Selection.Tests, *failFast)
+		if err != nil {
+			return reportRunErr(err)
+		}
+		for _, row := range rowsFrom(res, sha, blk.Adapter) {
+			// UNION, NEVER REPLACE. See the doc comment on cmdRun. UnionFor rather than
+			// Union because an untagged row IS this adapter's row when meta.json names
+			// it, and writing a tagged copy beside it would leave the map holding both.
+			m.UnionFor(row, mt.Adapter, older)
+		}
 
-	// A non-empty uncovered report NEVER moves the exit code: RTDD reports, it does not
-	// gate (spec §2 non-goals, §6, decision D3). res.ExitCode is still consulted so a
-	// runner-level failure the report log did not name cannot be swallowed.
-	code := ExitCodeFor(res.Outcomes, sig.Reports)
-	if code == 0 && res.ExitCode != 0 {
-		code = res.ExitCode
+		// Classify against the coverage THIS adapter just produced — never against
+		// map.jsonl, which carries no line data at all and could therefore only ever
+		// answer at whole-file granularity, on numbers that drifted the moment the file
+		// was edited (spec §4, §6).
+		blkSig := BuildSignal(SignalInput{
+			Changes:          changes,
+			Cov:              res.Coverage,
+			IsInstrumentable: instrumentableOf(blk.Ad),
+			Map:              m,
+		})
+		reports = append(reports, blkSig.Reports...)
+		for p, ok := range blkSig.Instrumentable {
+			sig.Instrumentable[p] = sig.Instrumentable[p] || ok
+		}
+		if unmappedNoticeApplies(blk.Ad) {
+			for _, f := range blkSig.UnmappedFiles {
+				unmapped[f] = true
+			}
+		}
+
+		outcomes = append(outcomes, res.Outcomes...)
+		failed = append(failed, res.Failed...)
+		ran += len(res.Outcomes)
+
+		// A non-empty uncovered report NEVER moves the exit code: RTDD reports, it does
+		// not gate (spec §2 non-goals, §6, decision D3). res.ExitCode is still consulted
+		// so a runner-level failure the report log did not name cannot be swallowed.
+		blkCode := ExitCodeFor(res.Outcomes, blkSig.Reports)
+		if blkCode == 0 && res.ExitCode != 0 {
+			blkCode = res.ExitCode
+		}
+		// Worst wins, never last: an adapter that failed must not be reported as success
+		// because the next one happened to pass.
+		if blkCode > code {
+			code = blkCode
+		}
+	}
+	for f := range unmapped {
+		sig.UnmappedFiles = append(sig.UnmappedFiles, f)
+	}
+	sort.Strings(sig.UnmappedFiles)
+
+	if err := os.MkdirAll(rtddDir(root), 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, "rtdd:", err)
+		return 3
+	}
+	if err := m.Save(mapPath(root)); err != nil {
+		fmt.Fprintln(os.Stderr, "rtdd:", err)
+		return 3
+	}
+
+	if mt.Adapter == "" && len(blocks) > 0 {
+		mt.Adapter = blocks[0].Adapter
+	}
+	if mt.V == 0 {
+		mt.V = 1
 	}
 
 	if *asJSON {
 		out := BuildOutput(OutputInput{
 			Command:         "run",
 			Base:            *base,
-			Adapter:         ad.Name,
+			Adapter:         blocksAdapterName(blocks),
 			Sel:             sel,
 			Changes:         changes,
 			Instrumentable:  sig.Instrumentable,
 			Executed:        true,
-			Outcomes:        res.Outcomes,
-			Reports:         sig.Reports,
+			Outcomes:        outcomes,
+			Reports:         reports,
 			UncoveredOK:     true,
 			UnmappedFiles:   sig.UnmappedFiles,
 			ImportFallback:  importFallback,
 			SuiteEnumerated: suiteEnumerated,
 			Warnings:        warnings,
+			Blocks:          blocks,
 		})
 		out.ExitCode = code
 		if err := emitJSON(out); err != nil {
@@ -279,14 +297,39 @@ func cmdRun(args []string) int {
 		return finishCycle(root, mt, code)
 	}
 
-	fmt.Printf("%d ran, %d failed, %d rows in the map\n", len(res.Outcomes), len(res.Failed), m.Len())
-	for _, id := range res.Failed {
+	fmt.Printf("%d ran, %d failed, %d rows in the map\n", ran, len(failed), m.Len())
+	for _, id := range failed {
 		fmt.Printf("FAILED %s\n", id)
 	}
-	if s := RenderUncovered(sig.Reports); s != "" {
+	if s := RenderUncovered(reports); s != "" {
 		fmt.Fprint(os.Stdout, "\n"+s)
 	}
 	return finishCycle(root, mt, code)
+}
+
+// renderRunTiers is the tier line, one per adapter. The heading appears only when more
+// than one adapter answered: there is nothing to disambiguate in a single-toolchain
+// repository, and the line it printed before per-adapter selection existed is the line it
+// still prints.
+func renderRunTiers(blocks []AdapterSelection) string {
+	var b strings.Builder
+	for _, blk := range blocks {
+		if len(blocks) > 1 {
+			fmt.Fprintf(&b, "adapter: %s\n", blk.Adapter)
+		}
+		fmt.Fprintf(&b, "tier %s: %d selected", blk.Selection.Tier, len(blk.Selection.Tests))
+		if blk.Selection.Reason != "" {
+			fmt.Fprintf(&b, " (%s)", blk.Selection.Reason)
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// selectionIsEmpty is the one reading of "nothing to run": an explicit empty tier, or a
+// tier that named no test. Both are reported, and neither is a pass.
+func selectionIsEmpty(sel selector.Selection) bool {
+	return sel.Tier == selector.TierEmpty || len(sel.Tests) == 0
 }
 
 // runNotes are the caveats that say this run is narrower, or less authoritative, than it
