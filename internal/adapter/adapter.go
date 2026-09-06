@@ -82,6 +82,15 @@ type Adapter struct {
 	Importscan *Importscan   `yaml:"importscan"`
 	Requires   []Requirement `yaml:"requires"`
 
+	// How this runner accepts MORE THAN ONE selector. `{tests}` splices one bare argv
+	// element per id, which is pytest's shape and every coverage-tier adapter's shape;
+	// Gradle wants its flag before each id, and Surefire, PHPUnit, `dotnet test` and
+	// `go test -run` each take ONE argument holding every id joined by a separator.
+	// Both are optional and mutually exclusive: declaring neither is bare splicing,
+	// today's rule unchanged (spec §4.2, plan 06-m6d decision 8).
+	TestFlag string `yaml:"test_flag"` // emit "<flag> <id>" for each id
+	TestJoin string `yaml:"test_join"` // join every id into ONE argv token
+
 	// Src is the file this adapter was read from — an fs path inside the embedded set
 	// ("python.yaml") or an on-disk path for a host-authored one. It is never declared in
 	// YAML: it is how doctor and every error message name the file an adapter came from,
@@ -235,6 +244,13 @@ func (a *Adapter) validate() error {
 		// Without the placeholder the subset command runs the whole suite, so every
 		// selection would silently become a full run.
 		return fmt.Errorf("subset %q has no {tests} placeholder", a.Subset)
+	// test_flag and test_join are two answers to one question — how ids reach the
+	// runner — so declaring both is a configuration error (exit 2) rather than a
+	// precedence puzzle nobody could predict from the file. The message names both keys
+	// because either one of the pair could be the line to delete.
+	case a.TestFlag != "" && a.TestJoin != "":
+		return fmt.Errorf("test_flag %q and test_join %q are mutually exclusive; declare one, or neither for bare {tests} splicing", a.TestFlag, a.TestJoin)
+
 	case a.Selection == SelectionCoverage && a.Coverage != "sqlite":
 		return fmt.Errorf("unsupported coverage %q (only \"sqlite\" and \"none\")", a.Coverage)
 
