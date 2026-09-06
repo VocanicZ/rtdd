@@ -1,0 +1,35 @@
+# The Go adapter.
+#
+# `report_cmd` is DECISION 9, and Go is the only shipped adapter that declares it.
+# `go test -json` writes JSON to STDOUT and go-junit-report reads STDIN; the engine builds
+# argv and never hands a shell a string, and a `sh -c` template does not rescue it because
+# command templates are whitespace-split before substitution. So the runner writes the
+# chunk's captured output to {log} and converts it into {report} after the subset
+# invocation and before the report is read. A non-zero exit is fatal, never a silent
+# empty report.
+#
+# `test_join` is DECISION 8: `-run` takes ONE regex, so every id joins into a single argv
+# token separated by `|` — the regex alternation `-run` already understands.
+#
+# The id is CASE-granular: `-run` selects by test name, and `classname` is the package,
+# which is not part of the selector.
+name: go
+detect: ["go.mod"]
+selection: static
+coverage: none
+subset: "go test -json -run {tests} ./..."
+test_join: "|"
+report_cmd: "go-junit-report -parser gojson -in {log} -out {report}"
+list: "go test -json ./..."
+report: junit-xml
+report_path: ".rtdd/junit.xml"
+id_template: "{name}"
+failfast_flag: "-failfast"
+requires:
+  - bin: go-junit-report
+    reason: "go emits no JUnit XML natively; go test -json is converted by go-junit-report"
+test_for: ["{dir}/{name}_test.go"]
+test_globs: ["**/*_test.go"]
+source_globs: ["**/*.go"]
+opaque: ["**/testdata/**", "**/*.golden", "**/*.json", "**/*.yaml", "**/*.tmpl"]
+full_escalate: ["go.mod", "go.sum", "vendor/modules.txt", "**/tools.go"]

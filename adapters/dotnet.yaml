@@ -1,0 +1,33 @@
+# The .NET adapter.
+#
+# `dotnet test` has only trx built in; `--logger junit` resolves because the host project
+# references the JUnitTestLogger package. `requires` names the `dotnet` binary, which a
+# PATH lookup can check, and the reason names the package reference a human must add
+# (decision 11). `--results-directory` takes the store, so `report_path` is a DIRECTORY.
+#
+# `test_join` is DECISION 8: `--filter` takes ONE expression, and `|` is its own OR
+# operator. A bare value is read as FullyQualifiedName~value, so `{classname}.{name}` is
+# a substring match on the fully-qualified name — {classname} contains dots and
+# report.ParseID splits at the first one, which nothing downstream consumes.
+#
+# No `failfast_flag`: `dotnet test` has no stop-on-first-failure switch, and inventing one
+# would make the runner pass an argument the tool rejects. Omitting it is the declaration
+# that this runner cannot fail fast.
+name: dotnet
+detect: ["*.sln", "*.csproj", "*.fsproj"]
+selection: static
+coverage: none
+subset: "dotnet test --logger junit --results-directory {report} --filter {tests}"
+test_join: "|"
+list: "dotnet test --logger junit --results-directory {report}"
+report: junit-xml
+report_path: "TestResults/"
+id_template: "{classname}.{name}"
+requires:
+  - bin: dotnet
+    reason: "only trx is built in; the JUnitTestLogger package reference is what makes --logger junit resolve"
+test_for: ["tests/{name}.Tests/{name}Tests.cs", "{dir}.Tests/{name}Tests.cs", "test/{name}Tests.cs"]
+test_globs: ["**/*Tests.cs", "**/*Test.cs", "tests/**/*.cs", "test/**/*.cs"]
+source_globs: ["**/*.cs", "**/*.fs"]
+opaque: ["**/*.json", "**/*.resx", "**/*.xml", "**/TestData/**"]
+full_escalate: ["*.sln", "**/*.csproj", "**/*.fsproj", "Directory.Build.props", "Directory.Packages.props", "nuget.config", "global.json"]

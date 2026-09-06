@@ -1,0 +1,28 @@
+# The Ruby (RSpec) adapter.
+#
+# RSpec emits JUnit XML only through the rspec_junit_formatter gem, so `--format
+# RspecJunitFormatter --out {report}` is the whole configuration and the gem must be in
+# the Gemfile. `requires` names the `rspec` binary, because that is what a PATH lookup can
+# actually check; the gem is named in the reason a human reads (decision 11).
+#
+# The id is FILE-granular. RSpec emits `file=` on each case and `rspec a_spec.rb b_spec.rb`
+# repeats positionally; a per-example selector is `path:line`, which no JUnit attribute
+# carries. Every example in a file shares the id and folds worst-status-wins (decision 7).
+name: rspec
+detect: [".rspec", "spec/spec_helper.rb"]
+selection: static
+coverage: none
+subset: "bundle exec rspec --format RspecJunitFormatter --out {report} {tests}"
+list: "bundle exec rspec --format RspecJunitFormatter --out {report}"
+report: junit-xml
+report_path: ".rtdd/junit.xml"
+id_template: "{file}"
+failfast_flag: "--fail-fast"
+requires:
+  - bin: rspec
+    reason: "rspec emits no JUnit XML without the rspec_junit_formatter gem; add it to the Gemfile"
+test_for: ["spec/{dir}/{name}_spec.rb", "spec/{name}_spec.rb", "{dir}/{name}_spec.rb"]
+test_globs: ["spec/**/*_spec.rb"]
+source_globs: ["lib/**/*.rb", "app/**/*.rb", "spec/**/*.rb"]
+opaque: ["spec/fixtures/**", "**/*.yml", "**/*.erb", "**/*.json"]
+full_escalate: ["Gemfile", "Gemfile.lock", ".rspec", "spec/spec_helper.rb", "spec/rails_helper.rb", "*.gemspec"]
