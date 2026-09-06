@@ -21,8 +21,15 @@ name: gradle
 detect: ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]
 selection: static
 coverage: none
+# `test_selector` is DECISION 13. `--tests` takes a pattern over the fully qualified class
+# name, and the TS tier names a FILE — so the selector is the file's base name behind a `*`
+# wildcard: `src/test/java/calc/CalcTest.java` becomes `*CalcTest`, which matches
+# `calc.CalcTest` whatever its package. The package is not recoverable from the path alone
+# (how many leading segments the source root occupies is a property of the repository), and
+# a leading `*` is the shape Gradle documents for exactly that.
 subset: "./gradlew test {tests}"
 test_flag: "--tests"
+test_selector: "*{name}"
 list: "./gradlew test"
 report: junit-xml
 report_path: "build/test-results/test/"

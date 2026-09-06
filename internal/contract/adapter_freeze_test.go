@@ -31,7 +31,7 @@ func TestPythonAdapterIsByteFrozen(t *testing.T) {
 // defaulting, not by declaring.
 func TestPythonAdapterDeclaresNoV2Keys(t *testing.T) {
 	src := readRepoFile(t, "adapters/python.yaml")
-	for _, key := range []string{"selection:", "report_path:", "id_template:", "test_for:", "importscan:", "requires:"} {
+	for _, key := range []string{"selection:", "report_path:", "id_template:", "test_for:", "importscan:", "requires:", "test_selector:"} {
 		if strings.Contains(src, "\n"+key) {
 			t.Errorf("adapters/python.yaml declares %q; it is byte-frozen and defaults to v1 behaviour", key)
 		}

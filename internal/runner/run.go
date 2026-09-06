@@ -34,11 +34,22 @@ type RunResult struct {
 // An empty selection runs nothing at all: `pytest --cov` with no selectors
 // collects the whole suite, which is the most expensive possible way to be wrong
 // about having nothing to run.
+//
+// tests are the ids the selector produced; what reaches the runner is those ids rendered
+// through the adapter's `test_selector` (plan 06-m6d decision 13). The translation happens
+// HERE, before Chunk, because the argv byte budget must measure what is actually spliced
+// and because two test files that render one selector — two files in one Go package — must
+// collapse before a chunk boundary can separate them. An adapter declaring no
+// test_selector renders the identity, which is every coverage-tier adapter unchanged.
 func Run(a *adapter.Adapter, repoRoot string, tests []string, failFast bool) (*RunResult, error) {
 	if len(tests) == 0 {
 		return &RunResult{Coverage: &coverage.Result{ImportTime: map[string][]int{}}}, nil
 	}
-	return execute(a, repoRoot, a.Subset, Chunk(tests, MaxArgvBytes), failFast)
+	selectors, err := a.Selectors(tests)
+	if err != nil {
+		return nil, err
+	}
+	return execute(a, repoRoot, a.Subset, Chunk(selectors, MaxArgvBytes), failFast)
 }
 
 // execute runs one command template. chunks == nil means a single invocation with

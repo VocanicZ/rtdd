@@ -76,6 +76,17 @@ jobs:
           esac
           go test -count=1 -run 'RoundTrip' ./internal/report/
 
+      # Issue #334 AC2: the TS tier names test FILES and six shipped runners select by
+      # test NAME. Without this gate the mismatch is a green run over zero executed tests.
+      - name: TS selection matches each adapter's own subset selector
+        run: |
+          listed="$(go test -list '^TestEveryShippedAdapterSelectionMatchesItsSubsetSelector$' ./cmd/rtdd/)"
+          case "$listed" in
+            *TestEveryShippedAdapterSelectionMatchesItsSubsetSelector*) ;;
+            *) echo "the selection/selector gate is gone from ./cmd/rtdd/"; exit 1 ;;
+          esac
+          go test -count=1 -run '^TestEveryShippedAdapterSelectionMatchesItsSubsetSelector$|^TestEveryStaticShippedAdapterHasASelectorCase$|^TestEveryStaticShippedAdapterDeclaresATestSelector$|^TestGoFixtureSelectionActuallyExecutesTestAdd$' ./cmd/rtdd/
+
   prereg:
     runs-on: ubuntu-latest
     steps:

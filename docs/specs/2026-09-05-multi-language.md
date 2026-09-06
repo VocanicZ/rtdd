@@ -91,7 +91,8 @@ selection: static            # "coverage" (default, today's behaviour) | "static
 coverage: none               # new permitted value; required when selection: static
 report: junit-xml            # new universal parser (see 4.3)
 report_path: ".rtdd/junit.xml"
-id_template: "{file}::{name}"   # how a parsed test id is rendered back into `subset`
+id_template: "{file}::{name}"   # how a parsed <testcase> renders into a REPORTED id
+                             # (the reporting vocabulary — see test_selector below)
 test_for:                    # path-correspondence templates, tried in order
   - "{dir}/{name}.test.ts"     # {dir}    = the changed file's directory
   - "{dir}/__tests__/{name}.test.ts"
@@ -111,6 +112,11 @@ importscan:
 test_flag: "--tests"         # emit "<flag> <id>" for each id at the {tests} position
 test_join: ","               # OR join every id into ONE argv token, substituted wherever
                              # {tests} appears inside a token (`-Dtest={tests}`)
+
+test_selector: "./{dir}"     # how ONE selected test FILE becomes ONE selector token.
+                             # {file} = the test file, repo-relative; {dir} = its
+                             # directory; {name} = its base name without extension.
+                             # selection: static only; omitted means the identity.
 ```
 
 `test_flag` and `test_join` are optional and **mutually exclusive** — declaring both is a
@@ -120,6 +126,17 @@ nextest all take. Gradle needs its flag before *each* id; Surefire, PHPUnit, `do
 and `go test -run` each take one argument holding every id joined by a separator. Under
 `test_join`, an id containing the separator is refused by name rather than spliced into a
 token that would split back into two selectors.
+
+`test_selector` is the SELECTION vocabulary, and it is deliberately not `id_template`. The
+`TS` tier's output is a test **file path** — that is what `test_for` correspondence resolves
+to — while `id_template` renders a `<testcase>` from a report that, on the `TS` path, has
+not been written yet. Six of the nine shipped runners select by test **name**, so without a
+declared translation a file path is spliced into `-run`, `-Dtest=`, `--tests` or `--filter`,
+the runner matches nothing, and the run reports a pass over zero executed tests (#334). The
+key is permitted only under `selection: static`, because a coverage adapter's ids come from
+the map and are already selectors; omitting it is the identity, which is every v1 adapter
+unchanged. Rendering happens in `runner.Run` before chunking, so the argv byte budget
+measures what is actually spliced and two files that render one selector collapse to one.
 
 `seed` becomes optional when `selection: static` — there is nothing to seed.
 

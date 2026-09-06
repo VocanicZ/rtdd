@@ -17,8 +17,13 @@ name: dotnet
 detect: ["*.sln", "*.csproj", "*.fsproj"]
 selection: static
 coverage: none
+# `test_selector` is DECISION 13. `--filter` matches the fully qualified test name, and the
+# TS tier names a FILE — so the selector is the file's base name, which for a .NET test file
+# is its class name, spelled as the substring form `--filter` documents. Joined by `|`, the
+# per-file clauses are an OR, which is what a multi-file selection means.
 subset: "dotnet test --logger junit --results-directory {report} --filter {tests}"
 test_join: "|"
+test_selector: "FullyQualifiedName~{name}"
 list: "dotnet test --logger junit --results-directory {report}"
 report: junit-xml
 report_path: "TestResults/"

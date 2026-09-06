@@ -24,11 +24,14 @@ env:
   JEST_JUNIT_CLASSNAME: "{filepath}"
   JEST_JUNIT_OUTPUT_DIR: ".rtdd"
   JEST_JUNIT_OUTPUT_NAME: "junit.xml"
+# `test_selector: "{file}"` is DECISION 13's identity: jest positionals are path regexes,
+# so a test FILE path is already the selector and nothing needs translating.
 subset: "npx jest --reporters=jest-junit {tests}"
 list: "npx jest --reporters=jest-junit"
 report: junit-xml
 report_path: ".rtdd/junit.xml"
 id_template: "{classname}"
+test_selector: "{file}"
 failfast_flag: "--bail"
 requires:
   - bin: npx

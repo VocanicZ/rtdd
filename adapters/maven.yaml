@@ -10,7 +10,11 @@
 # module from failing the build instead of selecting nothing.
 #
 # The id is CASE-granular and `{classname}#{name}` is exactly Surefire's own
-# Class#method syntax.
+# Class#method syntax. That is the REPORTING vocabulary; `test_selector` is the SELECTION
+# one (DECISION 13). The TS tier names src/test/java/calc/CalcTest.java, and `-Dtest=` takes
+# a class, not a path — so the selector is the file's base name, which for a Java test file
+# IS the simple class name Surefire accepts. Splicing the path instead selects nothing, and
+# -DfailIfNoSpecifiedTests=false then keeps the build green over zero executed tests (#334).
 #
 # `test_for` uses {subdir}, not {dir}: the changed file's directory is
 # src/main/java/<package>, and the test that corresponds to it lives at
@@ -24,6 +28,7 @@ selection: static
 coverage: none
 subset: "mvn -B test -Dtest={tests} -DfailIfNoSpecifiedTests=false"
 test_join: ","
+test_selector: "{name}"
 list: "mvn -B test"
 report: junit-xml
 report_path: "target/surefire-reports/"
