@@ -25,7 +25,9 @@ tier T0: 2 selected (tests whose recorded coverage intersects the changed set)
   import-time: src/calc.py:5  (executed during collection, not attributed)
 ```
 
-Python only, today. See [What it does not do](#what-it-does-not-do).
+Execution-derived selection — the run above — is Python only today. Every other language
+gets static selection instead, which is weaker evidence. See
+[What it does not do](#what-it-does-not-do).
 
 ## Install
 
@@ -253,12 +255,16 @@ Duration-weighted aggregate (ordering only — recall is never pooled), from
   substitute for a full CI run.
 - **It is not sound program analysis.** This is risk-managed test selection and says so.
 - **It does not reduce token cost.** There are no model calls in the hot path.
-- **It is Python only.** Per-test attribution does not exist in the JavaScript or Go
-  ecosystems: Istanbul and v8 coverage carry aggregate counters with no test dimension
-  ([vitest#6735](https://github.com/vitest-dev/vitest/issues/6735) has requested it since
-  October 2024), and Go's `-coverprofile` has no test dimension either while per-test
-  isolation costs a prebuilt binary driven once per test. Adding a language is engine work,
-  not a config file.
+- **Two tiers, and only one of them is measured coverage.** *Execution-derived* selection —
+  the tier RTDD exists for — is Python only. Per-test attribution does not exist in the
+  JavaScript or Go ecosystems: Istanbul and v8 coverage carry aggregate counters with no
+  test dimension ([vitest#6735](https://github.com/vitest-dev/vitest/issues/6735) has
+  requested it since October 2024), and Go's `-coverprofile` has no test dimension either
+  while per-test isolation costs a prebuilt binary driven once per test. Every other
+  language gets *static* selection instead: declared file correspondence and imports, with
+  nothing instrumented. It never watched a test run, so it can miss a test an
+  execution-derived selection would have caught, and passing it is weaker evidence. Every
+  surface says which tier you are reading, because the two are not interchangeable.
 - **Coverage is blind in its own way.** It only knows paths some test actually took, and it
   attributes nothing to code executed at import time — which is why the uncovered report has
   a separate import-time class instead of calling dataclasses and enums untested.

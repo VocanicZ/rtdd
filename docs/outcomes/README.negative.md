@@ -9,6 +9,16 @@ harness that produced them is in `bench/`, and the pre-registration that fixed t
 the arms, and the kill criterion before the run is in
 [`bench/PREREGISTRATION.md`](bench/PREREGISTRATION.md) at git tag `prereg-m4`.
 
+That hypothesis is about one of two tiers, and only one of them is measured coverage.
+*Execution-derived* selection — the tier tested here — is Python only: per-test attribution
+does not exist in the JavaScript or Go ecosystems, where coverage carries aggregate counters
+with no test dimension. Every other language gets *static* selection instead: declared file
+correspondence and imports, with nothing instrumented. Static selection never watched a test
+run, so it can miss a test an execution-derived selection would have caught, and passing it
+is weaker evidence. The result below is a verdict on the measured tier only; the static tier
+was never the thing on trial, and losing on the tier that instruments is not a reason to
+trust the tier that does not.
+
 The binaries are not released. Use **[TDAD](https://github.com/pepealonso95/TDAD)** instead.
 
 ## The result
