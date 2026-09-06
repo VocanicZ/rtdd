@@ -342,6 +342,26 @@ func ReadJUnitReport(p ReportPath, tmpl string) ([]Outcome, error) {
 			outs = append(outs, Outcome{Test: id, Status: c.Status, DurationMS: c.DurationMS})
 		}
 	}
+	// PRD #231 AC6's unscoped clause: "...never a silent zero-test success." A report that
+	// parsed cleanly and names no test is not a run of zero tests, it is a run whose
+	// selection the runner matched nothing in — `go test ./... -run TestDoesNotExist`
+	// exits 0 and go-junit-report writes precisely that shape. Zero outcomes and a nil
+	// error reach the runner as an empty Failed and ExitCode 0, and cmd/rtdd prints
+	// "0 ran, 0 failed" and exits green: the false green cmd/rtdd already refuses for the
+	// sibling EMPTY SELECTION case, which this is the non-empty-selection twin of.
+	//
+	// The rule is about the report as a WHOLE and not each file, which is why it lives
+	// here and not in ReadJUnitFile. A single empty <testsuite> is a file the runner
+	// collected and skipped entirely, and Surefire writes one per class — refusing it
+	// per-file would fail a run every other file of which reported tests.
+	//
+	// A runner that legitimately writes an empty report for a filtered-to-nothing run gets
+	// no escape hatch here: no shipped adapter needs one, and if one ever does the opt-out
+	// belongs in that adapter's declaration, where it is visible, rather than in the parser
+	// silently returning success for everybody.
+	if len(outs) == 0 {
+		return nil, fmt.Errorf("%s%w: %s", p.prefix(), ErrNoTestcases, p.Abs)
+	}
 	return outs, nil
 }
 

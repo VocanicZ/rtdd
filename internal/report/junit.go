@@ -36,6 +36,12 @@ var (
 	// import time is still a suite nothing ran in. Reporting zero tests from it would be a
 	// false green.
 	ErrSuiteFailure = errors.New("junit-xml: suite failed before any test ran")
+	// ErrNoTestcases is a well-formed report that names no <testcase> at all. It is NOT
+	// ErrEmptyReport — the runner wrote a real report — and it is distinct so a caller can
+	// tell "the runner wrote nothing" from "the runner wrote a report naming no test",
+	// which is the shape a selection the runner matched nothing in produces. See
+	// ReadJUnitReport, which decides it for the report as a whole rather than per file.
+	ErrNoTestcases = errors.New("junit-xml: report names no test")
 )
 
 // JUnitCase is one <testcase> as the runner wrote it, before any id rendering. It keeps
@@ -173,11 +179,34 @@ func ReadJUnitFile(path string) ([]JUnitCase, error) {
 	var suites []junitSuite
 	switch root.Name.Local {
 	case "testsuites":
+		// Failure and Error are direct children of the ROOT — a <failure> inside a
+		// <testsuite> is that suite's and stays walkSuite's, because encoding/xml matches
+		// a plain field name against direct children only. Decoding <testsuite> alone
+		// dropped a root-level one silently, which is the same report-says-it-blew-up,
+		// parser-says-nothing-ran false green AC5 refuses one element lower.
 		var wrapper struct {
-			Suites []junitSuite `xml:"testsuite"`
+			Name    string       `xml:"name,attr"`
+			Suites  []junitSuite `xml:"testsuite"`
+			Failure *junitDetail `xml:"failure"`
+			Error   *junitDetail `xml:"error"`
 		}
 		if err := dec.DecodeElement(&wrapper, &root); err != nil {
 			return nil, fmt.Errorf("report: %w: %s: %v", ErrMalformedReport, path, err)
+		}
+		// A root owns no <testcase> — the schema does not permit one — so unlike a suite
+		// there is no "this is a summary, the cases carry the detail" reading of a
+		// root-level failure. It is decided before the suites are walked so the outer
+		// cause wins over any inner symptom, and so the suites that did report are not
+		// handed back as the run: they are the part that happened to survive.
+		name := wrapper.Name
+		if name == "" {
+			name = "<" + root.Name.Local + ">"
+		}
+		if detail := wrapper.Failure; detail != nil {
+			return nil, suiteFailure(path, name, detail)
+		}
+		if detail := wrapper.Error; detail != nil {
+			return nil, suiteFailure(path, name, detail)
 		}
 		suites = wrapper.Suites
 	case "testsuite":

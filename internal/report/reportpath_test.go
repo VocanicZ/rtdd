@@ -834,3 +834,108 @@ func TestReadJUnitReportKeepsTheFirstPositionOfAFoldedID(t *testing.T) {
 		}
 	}
 }
+
+// PRD #231 AC6's unscoped clause: a well-formed report naming NO test is not a run of zero
+// tests, it is a run whose selection matched nothing — `go test -run TestDoesNotExist`
+// exits 0 and go-junit-report writes exactly this shape. Zero outcomes and a nil error
+// reach cmd/rtdd as "0 ran, 0 failed" and exit 0, which is the false green the PRD exists
+// to prevent, and which the sibling empty-SELECTION guard already refuses.
+//
+// The rule is about the report as a whole, not each file: a single empty <testsuite> is a
+// file the runner collected and skipped, which the parser has always accepted.
+func TestReadJUnitReportRefusesAReportThatNamesNoTest(t *testing.T) {
+	root := t.TempDir()
+	body := `<?xml version="1.0" encoding="UTF-8"?><testsuites><testsuite name="pkg" tests="0"></testsuite></testsuites>`
+	if err := os.WriteFile(filepath.Join(root, "junit.xml"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	p, err := NewReportPathFor("gotest", root, "junit.xml")
+	if err != nil {
+		t.Fatalf("NewReportPathFor: %v", err)
+	}
+	outs, err := ReadJUnitReport(p, "{classname}#{name}")
+	if err == nil {
+		t.Fatalf("ReadJUnitReport = %+v, nil error; a report naming no test must never be a success", outs)
+	}
+	if !errors.Is(err, ErrNoTestcases) {
+		t.Fatalf("error = %v, want errors.Is(_, ErrNoTestcases)", err)
+	}
+	for _, want := range []string{"gotest", "junit.xml"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not carry %q — a human reading exit 1 needs the file to open", err, want)
+		}
+	}
+}
+
+// ErrNoTestcases is its own sentinel and not a rename of the three that already exist: a
+// caller has to be able to tell "the runner wrote nothing" (ErrNoReport), "it wrote an
+// empty file" (ErrEmptyReport) and "it wrote a report naming no test" apart, because only
+// the last one means the selection matched nothing the runner recognised.
+func TestErrNoTestcasesIsDistinctFromTheOtherReportSentinels(t *testing.T) {
+	root := t.TempDir()
+	body := `<testsuites><testsuite name="pkg" tests="0"/></testsuites>`
+	if err := os.WriteFile(filepath.Join(root, "junit.xml"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	p, err := NewReportPath(root, "junit.xml")
+	if err != nil {
+		t.Fatalf("NewReportPath: %v", err)
+	}
+	_, err = ReadJUnitReport(p, "{classname}#{name}")
+	for _, other := range []error{ErrNoReport, ErrEmptyReport, ErrMalformedReport, ErrSuiteFailure} {
+		if errors.Is(err, other) {
+			t.Errorf("error %v also matches %v; the four must stay distinguishable", err, other)
+		}
+	}
+}
+
+// A directory report is judged as ONE report. Surefire writes a file per class, and a
+// class it collected and skipped entirely is a legitimately empty file — refusing it
+// per-file would fail a run in which every other file reported tests.
+func TestReadJUnitReportAcceptsAnEmptyFileBesideAFileWithTests(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "reports")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	write("TEST-a.xml", `<testsuite name="a" tests="0"/>`)
+	write("TEST-b.xml", `<testsuite name="b"><testcase classname="b.B" name="two" time="0.03"/></testsuite>`)
+
+	p, err := NewReportPath(root, "reports/")
+	if err != nil {
+		t.Fatalf("NewReportPath: %v", err)
+	}
+	outs, err := ReadJUnitReport(p, "{classname}#{name}")
+	if err != nil {
+		t.Fatalf("ReadJUnitReport: %v", err)
+	}
+	if len(outs) != 1 || outs[0].Test != "b.B#two" {
+		t.Fatalf("got %+v, want the one case the non-empty file names", outs)
+	}
+}
+
+// Every file empty is the whole report naming no test, whichever shape the report_path is.
+func TestReadJUnitReportRefusesADirectoryWhoseFilesAllNameNoTest(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "reports")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	for _, name := range []string{"TEST-a.xml", "TEST-b.xml"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(`<testsuite name="x" tests="0"/>`), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	p, err := NewReportPath(root, "reports/")
+	if err != nil {
+		t.Fatalf("NewReportPath: %v", err)
+	}
+	if _, err := ReadJUnitReport(p, "{classname}#{name}"); !errors.Is(err, ErrNoTestcases) {
+		t.Fatalf("error = %v, want ErrNoTestcases", err)
+	}
+}

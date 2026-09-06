@@ -514,3 +514,80 @@ func TestReadJUnitFileRefusesContentAfterTheRootElement(t *testing.T) {
 		})
 	}
 }
+
+// A <failure> that is a direct child of the <testsuites> ROOT is the same catastrophe AC5
+// already refuses one element lower, and the root wrapper decoded only <testsuite>
+// children — so a report saying the run itself blew up parsed as a run with nothing in it.
+// There is no <testcase> a root can own, so unlike a suite there is no summary reading of
+// it: a root-level failure is always the run failing before any test was named.
+func TestReadJUnitFileSurfacesARootLevelFailure(t *testing.T) {
+	const rootFailed = `<?xml version="1.0"?>
+<testsuites name="vitest run">
+  <failure message="root blew up" type="Error">at config.ts:1</failure>
+</testsuites>
+`
+	got, err := ReadJUnitFile(writeXML(t, rootFailed))
+	if err == nil {
+		t.Fatalf("ReadJUnitFile = %v, nil error for a report whose root carries a <failure>", got)
+	}
+	if !errors.Is(err, ErrSuiteFailure) {
+		t.Fatalf("error = %v, want errors.Is(_, ErrSuiteFailure)", err)
+	}
+	for _, want := range []string{"vitest run", "root blew up"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not carry %q — the root's name and the runner's own message are the only diagnosis available", err, want)
+		}
+	}
+}
+
+// A root-level <error> is the same shape as a root-level <failure>, for the same reason
+// Surefire's <error> and jest-junit's <failure> are both read one level down. An unnamed
+// root still has to say something a human can act on, so the message falls back to the
+// element itself rather than printing an empty name.
+func TestReadJUnitFileSurfacesARootLevelErrorWithNoName(t *testing.T) {
+	const rootErrored = `<testsuites><error message="ClassNotFoundException"/></testsuites>`
+	got, err := ReadJUnitFile(writeXML(t, rootErrored))
+	if err == nil {
+		t.Fatalf("ReadJUnitFile = %v, nil error for a report whose root carries an <error>", got)
+	}
+	if !errors.Is(err, ErrSuiteFailure) {
+		t.Fatalf("error = %v, want errors.Is(_, ErrSuiteFailure)", err)
+	}
+	for _, want := range []string{"testsuites", "ClassNotFoundException"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not carry %q", err, want)
+		}
+	}
+}
+
+// A root-level failure is decided BEFORE the suites are walked, so the root's own message
+// wins over a nested suite's — the outer one is the cause and the inner one the symptom.
+// The nested suite's cases must not be reported either: they are the part of the run that
+// happened to survive whatever killed the root.
+func TestReadJUnitFileRootLevelFailureWinsOverTheSuitesBelowIt(t *testing.T) {
+	const both = `<testsuites name="run"><failure message="root blew up"/>
+  <testsuite name="ok"><testcase classname="ok.A" name="one"/></testsuite>
+</testsuites>`
+	got, err := ReadJUnitFile(writeXML(t, both))
+	if err == nil {
+		t.Fatalf("ReadJUnitFile = %v, nil error", got)
+	}
+	if !errors.Is(err, ErrSuiteFailure) || !strings.Contains(err.Error(), "root blew up") {
+		t.Fatalf("error = %v, want the ROOT's own message under ErrSuiteFailure", err)
+	}
+}
+
+// A <failure> nested inside a <testsuite> is NOT the root's: the root wrapper reads its
+// own direct children only, so the suite-level guard keeps naming the suite that failed.
+func TestReadJUnitFileRootGuardDoesNotClaimANestedSuitesFailure(t *testing.T) {
+	const nested = `<testsuites name="run">
+  <testsuite name="tests/broken.ts"><failure message="import failed"/></testsuite>
+</testsuites>`
+	_, err := ReadJUnitFile(writeXML(t, nested))
+	if !errors.Is(err, ErrSuiteFailure) {
+		t.Fatalf("error = %v, want ErrSuiteFailure", err)
+	}
+	if !strings.Contains(err.Error(), "tests/broken.ts") {
+		t.Errorf("error %q must name the SUITE that failed, not the root", err)
+	}
+}
