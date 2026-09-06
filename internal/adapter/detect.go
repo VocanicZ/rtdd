@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
-	"strings"
 
 	"github.com/VocanicZ/rtdd/internal/paths"
 )
@@ -24,32 +23,29 @@ var skipDirs = map[string]bool{
 	".rtdd": true,
 }
 
-// Detect returns the adapter whose Detect globs match a file in repoRoot.
+// Detect returns EVERY adapter whose Detect globs match a file in repoRoot, in the order
+// the adapters were given (adapter.Available sorts them by name), so a second call on an
+// unchanged repo reproduces the same slice.
 //
-// Exactly one match is required. Zero is an error because RTDD has no toolchain to run;
-// two or more is an error because a polyglot repo is out of scope in v1 (spec §11) and
-// silently picking one would seed a map from the wrong test suite. Both are configuration
-// errors — the CLI reports them as exit 2.
+// Zero matches is an error: RTDD has no toolchain to run, which is a configuration error
+// the CLI reports as exit 2.
+//
+// Two or more is NOT an error. Spec §4.4 makes a TypeScript service with a Python tooling
+// directory ordinary, so the v1 arity rule is gone: it returned a message instead of a
+// selection, which left such a repo on the null baseline of both toolchains rather than a
+// narrowed suite from each. Each adapter's rows, selections and invocations carry its
+// name instead.
 //
 // Markers are files. A directory named pyproject.toml declares nothing.
-func Detect(repoRoot string, adapters []*Adapter) (*Adapter, error) {
+func Detect(repoRoot string, adapters []*Adapter) ([]*Adapter, error) {
 	matched, err := DetectAll(repoRoot, adapters)
 	if err != nil {
 		return nil, err
 	}
-	switch len(matched) {
-	case 1:
-		return matched[0], nil
-	case 0:
+	if len(matched) == 0 {
 		return nil, fmt.Errorf("adapter: no adapter detected in %s", repoRoot)
-	default:
-		names := make([]string, 0, len(matched))
-		for _, a := range matched {
-			names = append(names, a.Name)
-		}
-		return nil, fmt.Errorf("adapter: %d adapters detected in %s (%s); polyglot repos are out of scope in v1",
-			len(matched), repoRoot, strings.Join(names, ", "))
 	}
+	return matched, nil
 }
 
 // DetectAll walks repoRoot ONCE and reports every adapter with a matching marker, in the
@@ -57,9 +53,12 @@ func Detect(repoRoot string, adapters []*Adapter) (*Adapter, error) {
 // than one per pattern keeps detection linear in the size of the repo however many
 // adapters are installed, and it stops early once nothing is left to decide.
 //
-// Detect stays the one-adapter arity check over it. `rtdd init` gates on "at least one"
-// (spec §5), which is a weaker question than selection asks: a repo two adapters match
-// is a repo RTDD can be installed into, even though v1 will not select in it.
+// Detect is this walk plus the zero-match policy, and that policy is the only thing that
+// separates them. Both survive because the two questions are genuinely different: `rtdd
+// run` and `rtdd seed` cannot proceed without a toolchain and want the refusal, while
+// `rtdd init --force`, `rtdd doctor` and the seed advice have something to say about a
+// repo nothing matched and want the bare walk — and they must be able to tell an empty
+// result apart from a walk that failed.
 func DetectAll(repoRoot string, adapters []*Adapter) ([]*Adapter, error) {
 	hit := make([]bool, len(adapters))
 	undecided := 0

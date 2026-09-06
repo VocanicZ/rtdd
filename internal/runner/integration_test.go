@@ -25,14 +25,16 @@ func realPythonRepo(t *testing.T) (string, *adapter.Adapter) {
 	if err != nil {
 		t.Fatalf("Builtin: %v", err)
 	}
-	a, err := adapter.Detect(repo, all)
+	detected, err := adapter.Detect(repo, all)
 	if err != nil {
 		t.Fatalf("Detect: %v", err)
 	}
-	if a.Name != "python" {
-		t.Fatalf("Detect = %q, want python", a.Name)
+	// The pytest fixture is a single-toolchain repo, so the set it detects has exactly
+	// one member; Detect returning a set (spec §4.4) does not change that.
+	if len(detected) != 1 || detected[0].Name != "python" {
+		t.Fatalf("Detect matched %d adapters, want exactly [python]", len(detected))
 	}
-	return repo, a
+	return repo, detected[0]
 }
 
 func TestIntegrationSeedAgainstRealPytest(t *testing.T) {
