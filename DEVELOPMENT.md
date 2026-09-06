@@ -55,15 +55,18 @@ Adding a third requires a spec amendment. No test framework beyond stdlib `testi
 
 ## JUnit XML fixtures
 
-`internal/report/testdata/junit/` holds six JUnit XML reports captured from six real
-runners — Vitest, Jest, `go-junit-report`, Maven Surefire, RSpec and PHPUnit. They are
-never hand-written and never hand-edited: when one contradicts the parser, the parser is
+`internal/report/testdata/junit/` holds nine JUnit XML reports captured from nine real
+runner configurations — Vitest, Jest, Jest with `classNameTemplate` set to `{filepath}`,
+`go-junit-report`, Maven Surefire, RSpec, PHPUnit, cargo-nextest and `dotnet test` with
+JunitXml.TestLogger. Six back the parser; the other three back the shipped adapters'
+`id_template` round trip in `internal/report/shipped_id_test.go`. They are never
+hand-written and never hand-edited: when one contradicts the parser, the parser is
 what changes. `scripts/capture-junit-fixtures.sh` regenerates them by running each suite in
 a pinned container, so it needs Docker and the network and is deliberately NOT part of the
 CI gate:
 
 ```bash
-scripts/capture-junit-fixtures.sh            # all six
+scripts/capture-junit-fixtures.sh            # all nine
 scripts/capture-junit-fixtures.sh rspec      # just one
 ```
 

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="jest tests" tests="3" failures="1" errors="0" time="0.859">
+  <testsuite name="calculator" errors="0" failures="1" skipped="1" timestamp="2026-09-06T09:57:19" time="0.74" tests="3">
+    <testcase classname="test/calc.test.js" name="calculator adds two numbers" time="0.004">
+    </testcase>
+    <testcase classname="test/calc.test.js" name="calculator fails on a wrong sum" time="0.004">
+      <failure>Error: expect(received).toBe(expected) // Object.is equality
+
+Expected: 4
+Received: 3
+    at Object.toBe (/work/test/calc.test.js:9:23)
+    at Promise.then.completed (/work/node_modules/jest-circus/build/utils.js:298:28)
+    at new Promise (&lt;anonymous&gt;)
+    at callAsyncCircusFn (/work/node_modules/jest-circus/build/utils.js:231:10)
+    at _callCircusTest (/work/node_modules/jest-circus/build/run.js:316:40)
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at _runTest (/work/node_modules/jest-circus/build/run.js:252:3)
+    at _runTestsForDescribeBlock (/work/node_modules/jest-circus/build/run.js:126:9)
+    at _runTestsForDescribeBlock (/work/node_modules/jest-circus/build/run.js:121:9)
+    at run (/work/node_modules/jest-circus/build/run.js:71:3)
+    at runAndTransformResultsToJestFormat (/work/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapterInit.js:122:21)
+    at jestAdapter (/work/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:79:19)
+    at runTestInternal (/work/node_modules/jest-runner/build/runTest.js:367:16)
+    at runTest (/work/node_modules/jest-runner/build/runTest.js:444:34)</failure>
+    </testcase>
+    <testcase classname="test/calc.test.js" name="calculator is not implemented yet" time="0">
+      <skipped/>
+    </testcase>
+  </testsuite>
+</testsuites>

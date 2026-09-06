@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerates internal/report/testdata/junit/*.xml by RUNNING six test runners.
+# Regenerates internal/report/testdata/junit/*.xml by RUNNING nine test runners.
 #
 # The fixtures under that directory are the ground truth internal/report's
 # junit-xml parser is tested against, and they are worth only as much as their
@@ -13,7 +13,7 @@
 # writes are committed. Run it when a runner's output shape needs re-checking
 # against a newer version, then read the diff before committing it.
 #
-# Usage: scripts/capture-junit-fixtures.sh [runner ...]   (default: all six)
+# Usage: scripts/capture-junit-fixtures.sh [runner ...]   (default: all nine)
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -33,6 +33,8 @@ GO_IMAGE="golang:1.24"
 MAVEN_IMAGE="maven:3.9-eclipse-temurin-21"
 RUBY_IMAGE="ruby:3.3-slim"
 PHP_IMAGE="php:8.3-cli"
+RUST_IMAGE="rust:1-slim"
+DOTNET_IMAGE="mcr.microsoft.com/dotnet/sdk:8.0"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -84,8 +86,11 @@ EOF
   cp "$d/junit.xml" "$DEST/vitest.xml"
 }
 
-capture_jest() {
-  local d="$WORK/jest"
+# jest_project writes the three-test suite both jest captures run, into the
+# directory named. The two differ ONLY in jest-junit's classNameTemplate, which is
+# what jest-filepath.xml exists to show: same runner, same suite, one env var.
+jest_project() {
+  local d="$1"
   mkdir -p "$d/test"
   cat >"$d/package.json" <<'EOF'
 { "name": "rtdd-junit-fixture", "private": true }
@@ -111,12 +116,34 @@ describe('calculator', () => {
   });
 });
 EOF
+}
+
+capture_jest() {
+  local d="$WORK/jest"
+  jest_project "$d"
   run_in "$NODE_IMAGE" "$d" '
     set -e
     npm install --no-audit --no-fund -D jest@29.7.0 jest-junit@16.0.0 >/dev/null
     npx jest --reporters=jest-junit || true
     npx jest --version'
   cp "$d/junit.xml" "$DEST/jest.xml"
+}
+
+# jest-junit's default classNameTemplate is "{classname} {title}", which is the
+# test's own full name — so jest.xml's classname and name are the same string and
+# no template over it names the FILE. adapters/jest.yaml therefore ships
+# `report_cmd`-free but reconfigured: JEST_JUNIT_CLASSNAME='{filepath}' makes
+# classname the test file's path, which is the id_template the adapter declares.
+# This capture is that configuration's evidence.
+capture_jest_filepath() {
+  local d="$WORK/jest-filepath"
+  jest_project "$d"
+  run_in "$NODE_IMAGE" "$d" '
+    set -e
+    npm install --no-audit --no-fund -D jest@29.7.0 jest-junit@16.0.0 >/dev/null
+    JEST_JUNIT_CLASSNAME="{filepath}" npx jest --reporters=jest-junit || true
+    npx jest --version'
+  cp "$d/junit.xml" "$DEST/jest-filepath.xml"
 }
 
 capture_go() {
@@ -330,9 +357,130 @@ EOF
   rm -f "$d/phpunit.phar"
 }
 
+# cargo-nextest is the only shipped runner whose JUnit output is written by the
+# test HARNESS rather than by a reporter plugin: `[profile.ci.junit] path` in
+# .config/nextest.toml turns it on, and nextest writes it under
+# target/nextest/<profile>/. `cargo install` is what builds it here because
+# rust:1-slim carries neither curl nor wget and the container is not root, so the
+# prebuilt tarball nexte.st publishes cannot be fetched — the version is pinned
+# either way, which is what the fixture's provenance needs.
+capture_nextest() {
+  local d="$WORK/nextest"
+  mkdir -p "$d/src" "$d/.config"
+  cat >"$d/Cargo.toml" <<'EOF'
+[package]
+name = "calc"
+version = "0.1.0"
+edition = "2021"
+EOF
+  cat >"$d/.config/nextest.toml" <<'EOF'
+[profile.ci.junit]
+path = "junit.xml"
+EOF
+  cat >"$d/src/lib.rs" <<'EOF'
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+#[cfg(test)]
+mod tests {
+    use super::add;
+
+    #[test]
+    fn adds_two_numbers() {
+        assert_eq!(add(1, 2), 3);
+    }
+
+    #[test]
+    fn fails_on_a_wrong_sum() {
+        assert_eq!(add(1, 2), 4);
+    }
+
+    #[test]
+    #[ignore = "not implemented yet"]
+    fn is_not_implemented_yet() {
+        assert_eq!(add(1, 1), 2);
+    }
+}
+EOF
+  run_in "$RUST_IMAGE" "$d" '
+    set -e
+    export CARGO_HOME=/tmp/cargo PATH=/tmp/cargo/bin:$PATH CARGO_TARGET_DIR=/work/target
+    cargo install --quiet --locked cargo-nextest@0.9.78
+    cargo nextest run --profile ci || true
+    cargo nextest --version'
+  cp "$d/target/nextest/ci/junit.xml" "$DEST/nextest.xml"
+}
+
+# .NET has no built-in JUnit writer — `dotnet test` ships TRX — so the adapter
+# declares the JunitXml.TestLogger package and `--logger junit`, and this capture
+# is that combination's output. VSTest writes the logger file under the results
+# directory, which is why adapters/dotnet.yaml declares a DIRECTORY report_path.
+capture_dotnet() {
+  local d="$WORK/dotnet"
+  mkdir -p "$d"
+  cat >"$d/Calc.Tests.csproj" <<'EOF'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Calc.Tests</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.9.0" />
+    <PackageReference Include="xunit" Version="2.7.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.7" />
+    <PackageReference Include="JunitXml.TestLogger" Version="3.1.12" />
+  </ItemGroup>
+</Project>
+EOF
+  cat >"$d/Calc.cs" <<'EOF'
+namespace Calc.Tests;
+
+public static class Calc
+{
+    public static int Add(int a, int b) => a + b;
+}
+EOF
+  cat >"$d/CalcTest.cs" <<'EOF'
+using Xunit;
+
+namespace Calc.Tests;
+
+public class CalcTest
+{
+    [Fact]
+    public void AddsTwoNumbers()
+    {
+        Assert.Equal(3, Calc.Add(1, 2));
+    }
+
+    [Fact]
+    public void FailsOnAWrongSum()
+    {
+        Assert.Equal(4, Calc.Add(1, 2));
+    }
+
+    [Fact(Skip = "not implemented yet")]
+    public void IsNotImplementedYet()
+    {
+        Assert.Equal(2, Calc.Add(1, 1));
+    }
+}
+EOF
+  run_in "$DOTNET_IMAGE" "$d" '
+    set -e
+    export DOTNET_CLI_HOME=/tmp DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
+    export NUGET_PACKAGES=/tmp/nuget
+    dotnet test --logger junit --results-directory /work/TestResults || true
+    dotnet --version'
+  cp "$d/TestResults/TestResults.xml" "$DEST/dotnet.xml"
+}
+
 runners=("$@")
 if [ ${#runners[@]} -eq 0 ]; then
-  runners=(vitest jest go surefire rspec phpunit)
+  runners=(vitest jest jest-filepath go surefire rspec phpunit nextest dotnet)
 fi
 
 for r in "${runners[@]}"; do
@@ -340,10 +488,13 @@ for r in "${runners[@]}"; do
   case "$r" in
     vitest) capture_vitest ;;
     jest) capture_jest ;;
+    jest-filepath) capture_jest_filepath ;;
     go) capture_go ;;
     surefire) capture_surefire ;;
     rspec) capture_rspec ;;
     phpunit) capture_phpunit ;;
+    nextest) capture_nextest ;;
+    dotnet) capture_dotnet ;;
     *) echo "unknown runner: $r" >&2; exit 1 ;;
   esac
 done
