@@ -590,6 +590,137 @@ func TestFilesRefusesASymlinkedReportPath(t *testing.T) {
 	}
 }
 
+// An INTERMEDIATE element of a report_path is a symlink just as often as the final one:
+// "build", "target" and "reports" are exactly the directories a monorepo links into a
+// shared out-of-tree output area, and `report_path: "target/surefire-reports/"` is the
+// declaration Surefire wants. An Lstat of the final element says nothing about its
+// parents, so the walk has to cover every element the declaration names.
+func TestClearRefusesASymlinkedIntermediateElement(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	precious := filepath.Join(outside, "reports", "precious.xml")
+	if err := os.MkdirAll(filepath.Dir(precious), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(precious, []byte(`<testsuite name="not-ours"/>`), 0o644); err != nil {
+		t.Fatalf("write precious.xml: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "build")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	p, err := NewReportPathFor("surefire", root, "build/reports/")
+	if err != nil {
+		t.Fatalf("NewReportPathFor: %v", err)
+	}
+	err = p.Clear()
+	if !errors.Is(err, ErrReportPathSymlink) {
+		t.Fatalf("Clear(symlinked intermediate element) error = %v, want errors.Is(_, ErrReportPathSymlink)", err)
+	}
+	// The fix is in the declaration, so the error names the adapter, the declaration and
+	// the element that is actually the link — "build/reports/" alone would send its
+	// reader to look at the wrong one.
+	for _, want := range []string{"surefire", "build/reports/", filepath.Join(root, "build")} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not name %q", err, want)
+		}
+	}
+	if _, err := os.Stat(precious); err != nil {
+		t.Fatalf("Clear cleared through an intermediate symlink and deleted a file outside the repository root: %v", err)
+	}
+}
+
+// The single-file shape has the same hole, and reaches it by a different route: the final
+// element does not exist at all, so the Lstat that guards it says ErrNotExist and Clear
+// walks on to MkdirAll the parent — through the link — and remove the file behind it.
+func TestClearRefusesASymlinkedIntermediateElementForASingleFile(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	precious := filepath.Join(outside, "reports", "results.xml")
+	if err := os.MkdirAll(filepath.Dir(precious), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(precious, []byte(`<testsuite name="not-ours"/>`), 0o644); err != nil {
+		t.Fatalf("write results.xml: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "build")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	p, err := NewReportPathFor("vitest", root, "build/reports/results.xml")
+	if err != nil {
+		t.Fatalf("NewReportPathFor: %v", err)
+	}
+	if err := p.Clear(); !errors.Is(err, ErrReportPathSymlink) {
+		t.Fatalf("Clear(symlinked intermediate element, file shape) error = %v, want errors.Is(_, ErrReportPathSymlink)", err)
+	}
+	if _, err := os.Stat(precious); err != nil {
+		t.Fatalf("Clear removed a file outside the repository root through an intermediate symlink: %v", err)
+	}
+}
+
+// Files refuses the intermediate link for the reason it already refuses the final one: a
+// path Clear will not empty is not one this run may read either, and the two disagreeing
+// is how a report gets read out of a directory nothing cleared.
+func TestFilesRefusesASymlinkedIntermediateElement(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outside, "reports"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "reports", "TEST-other.xml"), []byte(`<testsuite name="not-ours"/>`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "build")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	for _, tc := range []struct {
+		name     string
+		declared string
+	}{
+		{"directory", "build/reports/"},
+		{"single file", "build/reports/TEST-other.xml"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := NewReportPathFor("surefire", root, tc.declared)
+			if err != nil {
+				t.Fatalf("NewReportPathFor: %v", err)
+			}
+			if _, err := p.Files(); !errors.Is(err, ErrReportPathSymlink) {
+				t.Fatalf("Files(%q) error = %v, want errors.Is(_, ErrReportPathSymlink)", tc.declared, err)
+			}
+		})
+	}
+}
+
+// A link BELOW the repository root's own path is not the declaration's doing: a repo
+// checked out under /tmp on macOS already sits behind /tmp -> /private/tmp, and walking
+// past the root would refuse every report_path in it. The walk starts AT the root and
+// covers only the elements the declaration itself names.
+func TestClearAcceptsAReportPathWhoseRootIsReachedThroughASymlink(t *testing.T) {
+	base := t.TempDir()
+	real := filepath.Join(base, "real")
+	if err := os.MkdirAll(filepath.Join(real, "build", "reports"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	root := filepath.Join(base, "repo")
+	if err := os.Symlink(real, root); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	stale := filepath.Join(root, "build", "reports", "TEST-old.xml")
+	if err := os.WriteFile(stale, []byte(`<testsuite name="stale"/>`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	p, err := NewReportPathFor("surefire", root, "build/reports/")
+	if err != nil {
+		t.Fatalf("NewReportPathFor: %v", err)
+	}
+	if err := p.Clear(); err != nil {
+		t.Fatalf("Clear(report_path under a symlinked repo root) = %v, want nil", err)
+	}
+	if _, err := os.Stat(stale); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Clear left the previous run's report in place: %v", err)
+	}
+}
+
 // Two <testcase> elements of ONE file that render the same id are not two outcomes: the
 // runner's cross-chunk de-duplication would collapse them last-wins, and a fail followed
 // by a pass would report green. A file-granular id_template like Vitest's {classname} or
