@@ -1,0 +1,29 @@
+# The Java (Maven / Surefire) adapter.
+#
+# Surefire writes one JUnit XML per test class into target/surefire-reports/, so
+# `report_path` is a DIRECTORY — it ends in "/" and the runner reads every report under
+# it. Gradle is the other adapter of that shape; the other seven name a single file.
+#
+# `test_join` is DECISION 8: `-Dtest=` takes ONE value holding every selector, comma
+# separated, so {tests} is substituted INSIDE the token rather than spliced as bare argv
+# elements. -DfailIfNoSpecifiedTests=false keeps a chunk whose classes live in another
+# module from failing the build instead of selecting nothing.
+#
+# The id is CASE-granular and `{classname}#{name}` is exactly Surefire's own
+# Class#method syntax.
+name: maven
+detect: ["pom.xml"]
+selection: static
+coverage: none
+subset: "mvn -B test -Dtest={tests} -DfailIfNoSpecifiedTests=false"
+test_join: ","
+list: "mvn -B test"
+report: junit-xml
+report_path: "target/surefire-reports/"
+id_template: "{classname}#{name}"
+failfast_flag: "-ff"
+test_for: ["src/test/java/{dir}/{name}Test.java", "src/test/java/{dir}/{name}Tests.java"]
+test_globs: ["src/test/java/**/*.java", "src/test/kotlin/**/*.kt"]
+source_globs: ["src/main/java/**/*.java", "src/main/kotlin/**/*.kt", "src/test/java/**/*.java"]
+opaque: ["src/main/resources/**", "src/test/resources/**", "**/*.xml", "**/*.properties"]
+full_escalate: ["pom.xml", "**/pom.xml", ".mvn/wrapper/maven-wrapper.properties", "src/test/resources/**"]

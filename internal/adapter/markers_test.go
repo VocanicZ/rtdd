@@ -25,15 +25,25 @@ func TestUnsupportedToolchainsNamesTheMarkerAndTheLanguage(t *testing.T) {
 	}
 }
 
-// The `*.csproj` entry is a pattern, not a file name: the project file is named after the
-// project, so a literal match would never fire.
-func TestUnsupportedToolchainsMatchesTheCsprojPattern(t *testing.T) {
+// A table key may be a `*.ext` PATTERN as well as a literal file name, because some
+// toolchains name their manifest after the project and a literal match would never fire.
+//
+// This case was written against the table's `*.csproj` entry. The M6d shipped set serves
+// C# — the dotnet adapter detects `*.csproj` — so that entry had to go: a marker an
+// adapter matches can never reach the refusal message, and the table may not name a
+// language RTDD does serve. The grammar it exercised did not go, so the pattern is
+// installed here for the duration of the test rather than the branch left uncovered.
+func TestUnsupportedToolchainsMatchesAnExtensionPattern(t *testing.T) {
+	restore := UnsupportedMarkers
+	UnsupportedMarkers = map[string]string{"*.cabal": "Haskell"}
+	t.Cleanup(func() { UnsupportedMarkers = restore })
+
 	dir := t.TempDir()
-	write(t, dir, "Payments.csproj", "<Project/>\n")
+	write(t, dir, "payments.cabal", "name: payments\n")
 
 	got := UnsupportedToolchains(dir)
-	if len(got) != 1 || got[0] != "Payments.csproj (C#)" {
-		t.Errorf("UnsupportedToolchains = %#v, want [Payments.csproj (C#)]", got)
+	if len(got) != 1 || got[0] != "payments.cabal (Haskell)" {
+		t.Errorf("UnsupportedToolchains = %#v, want [payments.cabal (Haskell)]", got)
 	}
 }
 

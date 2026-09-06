@@ -1,0 +1,30 @@
+# The Vitest adapter.
+#
+# Vitest emits JUnit XML natively (`--reporter=junit`), so nothing extra is installed and
+# `requires` is empty. `--outputFile` is where the report lands; RTDD clears that path
+# before every chunk and reads it after.
+#
+# `detect` does NOT list package.json. Both JS adapters would match every JavaScript repo
+# if it did, so a repo that configures Vitest inside vite.config.ts detects nothing and
+# gets the §5 no-adapter refusal — under-detection the user can fix with six lines of
+# .rtdd/adapters/vitest.yaml, rather than a map written from the wrong suite (decision 1).
+#
+# The id is FILE-granular. Vitest writes the test file path into `classname=`, its CLI
+# selects files positionally, and `-t` is a name filter that cannot be repeated — so
+# `{classname}` is the only token that round-trips back into `subset`. Every case in a
+# file shares the id and folds worst-status-wins (decision 7).
+name: vitest
+detect: ["vitest.config.js", "vitest.config.ts", "vitest.config.mjs", "vitest.config.mts", "vitest.config.cjs", "vitest.workspace.ts"]
+selection: static
+coverage: none
+subset: "npx vitest run {tests} --reporter=junit --outputFile={report}"
+list: "npx vitest run --reporter=junit --outputFile={report}"
+report: junit-xml
+report_path: ".rtdd/junit.xml"
+id_template: "{classname}"
+failfast_flag: "--bail=1"
+test_for: ["{dir}/{name}.test.ts", "{dir}/{name}.test.tsx", "{dir}/{name}.spec.ts", "{dir}/__tests__/{name}.test.ts", "test/{name}.test.ts", "tests/{name}.test.ts"]
+test_globs: ["**/*.test.ts", "**/*.test.tsx", "**/*.test.js", "**/*.spec.ts", "**/*.spec.js", "test/**/*.ts", "tests/**/*.ts"]
+source_globs: ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/*.mjs"]
+opaque: ["**/*.json", "**/*.css", "**/*.html", "**/*.snap", "**/fixtures/**"]
+full_escalate: ["package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "vitest.config.js", "vitest.config.ts", "vitest.config.mjs", "vitest.config.mts", "vitest.config.cjs", "vitest.workspace.ts", "tsconfig.json", "**/setupTests.ts"]

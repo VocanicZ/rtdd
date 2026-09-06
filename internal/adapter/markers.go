@@ -18,17 +18,26 @@ import (
 // UnsupportedMarkers maps a well-known toolchain marker to the language it announces.
 // The key is either a literal file name or a `*.ext` pattern matched against the names
 // in the repo root.
+//
+// Every entry names a marker NO shipped adapter detects, and that is checked:
+// TestUnsupportedMarkersNameNoDetectableToolchain fails on a collision, because a marker
+// an adapter matches can never reach this message — detection would have succeeded — and
+// naming a language RTDD does serve in a refusal is worse than saying nothing. The
+// shipped set therefore removed `go.mod`, `pom.xml`, `build.gradle`, `build.gradle.kts`
+// and `*.csproj` from this table when the go, maven, gradle and dotnet adapters shipped.
+//
+// The four that remain are the ones whose ecosystem RTDD serves only through a NARROWER
+// marker — the runner's own config file rather than the ecosystem's manifest (plan
+// 06-m6d decision 1). `package.json` is not a vitest or jest marker, `Cargo.toml` is not
+// a cargo-nextest one, `Gemfile` is not an rspec one and `composer.json` is not a phpunit
+// one, so a repo of that ecosystem with no runner config detects nothing — and this is
+// the message that tells it so, and points at the six-line .rtdd/adapters/ fix.
 var UnsupportedMarkers = map[string]string{
-	"package.json":     "JavaScript/TypeScript",
-	"go.mod":           "Go",
-	"Cargo.toml":       "Rust",
-	"pom.xml":          "Java (Maven)",
-	"build.gradle":     "Java/Kotlin (Gradle)",
-	"build.gradle.kts": "Java/Kotlin (Gradle)",
-	"Gemfile":          "Ruby",
-	"composer.json":    "PHP",
-	"mix.exs":          "Elixir",
-	"*.csproj":         "C#",
+	"package.json":  "JavaScript/TypeScript",
+	"Cargo.toml":    "Rust",
+	"Gemfile":       "Ruby",
+	"composer.json": "PHP",
+	"mix.exs":       "Elixir",
 }
 
 // UnsupportedToolchains names the toolchain markers present in repoRoot, as

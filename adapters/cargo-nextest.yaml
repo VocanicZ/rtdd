@@ -1,0 +1,32 @@
+# The Rust (cargo-nextest) adapter.
+#
+# JUnit output is configured in `.config/nextest.toml`, NOT by a CLI flag: nextest has no
+# `--junit` switch, it writes the report because the [profile.rtdd.junit] block says to,
+# and `--profile rtdd` selects that block. `report_path` is therefore nextest's own
+# conventional store dir for that profile — target/nextest/<profile>/.
+#
+# That same config file is the `detect` marker. Cargo.toml is deliberately NOT one: it
+# announces a Rust repo, not a nextest one, and a repo without the profile block would
+# detect an adapter whose report never appears. A Rust repo with no nextest config detects
+# nothing and gets the §5 refusal naming Cargo.toml (decision 1).
+#
+# The id is CASE-granular: nextest positionals are substring filters over test names and
+# repeat, so bare {tests} splicing is right and neither test_flag nor test_join applies.
+name: cargo-nextest
+detect: [".config/nextest.toml"]
+selection: static
+coverage: none
+subset: "cargo nextest run --profile rtdd {tests}"
+list: "cargo nextest run --profile rtdd"
+report: junit-xml
+report_path: "target/nextest/rtdd/junit.xml"
+id_template: "{name}"
+failfast_flag: "--fail-fast"
+requires:
+  - bin: cargo-nextest
+    reason: "cargo test emits no JUnit XML; nextest writes it from the [profile.rtdd.junit] block in .config/nextest.toml, which is a config file and not a CLI flag"
+test_for: ["tests/{name}.rs", "{dir}/{name}/tests.rs"]
+test_globs: ["tests/**/*.rs", "**/tests.rs"]
+source_globs: ["src/**/*.rs", "tests/**/*.rs", "benches/**/*.rs"]
+opaque: ["**/*.toml", "**/*.json", "**/testdata/**", "**/snapshots/**"]
+full_escalate: ["Cargo.toml", "Cargo.lock", ".config/nextest.toml", "rust-toolchain.toml", "build.rs"]

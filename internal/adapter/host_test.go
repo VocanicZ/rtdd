@@ -239,8 +239,17 @@ func TestAvailableIsDeterministic(t *testing.T) {
 			t.Fatalf("Available order run %d = %v, want %v", i, names, first)
 		}
 	}
-	if !reflect.DeepEqual(first, []string{"python", "vitest"}) {
-		t.Errorf("Available = %v, want the set sorted by name", first)
+	// Both host files override a built-in of the same name, so the resolved SET is the
+	// built-in set — which is what this asserts against rather than a literal list. The
+	// shipped adapter set grows; the sort order and the override rule are what this case
+	// is about, and a hand-written list would fail on the next adapter for no reason.
+	builtin, err := Builtin()
+	if err != nil {
+		t.Fatalf("Builtin: %v", err)
+	}
+	want := adapterNamesFor(builtin)
+	if !reflect.DeepEqual(first, want) {
+		t.Errorf("Available = %v, want the set sorted by name %v", first, want)
 	}
 }
 

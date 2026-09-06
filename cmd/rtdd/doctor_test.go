@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/VocanicZ/rtdd/internal/adapter"
 	"github.com/VocanicZ/rtdd/internal/doctor"
 	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
 )
@@ -131,12 +132,19 @@ func TestDoctorCommandRanksFilesByFanOut(t *testing.T) {
 	}
 	// The selection-fidelity block precedes the fan-out table on every repo (spec §6);
 	// the table itself and its §9 caveat are byte-identical to what doctor always printed.
+	//
+	// Between them sits the not-detected section, because the shipped set is ten adapters
+	// and a Python repo detects one of them. It is rendered here rather than spelled out:
+	// its content is every OTHER built-in with its markers, which changes whenever an
+	// adapter ships, and pinning that list in a golden would make every new adapter a
+	// failure in a test about fan-out ranking.
 	want := "" +
 		"selection fidelity\n" +
 		"\n" +
 		"  python  python.yaml  (built-in)  execution-derived\n" +
 		"      selection: coverage with coverage: sqlite — tests are chosen from per-test coverage recorded by a real run\n" +
 		"\n" +
+		RenderUndetected(fidelityRows(dir, builtinsExcept(t, "python"))) +
 		"fan-out over 4 tests (4 files)\n" +
 		"\n" +
 		"  tests  share  file\n" +
@@ -221,4 +229,25 @@ func TestUsageDocumentsDoctor(t *testing.T) {
 	if !strings.Contains(stdout, "rtdd doctor") {
 		t.Errorf("usage text does not document doctor:\n%s", stdout)
 	}
+}
+
+// builtinsExcept returns every embedded adapter but the named ones, in Builtin order —
+// the resolved-but-undetected remainder a single-language repo leaves behind.
+func builtinsExcept(t *testing.T, skip ...string) []*adapter.Adapter {
+	t.Helper()
+	all, err := adapter.Builtin()
+	if err != nil {
+		t.Fatalf("Builtin: %v", err)
+	}
+	drop := map[string]bool{}
+	for _, n := range skip {
+		drop[n] = true
+	}
+	var out []*adapter.Adapter
+	for _, a := range all {
+		if !drop[a.Name] {
+			out = append(out, a)
+		}
+	}
+	return out
 }

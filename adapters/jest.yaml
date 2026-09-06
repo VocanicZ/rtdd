@@ -1,0 +1,40 @@
+# The Jest adapter.
+#
+# `env` is DECISION 10, and it is load-bearing. jest-junit's default classNameTemplate
+# writes the test's own full name into `classname=` and copies it into `name=` — neither
+# is a path, and jest positionals are regexes over FILE PATHS, so an id parsed from the
+# default capture selects nothing and reports green. JEST_JUNIT_CLASSNAME={filepath} makes
+# the classname the file. `env` values are passed through verbatim and never run through
+# Expand, so those braces reach jest-junit unsubstituted as its own template vocabulary.
+#
+# A file path spliced back as a regex over-matches on `.` — src/a.test.js also matches
+# src/aXtest.js. Over-selection is safe; under-selection is not.
+#
+# `detect` does NOT list package.json (decision 1); a repo configuring Jest under a
+# "jest" key in package.json detects nothing and gets the §5 refusal.
+#
+# `requires` names npx, not jest-junit: Unmet is a PATH lookup, and a library that
+# installs no executable is permanently unmet on every machine, which turns doctor's
+# findings into noise (decision 11). The package a human must install is in the reason.
+name: jest
+detect: ["jest.config.js", "jest.config.ts", "jest.config.mjs", "jest.config.cjs", "jest.config.json"]
+selection: static
+coverage: none
+env:
+  JEST_JUNIT_CLASSNAME: "{filepath}"
+  JEST_JUNIT_OUTPUT_DIR: ".rtdd"
+  JEST_JUNIT_OUTPUT_NAME: "junit.xml"
+subset: "npx jest --reporters=jest-junit {tests}"
+list: "npx jest --reporters=jest-junit"
+report: junit-xml
+report_path: ".rtdd/junit.xml"
+id_template: "{classname}"
+failfast_flag: "--bail"
+requires:
+  - bin: npx
+    reason: "jest and its JUnit reporter run through npx; jest-junit must be a devDependency or no JUnit XML is written"
+test_for: ["{dir}/{name}.test.ts", "{dir}/{name}.test.js", "{dir}/__tests__/{name}.test.js", "test/{name}.test.js", "tests/{name}.test.js"]
+test_globs: ["**/*.test.ts", "**/*.test.tsx", "**/*.test.js", "**/*.spec.js", "**/__tests__/**/*.js", "**/__tests__/**/*.ts"]
+source_globs: ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/*.mjs"]
+opaque: ["**/*.json", "**/*.css", "**/*.html", "**/*.snap", "**/__snapshots__/**", "**/fixtures/**"]
+full_escalate: ["package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "jest.config.js", "jest.config.ts", "jest.config.mjs", "jest.config.cjs", "jest.config.json", "jest.setup.js", "babel.config.js", "tsconfig.json"]

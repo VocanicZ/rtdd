@@ -1,0 +1,31 @@
+# The Java/Kotlin (Gradle) adapter.
+#
+# Gradle's test task writes one JUnit XML per class into build/test-results/test/, so
+# `report_path` is a DIRECTORY, as Maven's is.
+#
+# `test_flag` is DECISION 8, and Gradle is its only instance: `--tests` must precede EACH
+# selector, so the flag is emitted once per id rather than joined into one token. Bare
+# splicing would hand gradle a positional it does not accept.
+#
+# The id is CASE-granular and `{classname}.{name}` is Gradle's dotted FQCN-plus-method
+# form. {classname} itself contains dots, so report.ParseID splits at the FIRST dot;
+# nothing downstream consumes the halves and render->parse->render is stable either way.
+#
+# `./gradlew` is the wrapper, not a PATH binary, so there is nothing for `requires` to
+# look up: Gradle ships JUnit XML with nothing extra installed.
+name: gradle
+detect: ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]
+selection: static
+coverage: none
+subset: "./gradlew test {tests}"
+test_flag: "--tests"
+list: "./gradlew test"
+report: junit-xml
+report_path: "build/test-results/test/"
+id_template: "{classname}.{name}"
+failfast_flag: "--fail-fast"
+test_for: ["src/test/java/{dir}/{name}Test.java", "src/test/kotlin/{dir}/{name}Test.kt"]
+test_globs: ["src/test/java/**/*.java", "src/test/kotlin/**/*.kt"]
+source_globs: ["src/main/java/**/*.java", "src/main/kotlin/**/*.kt", "src/test/java/**/*.java", "src/test/kotlin/**/*.kt"]
+opaque: ["src/main/resources/**", "src/test/resources/**", "**/*.properties", "**/*.xml"]
+full_escalate: ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts", "gradle.properties", "gradle/libs.versions.toml", "gradle/wrapper/gradle-wrapper.properties"]
