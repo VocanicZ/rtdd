@@ -110,3 +110,52 @@ func seedScope(coverage []*adapter.Adapter) string {
 	return fmt.Sprintf("the %s %s", strings.Join(names, ", "),
 		plural(len(names), "adapter", "adapters"))
 }
+
+// seedPlan is decision 6 of docs/plans/06-m6d-shipped-adapters.md: which adapters `rtdd
+// seed` runs in this repository, and the sentence that reports what it did about the rest.
+//
+// A mixed repository is the case #257 did not cover. Its refusal is for a repository whose
+// coverage half is EMPTY — there, seeding genuinely cannot do anything — and applying it
+// to a repository that also has a Python package strands the map that half needs, which is
+// the defect rather than the safeguard. So:
+//
+//   - coverage half non-empty: seed exactly those adapters, and return one line naming the
+//     static ones and why seeding cannot help them. The caller prints it and exits on the
+//     run's own code.
+//   - coverage half empty: return nothing to seed and #257's exit-2 refusal, which the
+//     caller prints to stderr.
+//
+// The message is empty for a repository with no static half at all: it exists to scope the
+// guidance away from an adapter that records nothing, and there is none to scope away from.
+func seedPlan(detected []*adapter.Adapter) ([]*adapter.Adapter, string) {
+	static, coverage := selectionSplit(detected)
+	if len(coverage) == 0 {
+		return nil, staticSeedRefusalFor(static)
+	}
+	if len(static) == 0 {
+		return coverage, ""
+	}
+	return coverage, fmt.Sprintf("%s; seeding %s.\n",
+		staticNothingRecorded(static), seedScope(coverage))
+}
+
+// staticSeedRefusalFor is #257's refusal over the whole static set.
+//
+// One static adapter renders the string #257 shipped, byte for byte — every existing
+// static repository already reads it, and a plural rendering that churned it would be a
+// gratuitous output change. Several render the same sentence in the plural, naming them
+// all: a repository resolves a set since #309, and a refusal that named one of three
+// leaves the reader believing the other two were seeded.
+func staticSeedRefusalFor(static []*adapter.Adapter) string {
+	names := adapterNames(static)
+	if len(names) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("rtdd seed: the %s %s selection: static, so %s nothing "+
+		"and there is no map to build.\n"+
+		"  Nothing was written; seeding applies only to an adapter that records coverage.\n"+
+		"  Run `rtdd which` instead: it selects from declared test_for correspondence and imports.\n",
+		strings.Join(names, ", "),
+		plural(len(names), "adapter declares", "adapters declare"),
+		plural(len(names), "it records", "they record"))
+}
