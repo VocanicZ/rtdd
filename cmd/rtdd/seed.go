@@ -39,7 +39,7 @@ func cmdSeed(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "rtdd:", err)
 		return 2
 	}
-	ad, err := detectAdapter(root, stderr)
+	ad, err := detectOneAdapter(root, stderr)
 	if err != nil {
 		fmt.Fprintln(stderr, "rtdd:", err)
 		return 2

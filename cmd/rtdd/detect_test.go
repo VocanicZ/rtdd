@@ -190,3 +190,22 @@ func containsString(hay []string, want string) bool {
 	}
 	return false
 }
+
+// Zero matches stays a configuration error at the CLI boundary. Spec §4.4 relaxed the
+// two-or-more case, not this one: a repo with no toolchain marker has nothing for `rtdd
+// seed` to run, so it exits 2 rather than writing an empty map the next command would
+// then be read against.
+func TestSeedExitsTwoWhenDetectionFindsNoAdapter(t *testing.T) {
+	dir := newTestRepo(t) // no toolchain marker of any kind
+
+	code, _, stderr := rtdd(t, dir, "seed")
+	if code != 2 {
+		t.Fatalf("rtdd seed = %d, want 2 in a repo no adapter detects (stderr: %s)", code, stderr)
+	}
+	if !strings.Contains(stderr, "no adapter detected") {
+		t.Errorf("stderr = %q, want it to name the zero-match refusal", stderr)
+	}
+	if !strings.Contains(stderr, dir) {
+		t.Errorf("stderr = %q, want it to name the repo root that was searched", stderr)
+	}
+}

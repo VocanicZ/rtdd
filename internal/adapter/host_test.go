@@ -261,8 +261,8 @@ func TestDetectResolvesAHostAuthoredAdapter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Detect: %v", err)
 	}
-	if ad.Name != "vitest" {
-		t.Errorf("Detect = %q, want the host-authored vitest adapter", ad.Name)
+	if len(ad) != 1 || ad[0].Name != "vitest" {
+		t.Errorf("Detect = %v, want the host-authored vitest adapter", names(ad))
 	}
 }
 

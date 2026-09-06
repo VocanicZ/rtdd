@@ -305,14 +305,18 @@ type UnmetFinding struct {
 // finding at BOTH `doctor` and `init` time.
 func UnmetFindings(adapters []*Adapter, lookPath func(string) (string, error)) []UnmetFinding
 
-// Detect returns the adapter whose Detect globs match a file in repoRoot.
-// Exactly one match required; zero or multiple is an error (polyglot is out of scope in v1).
-func Detect(repoRoot string, adapters []*Adapter) (*Adapter, error)
+// Detect returns EVERY adapter whose Detect globs match a file in repoRoot, in the order
+// the adapters were given, so a second call on an unchanged repo reproduces the slice.
+// Zero matches is an error: RTDD has no toolchain to run. Two or more is ordinary —
+// spec §4.4 makes a polyglot repository supported, and each adapter's rows, selections
+// and invocations carry its name.
+func Detect(repoRoot string, adapters []*Adapter) ([]*Adapter, error)
 
-// DetectAll is the single repo walk Detect is the arity check over: it reports every
-// adapter with a matching marker, in the order the adapters were given. `rtdd init`
-// gates on "at least one" (spec §5), which is a weaker question than selection asks —
-// a repo two adapters match is still a repo RTDD can be installed into.
+// DetectAll is the single repo walk Detect adds the zero-match policy to: it reports
+// every adapter with a matching marker, in the order the adapters were given, and an
+// empty result is not an error. `rtdd init --force`, `rtdd doctor` and the seed advice
+// want that walk, because they have something to say about a repo nothing matched and
+// must tell an empty result apart from a walk that failed.
 func DetectAll(repoRoot string, adapters []*Adapter) ([]*Adapter, error)
 
 // UnsupportedMarkers maps a well-known toolchain marker to the language it announces,

@@ -36,22 +36,38 @@ func findRepoRoot(start string) (string, error) {
 	}
 }
 
-// detectAdapter picks the one adapter that matches repoRoot, from the built-in set
-// overlaid with the repo's own .rtdd/adapters/*.yaml. Zero matches and more than one
-// match are both configuration errors (exit 2): rtdd never guesses which language it
-// is looking at.
+// detectAdapters returns every adapter that matches repoRoot, from the built-in set
+// overlaid with the repo's own .rtdd/adapters/*.yaml. Zero matches is a configuration
+// error (exit 2): rtdd has no toolchain to run. Two or more is ordinary since spec §4.4
+// — a polyglot repository is served by both.
 //
 // A host adapter that failed to load is reported on warn and then skipped, never fatal:
 // a repo where someone is halfway through authoring one still runs on the adapters that
 // are valid. Skipping it silently would let a typo in a host override read as the
 // built-in simply winning, so the file and the failing field are always named.
-func detectAdapter(repoRoot string, warn io.Writer) (*adapter.Adapter, error) {
+func detectAdapters(repoRoot string, warn io.Writer) ([]*adapter.Adapter, error) {
 	all, invalid, err := adapter.AvailableReport(repoRoot)
 	if err != nil {
 		return nil, err
 	}
 	warnInvalidAdapters(warn, repoRoot, invalid)
 	return adapter.Detect(repoRoot, all)
+}
+
+// detectOneAdapter is the TEMPORARY narrowing for the command paths that still run a
+// single toolchain: `run`, `seed` and the `which`/`status` environment. It is an explicit,
+// named step rather than a bare [0] at each call site so the places that still assume one
+// adapter can be found and removed together.
+//
+// TODO(#317, #318): #317 gives selection a per-adapter shape and #318 gives `run` the
+// per-adapter loop and the exit-code fold. When both have landed, every caller below takes
+// the whole set from detectAdapters and this function goes away.
+func detectOneAdapter(repoRoot string, warn io.Writer) (*adapter.Adapter, error) {
+	detected, err := detectAdapters(repoRoot, warn)
+	if err != nil {
+		return nil, err
+	}
+	return detected[0], nil
 }
 
 // warnInvalidAdapters prints one line per host adapter that did not load.

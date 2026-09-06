@@ -143,7 +143,7 @@ func loadEnv(adapterPath string, warn io.Writer) (*env, int, error) {
 	// Detection replaces the file default (docs/plans/00-interfaces.md:912): `rtdd init`
 	// writes no .rtdd/adapter.yaml, so on the documented setup path the file is absent and
 	// only detection can answer. Without this fallback these commands classified nothing
-	// while `rtdd run` and `rtdd seed`, which call detectAdapter directly, classified the
+	// while `rtdd run` and `rtdd seed`, which call detectOneAdapter directly, classified the
 	// same repo as python — the advisory command and the executing command disagreeing
 	// about one tree.
 	switch _, statErr := os.Stat(abs); {
@@ -154,7 +154,7 @@ func loadEnv(adapterPath string, warn io.Writer) (*env, int, error) {
 	case explicit:
 		return nil, 2, fmt.Errorf("--adapter %s: %w", adapterPath, statErr)
 	default:
-		if ad, derr := detectAdapter(root, warn); derr != nil {
+		if ad, derr := detectOneAdapter(root, warn); derr != nil {
 			e.adErr = derr
 		} else {
 			e.ad, e.adDetected = ad, true
