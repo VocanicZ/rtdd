@@ -14,9 +14,11 @@ import (
 // a long tail of files covered by one test; the head is the whole diagnostic.
 const doctorDefaultLimit = 20
 
-// RenderDoctor formats the fan-out table. The spec §9 caveat is ALWAYS included, empty
-// map included: a fan-out number without it actively misleads, because anything executed
-// once per process is attributed to whichever test happened to run first.
+// RenderDoctor formats the fan-out table. The spec §9 caveat accompanies every fan-out
+// this command computes, an empty map included: a fan-out number without it actively
+// misleads, because anything executed once per process is attributed to whichever test
+// happened to run first. Its one omission is the repository where fan-out is never
+// computed at all — see fanOutComputable.
 //
 // A limit of zero or less means no limit.
 //
@@ -29,8 +31,14 @@ func RenderDoctor(hubs []doctor.Hub, total, limit int, detected []*adapter.Adapt
 
 	if len(hubs) == 0 {
 		b.WriteString(emptyFanOutLine(detected))
-		b.WriteString("\n")
-		b.WriteString(doctor.Caveat + "\n")
+		// The §9 caveat qualifies fan-out NUMBERS. Where no adapter can ever record any,
+		// the line above already says fan-out is never computed here, and the caveat would
+		// qualify a computation that did not happen — in a vocabulary borrowed from the
+		// one toolchain that does record (issue #346, PRD #233 AC9c).
+		if fanOutComputable(detected) {
+			b.WriteString("\n")
+			b.WriteString(doctor.Caveat + "\n")
+		}
 		return b.String()
 	}
 
@@ -56,6 +64,19 @@ func RenderDoctor(hubs []doctor.Hub, total, limit int, detected []*adapter.Adapt
 	b.WriteString("\n")
 	b.WriteString(doctor.Caveat + "\n")
 	return b.String()
+}
+
+// fanOutComputable reports whether any DETECTED adapter can produce the per-test coverage
+// fan-out is derived from. It is decided from the adapter's DECLARED capability —
+// `selection: static` means `coverage: none`, so no map is ever built — and never from the
+// adapter's name: the defect it fixes was a Python-flavoured caveat printed in a
+// TypeScript repo, and a language comparison would fix that one repo and leave the next.
+//
+// Nothing detected is computable: a repo no adapter serves is the pre-existing
+// "run `rtdd seed` first" state, and it keeps the line and the caveat it always printed.
+func fanOutComputable(detected []*adapter.Adapter) bool {
+	static, coverage := selectionSplit(detected)
+	return len(static) == 0 || len(coverage) > 0
 }
 
 // emptyFanOutLine is what doctor says about an empty map, derived from the detected
