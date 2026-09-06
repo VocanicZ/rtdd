@@ -121,8 +121,14 @@ type Adapter struct {
 // literal brace; Load rejects it instead (exit 2).
 var (
 	testForPlaceholders = map[string]bool{
-		"{dir}":  true, // the changed source file's directory, repo-relative
-		"{name}": true, // its base name without extension
+		"{dir}": true, // the changed source file's directory, repo-relative
+		// {subdir} is {dir} or ANY trailing part of it, longest first — see
+		// trailingDirs. It exists because a test tree mirrors a suffix of the source
+		// tree whose length is a property of the repository rather than of the adapter:
+		// src/main/java/calc/Calc.java's test is src/test/java/calc/CalcTest.java, and
+		// no fixed placeholder can name the mirrored "calc".
+		"{subdir}": true,
+		"{name}":   true, // its base name without extension
 	}
 	idTemplatePlaceholders = map[string]bool{
 		"{file}":      true, // the file the test case was parsed from

@@ -1,6 +1,9 @@
 package adapter
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func testForAdapter() *Adapter {
 	return &Adapter{
@@ -80,5 +83,93 @@ func TestTestForCandidateWithNoTemplatesSkips(t *testing.T) {
 	a := &Adapter{Name: "python"}
 	if _, ok := a.TestForCandidate("src/a.py", existsIn("src/a.py")); ok {
 		t.Error("TestForCandidate resolved without templates; want no match")
+	}
+}
+
+// {subdir} is {dir} or any trailing part of it, longest first. It is what lets ONE
+// declared template mirror a test tree onto a source tree whose root is several segments
+// deep: src/main/java/calc/Calc.java corresponds to src/test/java/calc/CalcTest.java, and
+// the mirrored part is the package, not the whole directory.
+func TestTestForCandidateSubdirMirrorsATrailingPartOfTheDirectory(t *testing.T) {
+	a := &Adapter{
+		Name:      "maven",
+		Selection: SelectionStatic,
+		Coverage:  CoverageNone,
+		TestFor:   []string{"src/test/java/{subdir}/{name}Test.java"},
+	}
+	got, ok := a.TestForCandidate("src/main/java/calc/Calc.java",
+		existsIn("src/test/java/calc/CalcTest.java"))
+	if !ok {
+		t.Fatal("TestForCandidate found nothing, want src/test/java/calc/CalcTest.java")
+	}
+	if got != "src/test/java/calc/CalcTest.java" {
+		t.Errorf("TestForCandidate = %q, want %q", got, "src/test/java/calc/CalcTest.java")
+	}
+}
+
+// The LONGEST trailing part that names an existing file wins, so the most specific
+// correspondence the repository actually has is the one selected. A monorepo holding both
+// a module-local and a root-level test tree must not silently prefer the distant one.
+func TestTestForCandidateSubdirPrefersTheLongestExistingMatch(t *testing.T) {
+	a := &Adapter{
+		Name:      "gradle",
+		Selection: SelectionStatic,
+		Coverage:  CoverageNone,
+		TestFor:   []string{"{subdir}/{name}Test.java"},
+	}
+	exists := existsIn(
+		"services/api/src/main/java/calc/CalcTest.java",
+		"calc/CalcTest.java",
+	)
+	got, ok := a.TestForCandidate("services/api/src/main/java/calc/Calc.java", exists)
+	if !ok {
+		t.Fatal("TestForCandidate found nothing")
+	}
+	if got != "services/api/src/main/java/calc/CalcTest.java" {
+		t.Errorf("TestForCandidate = %q, want the longest trailing match %q",
+			got, "services/api/src/main/java/calc/CalcTest.java")
+	}
+}
+
+// The widening never becomes a guess: a trailing part that names nothing is skipped, and
+// an adapter whose templates resolve to no existing file still reports no match.
+func TestTestForCandidateSubdirStillRequiresTheFileToExist(t *testing.T) {
+	a := &Adapter{Name: "maven", TestFor: []string{"src/test/java/{subdir}/{name}Test.java"}}
+	if got, ok := a.TestForCandidate("src/main/java/calc/Calc.java", existsIn()); ok {
+		t.Errorf("TestForCandidate = %q, true; want no match when no file exists", got)
+	}
+}
+
+// {dir} keeps its meaning. It is the whole directory, and no suffix of it: an adapter that
+// declared {dir} was declaring the full path, and quietly widening it would change every
+// host adapter's selection at once.
+func TestTestForCandidateDirIsStillTheWholeDirectory(t *testing.T) {
+	a := &Adapter{Name: "maven", TestFor: []string{"src/test/java/{dir}/{name}Test.java"}}
+	if got, ok := a.TestForCandidate("src/main/java/calc/Calc.java",
+		existsIn("src/test/java/calc/CalcTest.java")); ok {
+		t.Errorf("TestForCandidate = %q, true; {dir} names the whole directory, so it must not match", got)
+	}
+}
+
+// A file at the repository root has "." for a directory, which is one trailing part and
+// not a crash.
+func TestTestForCandidateSubdirAtTheRepoRoot(t *testing.T) {
+	a := &Adapter{Name: "probe", TestFor: []string{"tests/{subdir}/{name}_test.go"}}
+	got, ok := a.TestForCandidate("main.go", existsIn("tests/main_test.go"))
+	if !ok || got != "tests/main_test.go" {
+		t.Errorf("TestForCandidate = %q, %v; want %q, true", got, ok, "tests/main_test.go")
+	}
+}
+
+// An unknown placeholder is still refused at load time; adding {subdir} widened the
+// vocabulary by exactly one spelling.
+func TestValidateTemplatesStillRejectsAnUnknownTestForPlaceholder(t *testing.T) {
+	a := &Adapter{Name: "probe", TestFor: []string{"src/test/{folder}/{name}Test.java"}}
+	err := a.validateTemplates()
+	if err == nil {
+		t.Fatal("validateTemplates accepted {folder}; an unsubstituted placeholder selects nothing, silently")
+	}
+	if !strings.Contains(err.Error(), "{folder}") {
+		t.Errorf("validateTemplates error %q does not name the placeholder", err)
 	}
 }

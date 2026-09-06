@@ -1,0 +1,5 @@
+[profile.rtdd]
+retries = 0
+
+[profile.rtdd.junit]
+path = "junit.xml"

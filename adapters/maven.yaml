@@ -11,6 +11,13 @@
 #
 # The id is CASE-granular and `{classname}#{name}` is exactly Surefire's own
 # Class#method syntax.
+#
+# `test_for` uses {subdir}, not {dir}: the changed file's directory is
+# src/main/java/<package>, and the test that corresponds to it lives at
+# src/test/java/<package> — the mirrored part is the PACKAGE, and how many leading
+# segments the source root occupies is a property of the repository (a module under
+# services/api/ moves it). {subdir} is {dir} or any trailing part of it, longest first,
+# and a candidate still counts only when the file exists.
 name: maven
 detect: ["pom.xml"]
 selection: static
@@ -22,7 +29,7 @@ report: junit-xml
 report_path: "target/surefire-reports/"
 id_template: "{classname}#{name}"
 failfast_flag: "-ff"
-test_for: ["src/test/java/{dir}/{name}Test.java", "src/test/java/{dir}/{name}Tests.java"]
+test_for: ["src/test/java/{subdir}/{name}Test.java", "src/test/java/{subdir}/{name}Tests.java", "src/test/kotlin/{subdir}/{name}Test.kt"]
 test_globs: ["src/test/java/**/*.java", "src/test/kotlin/**/*.kt"]
 source_globs: ["src/main/java/**/*.java", "src/main/kotlin/**/*.kt", "src/test/java/**/*.java"]
 opaque: ["src/main/resources/**", "src/test/resources/**", "**/*.xml", "**/*.properties"]
