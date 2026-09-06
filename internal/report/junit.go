@@ -9,6 +9,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"strconv"
@@ -189,6 +190,10 @@ func ReadJUnitFile(path string) ([]JUnitCase, error) {
 		return nil, fmt.Errorf("report: %w: %s: root element is <%s>, want <testsuites> or <testsuite>", ErrMalformedReport, path, root.Name.Local)
 	}
 
+	if err := refuseContentAfterRoot(dec, path); err != nil {
+		return nil, err
+	}
+
 	out := []JUnitCase{}
 	for i := range suites {
 		out, err = walkSuite(&suites[i], path, out)
@@ -197,6 +202,42 @@ func ReadJUnitFile(path string) ([]JUnitCase, error) {
 		}
 	}
 	return out, nil
+}
+
+// refuseContentAfterRoot drains what is left of the document once the root element has
+// been decoded. XML permits exactly ONE root, so anything of substance after it means the
+// file is not a well-formed document — and stopping at the root's end tag, as a reader that
+// never drains does, turns that into a partial success with a nil error.
+//
+// The shape that bites is not trailing junk but a report whose runner opened it in APPEND
+// mode, or wrote it twice: two concatenated <testsuite> roots. Everything after the first
+// root is dropped silently, so a failing test in the second suite is not merely unreported,
+// it is invisible behind a full-looking report — the false green ErrMalformedReport names.
+//
+// A comment, a processing instruction, a directive and whitespace are all legal after a
+// root and stay accepted: Surefire and RSpec end their reports with a newline.
+func refuseContentAfterRoot(dec *xml.Decoder, path string) error {
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return fmt.Errorf("report: %w: %s: %v", ErrMalformedReport, path, err)
+		}
+		switch t := tok.(type) {
+		case xml.CharData:
+			if len(bytes.TrimSpace(t)) != 0 {
+				return fmt.Errorf("report: %w: %s: character data after the root element", ErrMalformedReport, path)
+			}
+		case xml.Comment, xml.ProcInst, xml.Directive:
+			// Legal after a root element; a report may sign itself off with either.
+		case xml.StartElement:
+			return fmt.Errorf("report: %w: %s: a second root element <%s>: XML permits exactly one, and every suite after the first would be dropped", ErrMalformedReport, path, t.Name.Local)
+		default:
+			return fmt.Errorf("report: %w: %s: unexpected %T after the root element", ErrMalformedReport, path, tok)
+		}
+	}
 }
 
 // walkSuite appends one suite's children depth first, in the order they were written.
