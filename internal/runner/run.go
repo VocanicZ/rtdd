@@ -77,6 +77,10 @@ func execute(a *adapter.Adapter, repoRoot, tmpl string, chunks [][]string, failF
 		// makes seed and subset disagree on scope. Expand has no closed variable
 		// set, so this map IS the enforcement — an adapter naming {src} fails here
 		// as an unresolved placeholder rather than silently narrowing coverage.
+		//
+		// {log} is this chunk's scratch file, and which side writes it is the adapter's
+		// business: pytest writes its report log there, and a report_cmd adapter reads
+		// the captured output the engine writes there. One name, one file, one lifetime.
 		vars := map[string]string{"log": logPath, "out": tmpDir}
 		// {report} joins them, and ONLY when the adapter declares report_path. Expand's
 		// vocabulary is the caller's map, so an adapter naming {report} without
@@ -150,6 +154,20 @@ func execute(a *adapter.Adapter, repoRoot, tmpl string, chunks [][]string, failF
 			res.ExitCode = 1
 		}
 
+		// report_cmd, when declared, is what PRODUCES the file the next statement reads.
+		// It runs AFTER the invocation and BEFORE the read, once per chunk, so chunk i's
+		// report is converted from chunk i's capture and from nothing else — the same
+		// reason the report path is cleared per chunk just above.
+		//
+		// It runs on a chunk that exited 1 too: a failing subset is exactly the run whose
+		// report matters most, and skipping the conversion there would read the report
+		// the clear just emptied and call a failing suite green.
+		if a.ReportCmd != "" {
+			if err := runReportCmd(a, repoRoot, logPath, combined.Bytes(), vars); err != nil {
+				return nil, err
+			}
+		}
+
 		outs, err := readOutcomes(a, logPath, rp)
 		if err != nil {
 			return nil, fmt.Errorf("runner: chunk %d: %w", i, err)
@@ -193,6 +211,43 @@ func execute(a *adapter.Adapter, repoRoot, tmpl string, chunks [][]string, failF
 		res.ExitCode = 1
 	}
 	return res, nil
+}
+
+// runReportCmd hands one chunk's captured combined output to the converter the adapter
+// declares, which is the only way the argv-only engine can express `go test -json |
+// go-junit-report`: the runner writes machine-readable output to stdout and the converter
+// reads stdin, and the engine never hands a shell a string (spec §4.3, plan 06-m6d
+// decision 9).
+//
+// {log} is the same per-chunk scratch file the pytest path names — there, the file the
+// RUNNER writes; here, the file the ENGINE writes. Both are "this chunk's scratch file",
+// so a third name would be a third thing for an adapter author to learn about one path.
+//
+// A non-zero exit is FATAL and names the adapter and the command. Continuing would read a
+// report that was never written — or, without the per-chunk clear, the previous chunk's —
+// and an empty JUnit report parses as a run in which nothing failed (#294).
+func runReportCmd(a *adapter.Adapter, repoRoot, logPath string, captured []byte, vars map[string]string) error {
+	if err := os.WriteFile(logPath, captured, 0o600); err != nil {
+		return fmt.Errorf("runner: adapter %s: report_cmd %q: writing {log}: %w", a.Name, a.ReportCmd, err)
+	}
+	// Expand, not ExpandTests: the ids are already spent on the invocation that produced
+	// the capture, and a report_cmd naming {tests} is rejected there rather than receiving
+	// a chunk it has no use for.
+	argv, err := a.Expand(a.ReportCmd, vars)
+	if err != nil {
+		return err
+	}
+	var out bytes.Buffer
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Dir = repoRoot // the same directory the subset ran in: {log} and {report} are both absolute, but the converter may read the repo's own config
+	cmd.Env = mergeEnv(os.Environ(), a.Env)
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("runner: adapter %s: report_cmd %q: %w\n%s",
+			a.Name, a.ReportCmd, err, tail(out.Bytes(), 4000))
+	}
+	return nil
 }
 
 // readOutcomes reads one chunk's outcomes through the parser the adapter's `report:`
