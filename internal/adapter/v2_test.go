@@ -481,3 +481,76 @@ id_template: "{classname}#{name}"
 		t.Fatalf("Load(single-file report_path): %v", err)
 	}
 }
+
+// Decision 9: report_cmd is the one post-run command the argv-only engine needs, and it
+// exists to produce the declared report_path. Both refusals are load-time (exit 2): a
+// report_cmd under a report the runner writes itself has nothing to convert, and one that
+// never names {report} writes its output where nothing will read it — which is exactly
+// the empty report #294 forbids being read as "nothing failed".
+func TestReportCmdRequiresJUnitXMLAndNamesTheReport(t *testing.T) {
+	const base = `name: go
+detect: ["go.mod"]
+subset: "go test -json -run {tests} ./..."
+list: "go test -list . ./..."
+selection: static
+coverage: none
+`
+	junit := base + `report: junit-xml
+report_path: ".rtdd/junit.xml"
+id_template: "{name}"
+`
+	for _, tc := range []struct {
+		name, yaml string
+		want       []string
+	}{
+		{
+			name: "without junit-xml",
+			yaml: "name: demo\ndetect: [\"setup.py\"]\nseed: \"pytest\"\nsubset: \"pytest {tests}\"\nreport: pytest-reportlog\nreport_cmd: \"conv {log} {report}\"\n",
+			want: []string{"report_cmd", "junit-xml"},
+		},
+		{
+			name: "naming no {report}",
+			yaml: junit + "report_cmd: \"go-junit-report -in {log}\"\n",
+			want: []string{"report_cmd", "{report}"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Load(writeAdapter(t, t.TempDir(), "go.yaml", tc.yaml))
+			if err == nil {
+				t.Fatalf("Load accepted report_cmd %s", tc.name)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error %q does not carry %q", err, want)
+				}
+			}
+		})
+	}
+
+	a, err := Load(writeAdapter(t, t.TempDir(), "go.yaml", junit+"report_cmd: \"go-junit-report -parser gojson -in {log} -out {report}\"\n"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if a.ReportCmd != "go-junit-report -parser gojson -in {log} -out {report}" {
+		t.Errorf("ReportCmd = %q, want the declared command", a.ReportCmd)
+	}
+}
+
+// report_cmd is optional: an adapter that declares none is a valid adapter, and the
+// pytest path must not acquire a post-run command it never asked for.
+func TestReportCmdIsOptional(t *testing.T) {
+	a, err := Load(writeAdapter(t, t.TempDir(), "demo.yaml", validYAML))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if a.ReportCmd != "" {
+		t.Errorf("ReportCmd = %q, want empty for an adapter that declares none", a.ReportCmd)
+	}
+	all, err := Builtin()
+	if err != nil {
+		t.Fatalf("Builtin: %v", err)
+	}
+	if py := byName(all, "python"); py == nil || py.ReportCmd != "" {
+		t.Errorf("adapters/python.yaml picked up a report_cmd it does not declare: %+v", py)
+	}
+}

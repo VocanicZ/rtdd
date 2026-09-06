@@ -91,6 +91,20 @@ type Adapter struct {
 	TestFlag string `yaml:"test_flag"` // emit "<flag> <id>" for each id
 	TestJoin string `yaml:"test_join"` // join every id into ONE argv token
 
+	// ReportCmd is an optional command run AFTER the subset invocation and BEFORE
+	// report_path is read. It exists for exactly one shape the argv-only engine cannot
+	// express: a runner that writes its machine-readable output to stdout and a converter
+	// that reads stdin. `go test -json` and `go-junit-report` are that pair, and a `sh -c`
+	// template does not rescue it — expand.go tokenises on whitespace BEFORE substituting,
+	// so a shell string cannot survive as one argv element (spec §4.3, plan 06-m6d
+	// decision 9).
+	//
+	// {log} is the chunk's captured combined output and {report} is the resolved
+	// report_path. A non-zero exit is fatal and names the adapter and the command; it is
+	// never treated as "no report", because an empty report parses as a run in which
+	// nothing failed (#294).
+	ReportCmd string `yaml:"report_cmd"`
+
 	// Src is the file this adapter was read from — an fs path inside the embedded set
 	// ("python.yaml") or an on-disk path for a host-authored one. It is never declared in
 	// YAML: it is how doctor and every error message name the file an adapter came from,
@@ -272,6 +286,17 @@ func (a *Adapter) validate() error {
 		return fmt.Errorf("report_path %q: globs are not supported; name one file, or a directory ending in %q", a.ReportPath, "/")
 	case a.Report != "pytest-reportlog" && a.Report != "junit-xml":
 		return fmt.Errorf("unsupported report %q (only \"pytest-reportlog\" and \"junit-xml\")", a.Report)
+
+	// report_cmd exists to PRODUCE the declared report, so both refusals below are about
+	// a command whose output nothing would ever read. Under any other report the runner
+	// writes its own outcome file and there is nothing to convert; and a command that
+	// never names {report} writes somewhere else, leaving report_path empty — which #294
+	// forbids being read as a run in which nothing failed. Load time, exit 2, rather than
+	// after `rtdd run` has cleared the report path and executed the whole subset command.
+	case a.ReportCmd != "" && a.Report != "junit-xml":
+		return fmt.Errorf("report_cmd %q requires report: junit-xml, got report %q; there is no other report for it to produce", a.ReportCmd, a.Report)
+	case a.ReportCmd != "" && !strings.Contains(a.ReportCmd, "{report}"):
+		return fmt.Errorf("report_cmd %q has no {report} placeholder; it would write its output where report_path is not", a.ReportCmd)
 	}
 
 	if err := a.validateTemplates(); err != nil {
