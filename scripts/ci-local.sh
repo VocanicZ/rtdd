@@ -47,4 +47,24 @@ file /tmp/rtdd | grep -q 'statically linked'
 echo "==> every release artifact is statically linked"
 go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' .
 
+# PRD #232 AC11: the shipped adapter set's two gates, named as their own steps so a red
+# build points straight at the adapter set. `go test ./...` above runs both already; what
+# is added here is the `-list` line in front of each, because `go test -run` on a pattern
+# that matches nothing exits 0 — a deleted or renamed gate would otherwise pass silently.
+echo "==> shipped-adapter completeness gate (#310)"
+listed="$(go test -list '^TestEveryShippedAdapterIsFullySpecified$' ./internal/contract/)"
+case "$listed" in
+  *TestEveryShippedAdapterIsFullySpecified*) ;;
+  *) echo "the shipped-adapter completeness gate is gone from ./internal/contract/"; exit 1 ;;
+esac
+go test -count=1 -run '^TestEveryShippedAdapterIsFullySpecified$' ./internal/contract/
+
+echo "==> shipped id_template round-trip over real captured output (#315)"
+listed="$(go test -list 'RoundTrip' ./internal/report/)"
+case "$listed" in
+  *RoundTrip*) ;;
+  *) echo "./internal/report/ has no id round-trip test left"; exit 1 ;;
+esac
+go test -count=1 -run 'RoundTrip' ./internal/report/
+
 echo "==> ci-local: PASS"
