@@ -85,6 +85,21 @@ func splitTemplate(tmpl string) ([]idSegment, error) {
 	return segs, nil
 }
 
+// ValidateIDTemplate reports whether tmpl is one RenderID and ParseID both accept: its
+// placeholders are in the shipped vocabulary, it names at least one of them, every "{"
+// closes, and no two placeholders are adjacent. It is the round-trip verdict on a template
+// alone, with no <testcase> to render — which is exactly what internal/adapter needs at
+// LOAD time, so a bad id_template is refused at exit 2 rather than mid-run, after the
+// subset command has already run (spec §4.3).
+//
+// Exporting the splitter's verdict, rather than letting the loader grow a second brace
+// parser, is what keeps the two from drifting: a template this accepts renders, and one it
+// refuses is refused identically on both sides.
+func ValidateIDTemplate(tmpl string) error {
+	_, err := splitTemplate(tmpl)
+	return err
+}
+
 // RenderID renders one parsed case into the runner's own selector syntax, expanding
 // {file}, {classname} and {name}. The result is ONE argv token: ExpandTests splices each
 // id as its own argument, so a template that renders a space produces one argument

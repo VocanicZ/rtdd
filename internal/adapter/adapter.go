@@ -17,6 +17,7 @@ import (
 
 	rtddadapters "github.com/VocanicZ/rtdd/adapters"
 	"github.com/VocanicZ/rtdd/internal/paths"
+	"github.com/VocanicZ/rtdd/internal/report"
 )
 
 // Selection and coverage values. `selection` is contract v2's fidelity key: it says
@@ -289,6 +290,17 @@ func (a *Adapter) validateTemplates() error {
 		}
 		if err := validateIDTemplateNamesAPlaceholder(a.IDTemplate); err != nil {
 			return err
+		}
+		// Adjacency — "{classname}{name}" — is the last structural rule spec §4.3 puts at
+		// load time. It renders an id nothing can split again, so the round trip PRD #231
+		// AC3 requires cannot hold; left to render time the refusal arrives only after
+		// `rtdd run` has cleared the report path and executed the whole subset command,
+		// which is the mid-run parse failure load-time validation exists to prevent.
+		//
+		// internal/report's own splitter decides it. A second brace parser here could
+		// admit a template the renderer refuses, which is the drift this call rules out.
+		if err := report.ValidateIDTemplate(a.IDTemplate); err != nil {
+			return fmt.Errorf("id_template %q: %w", a.IDTemplate, err)
 		}
 	}
 	for i, tmpl := range a.TestFor {
