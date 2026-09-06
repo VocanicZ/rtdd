@@ -432,3 +432,85 @@ func TestReadJUnitFileNeverTurnsATimeAttributeIntoANegativeDuration(t *testing.T
 		})
 	}
 }
+
+// XML permits exactly ONE root element. A document with trailing garbage, or with a second
+// <testsuite> root concatenated after the first, is not a well-formed document at all — but
+// a reader that stops the moment the first root closes never looks, so it reports the first
+// suite's cases and a nil error. The second shape is what a report written twice, or opened
+// in append mode rather than truncated, looks like on disk: every suite after the first is
+// dropped SILENTLY, so a failure in suite two is not merely unreported, it is invisible
+// behind a full-looking report. That is the false green ErrMalformedReport exists to name.
+//
+// A comment or a processing instruction after the root IS legal XML and must still parse:
+// only content that cannot follow a root is refused.
+func TestReadJUnitFileRefusesContentAfterTheRootElement(t *testing.T) {
+	refused := []struct {
+		name string
+		body string
+	}{
+		{
+			"trailing garbage",
+			`<?xml version="1.0"?><testsuite name="s"><testcase classname="a" name="b"/></testsuite>GARBAGE <<<`,
+		},
+		{
+			"trailing character data",
+			`<?xml version="1.0"?><testsuite name="s"><testcase classname="a" name="b"/></testsuite>oops`,
+		},
+		{
+			"second root element",
+			`<?xml version="1.0"?><testsuite name="one"><testcase classname="a" name="b"/></testsuite><testsuite name="two"><testcase classname="c" name="d"/></testsuite>`,
+		},
+		{
+			"second root element under testsuites",
+			`<?xml version="1.0"?><testsuites><testsuite name="one"><testcase classname="a" name="b"/></testsuite></testsuites><testsuites><testsuite name="two"><testcase classname="c" name="d"/></testsuite></testsuites>`,
+		},
+	}
+	for _, tc := range refused {
+		t.Run(tc.name, func(t *testing.T) {
+			p := writeXML(t, tc.body)
+			got, err := ReadJUnitFile(p)
+			if err == nil {
+				t.Fatalf("ReadJUnitFile = %v, nil error; content after the root element must never parse as a partial success", got)
+			}
+			if !errors.Is(err, ErrMalformedReport) {
+				t.Fatalf("ReadJUnitFile error = %v, want errors.Is(_, ErrMalformedReport)", err)
+			}
+			if !strings.Contains(err.Error(), filepath.Base(p)) {
+				t.Errorf("error %q does not name the offending file", err)
+			}
+		})
+	}
+
+	accepted := []struct {
+		name string
+		body string
+	}{
+		{
+			"trailing newline",
+			"<?xml version=\"1.0\"?><testsuite name=\"s\"><testcase classname=\"a\" name=\"b\"/></testsuite>\n",
+		},
+		{
+			"trailing comment",
+			`<?xml version="1.0"?><testsuite name="s"><testcase classname="a" name="b"/></testsuite><!-- written by a runner -->`,
+		},
+		{
+			"trailing processing instruction",
+			`<?xml version="1.0"?><testsuite name="s"><testcase classname="a" name="b"/></testsuite><?some-pi value?>`,
+		},
+		{
+			"trailing comment then whitespace",
+			"<?xml version=\"1.0\"?><testsuite name=\"s\"><testcase classname=\"a\" name=\"b\"/></testsuite>\n<!-- ok -->\n",
+		},
+	}
+	for _, tc := range accepted {
+		t.Run(tc.name, func(t *testing.T) {
+			cases, err := ReadJUnitFile(writeXML(t, tc.body))
+			if err != nil {
+				t.Fatalf("ReadJUnitFile: %v; a comment, a processing instruction and whitespace are legal after the root", err)
+			}
+			if len(cases) != 1 || cases[0].Name != "b" {
+				t.Fatalf("ReadJUnitFile = %v, want the one case b", cases)
+			}
+		})
+	}
+}
