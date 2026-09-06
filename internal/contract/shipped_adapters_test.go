@@ -3,6 +3,7 @@ package contract
 import (
 	"io/fs"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -167,4 +168,56 @@ func join(lines []string) string {
 		return "  (none)"
 	}
 	return "  " + strings.Join(lines, "\n  ")
+}
+
+// The freeze is a global constraint of the M6d plan, and a global constraint nothing
+// checks is a paragraph. If a later task "adds the new keys" to the Python adapter, the
+// digest test fires — and this test says WHY, so the fix is reverting the edit rather than
+// updating the constant.
+func TestNoShippedAdapterEditIsAllowedToTouchThePythonAdapter(t *testing.T) {
+	src := readRepoFile(t, "internal/contract/adapter_freeze_test.go")
+	const want = `pythonAdapterSHA256 = "a20c009fed0db285f4cfe04d0bbb1752fb6e0beca9a469736cb5f0eedf3df123"`
+	if !strings.Contains(src, want) {
+		t.Errorf("the python adapter digest changed; PRD #232 licenses no edit to adapters/python.yaml (M6d global constraints)")
+	}
+	yaml := readRepoFile(t, "adapters/python.yaml")
+	for _, key := range []string{"test_flag:", "test_join:", "report_cmd:"} {
+		if strings.Contains(yaml, "\n"+key) {
+			t.Errorf("adapters/python.yaml declares %q; every M6d key is optional and python declares none", key)
+		}
+	}
+}
+
+// PRD #232 AC5, stated once more where a reviewer will look for it: the v1 refusal is not
+// in the tree, and no adapter YAML re-introduces the one-adapter assumption by claiming a
+// marker that belongs to another ecosystem.
+func TestNoTwoShippedAdaptersShareADetectMarker(t *testing.T) {
+	src := readRepoFile(t, "docs/plans/06-m6d-shipped-adapters.md")
+	if !regexp.MustCompile(`(?m)^\| ` + "`vitest`" + ` \|`).MatchString(src) {
+		t.Fatal("the plan's decision-1 marker table is missing; the shipped set's detection rule has no written source")
+	}
+	// The real assertion is over the loaded adapters, not the plan: two adapters sharing a
+	// marker makes every repo of that ecosystem detect both, which is decision 1's defect.
+	seen := map[string]string{}
+	all := builtinForTest(t)
+	for _, a := range all {
+		for _, m := range a.Detect {
+			if prev, dup := seen[m]; dup {
+				t.Errorf("adapters %s and %s both detect on %q; every repo of that ecosystem would match both (decision 1)", prev, a.Name, m)
+			}
+			seen[m] = a.Name
+		}
+	}
+}
+
+// builtinForTest is the embedded adapter set, or a failed test. Every guard in this file
+// asserts over what the shipped binary would actually resolve, so a loader error is a
+// fatal, not a skipped assertion.
+func builtinForTest(t *testing.T) []*adapter.Adapter {
+	t.Helper()
+	all, err := adapter.Builtin()
+	if err != nil {
+		t.Fatalf("adapter.Builtin: %v", err)
+	}
+	return all
 }

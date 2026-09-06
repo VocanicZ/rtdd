@@ -296,6 +296,15 @@ var ciCommands = []string{
 	// runs inside `go test ./...` too; naming it as its own step means a red build points
 	// straight at the release artifacts instead of at the suite in general.
 	"go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' .",
+	// PRD #232 AC11: the shipped adapter set's two gates, named as their own steps.
+	// #310's completeness table and #315's id_template round-trip over real captured
+	// output both run inside `go test ./...` above; naming them points a red build at
+	// the adapter set instead of at the suite in general, and the `-list` guard in
+	// front of each one is what stops a deleted gate from passing as a no-match.
+	"go test -list '^TestEveryShippedAdapterIsFullySpecified$' ./internal/contract/",
+	"go test -count=1 -run '^TestEveryShippedAdapterIsFullySpecified$' ./internal/contract/",
+	"go test -list 'RoundTrip' ./internal/report/",
+	"go test -count=1 -run 'RoundTrip' ./internal/report/",
 }
 
 func TestLocalCIEntrypointIsExecutableAndRunsTheSameChecks(t *testing.T) {
