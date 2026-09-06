@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/VocanicZ/rtdd/internal/adapter"
 	"github.com/VocanicZ/rtdd/internal/gitctx"
+	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
 	"github.com/VocanicZ/rtdd/internal/mapstore"
 	"github.com/VocanicZ/rtdd/internal/report"
 	"github.com/VocanicZ/rtdd/internal/runner"
@@ -350,5 +352,155 @@ func TestAnAdapterWhoseEnumerationFailedIsReportedRatherThanRunPartially(t *test
 	}
 	if subsets != 0 {
 		t.Errorf("the subset ran %d times over a knowingly partial T2 list, want 0", subsets)
+	}
+}
+
+// brokenEnumerationAdapter is brokenVitestAdapter with a `full_escalate` entry: changing
+// package.json forces T2, which is the one tier that enumerates, and enumerating is what
+// this adapter cannot do because its runner binary does not resolve.
+func brokenEnumerationAdapter(t *testing.T, dir string) {
+	t.Helper()
+	adir := filepath.Join(dir, ".rtdd", "adapters")
+	if err := os.MkdirAll(adir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	yaml := "name: vitest\ndetect: [\"package.json\"]\n" +
+		"subset: \"rtdd-no-such-runner-binary {tests} --outputFile={report}\"\n" +
+		"list: \"rtdd-no-such-runner-binary --outputFile={report}\"\n" +
+		"selection: static\ncoverage: none\nreport: junit-xml\nreport_path: \".rtdd/junit.xml\"\n" +
+		"id_template: \"{classname}\"\ntest_for: [\"{dir}/{name}.test.ts\"]\n" +
+		"test_globs: [\"**/*.test.ts\"]\nsource_globs: [\"src/**/*.ts\"]\n" +
+		"full_escalate: [\"package.json\"]\n"
+	if err := os.WriteFile(filepath.Join(adir, "vitest.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+}
+
+// brokenEnumerationRepo is the single-adapter repository in which the AC7 gap reproduces:
+// the only adapter's enumeration fails, and because a T2 block whose enumeration returned
+// no list has nothing to run, the folded selection is EMPTY. The map is empty too, so no
+// stale row rescues the selection.
+func brokenEnumerationRepo(t *testing.T) string {
+	t.Helper()
+	dir := gittest.Init(t)
+	gittest.Write(t, dir, ".gitignore", ".rtdd/\n")
+	gittest.Write(t, dir, "package.json", "{\n  \"name\": \"demo\"\n}\n")
+	gittest.Write(t, dir, "src/logic.ts", "export const add = (a: number, b: number) => a + b;\n")
+	gittest.Write(t, dir, "src/logic.test.ts", "it('adds', () => {});\n")
+	gittest.Commit(t, dir, "init")
+	brokenEnumerationAdapter(t, dir)
+	// The change that escalates to T2. It is the LAST thing written, so the run under test
+	// sees exactly one changed file and that file is the escalating one.
+	gittest.Write(t, dir, "package.json", "{\n  \"name\": \"demo\",\n  \"version\": \"0.0.2\"\n}\n")
+	return dir
+}
+
+// PRD #232 AC7 on the path that produced no results at all. An adapter whose enumeration
+// failed is the REASON the selection is empty, so exiting 0 with "nothing ran" reports a
+// broken toolchain as a repository with nothing to do — indistinguishable, to an agent,
+// from a green loop iteration.
+//
+// This drives cmdRun, not selectPerAdapter: the defect lived in the early return that
+// cmdRun takes before the loop that reports EnumErr ever runs.
+func TestCmdRunReportsAnEnumerationFailureWhenTheSelectionIsEmpty(t *testing.T) {
+	repo := brokenEnumerationRepo(t)
+	chdir(t, repo)
+
+	var (
+		code   int
+		stdout string
+	)
+	stderr := captureStderr(t, func() {
+		stdout = captureStdout(t, func() { code = cmdRun(nil) })
+	})
+
+	if code == 0 {
+		t.Fatalf("cmdRun = 0 on an empty selection caused by a failed enumeration; "+
+			"the failure must move the exit code\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+	}
+	if code != 3 {
+		t.Errorf("cmdRun = %d, want 3: the adapter's runner is not installed\nstdout:\n%s\nstderr:\n%s",
+			code, stdout, stderr)
+	}
+	if !strings.Contains(stderr, "vitest") {
+		t.Errorf("the per-adapter report does not name the adapter that failed:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "rtdd-no-such-runner-binary") {
+		t.Errorf("the enumeration's own error text is discarded:\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+	}
+}
+
+// The same failure on the --json path. A consumer discards stderr, so an error that
+// reaches only stderr is one the agent front-end never learns about: it sees a generic
+// empty-selection warning next to exit 0 and cannot tell it from a quiet repository.
+func TestCmdRunJSONReportsAnEnumerationFailureWhenTheSelectionIsEmpty(t *testing.T) {
+	repo := brokenEnumerationRepo(t)
+	chdir(t, repo)
+
+	var (
+		code int
+		raw  string
+	)
+	_ = captureStderr(t, func() {
+		raw = captureStdout(t, func() { code = cmdRun([]string{"--json"}) })
+	})
+
+	if code == 0 {
+		t.Fatalf("cmdRun --json = 0 on an empty selection caused by a failed enumeration\n%s", raw)
+	}
+	var got Output
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("--json stdout is not a single JSON document: %v\n%s", err, raw)
+	}
+	if got.ExitCode != code {
+		t.Errorf("document exit_code = %d, process exit = %d; the two must agree\n%s", got.ExitCode, code, raw)
+	}
+	if !anyWarningContains(got.Warnings, "rtdd-no-such-runner-binary") {
+		t.Errorf("warnings do not carry the enumeration's error text, got %#v\n%s", got.Warnings, raw)
+	}
+	if !anyWarningContains(got.Warnings, "vitest") {
+		t.Errorf("warnings do not name the adapter that failed, got %#v", got.Warnings)
+	}
+}
+
+// PRD #232 AC7 end to end, one stage earlier than
+// TestRunKeepsOneAdaptersResultsWhenAnotherAdapterCannotStart: the TypeScript half's
+// ENUMERATION is what cannot start, and the Python half's completed run is still executed,
+// kept and reported beside the failure.
+func TestRunKeepsOneAdaptersResultsWhenAnotherAdaptersEnumerationCannotStart(t *testing.T) {
+	repo := realRepo(t)
+	chdir(t, repo)
+	makeSuiteGreen(t, repo)
+	if code := cmdSeed(nil, io.Discard, io.Discard); code != 0 {
+		t.Fatalf("cmdSeed = %d, want 0 once the suite is green", code)
+	}
+
+	brokenEnumerationAdapter(t, repo)
+	// package.json is the TypeScript adapter's full_escalate file, so it escalates to T2 —
+	// the one tier that enumerates — and the enumeration is what fails.
+	writeRepoFile(t, repo, "package.json", "{\n  \"name\": \"demo\"\n}\n")
+	writeRepoFile(t, repo, "src/logic.ts", "export const add = (a: number, b: number) => a + b;\n")
+	writeRepoFile(t, repo, "src/logic.test.ts", "it('adds', () => {});\n")
+	touchLogic(t, repo)
+
+	var (
+		code   int
+		stdout string
+	)
+	stderr := captureStderr(t, func() {
+		stdout = captureStdout(t, func() { code = cmdRun(nil) })
+	})
+
+	if code != 3 {
+		t.Fatalf("cmdRun = %d, want 3: vitest's runner is not installed\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stderr, "vitest") || !strings.Contains(stderr, "rtdd-no-such-runner-binary") {
+		t.Errorf("the enumeration failure is not reported per adapter:\n%s", stderr)
+	}
+	if strings.Contains(stdout, "0 ran,") || !strings.Contains(stdout, " ran,") {
+		t.Errorf("python's completed run was discarded by vitest's enumeration failure:\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+	}
+	if !strings.Contains(stderr, "python") {
+		t.Errorf("the per-adapter report does not name the adapter that DID run:\n%s", stderr)
 	}
 }
