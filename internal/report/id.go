@@ -29,6 +29,14 @@ var (
 	// in the report, so de-duplication collapses the suite to one row whose status is
 	// whichever case happened to be last and the run reports that one outcome, green.
 	ErrNoPlaceholder = errors.New("junit-xml: id_template must name at least one placeholder")
+	// ErrEmptyRenderedID is a template whose placeholders all rendered EMPTY against the
+	// report the runner actually wrote — "{classname}" against cases with no classname=.
+	// The template names a placeholder, so ErrNoPlaceholder does not fire, yet the id is
+	// the same constant ("" or the template's bare literals) for every case, and
+	// de-duplication folds the whole suite into one row whose status is whichever case
+	// ranked worst. It is ErrNoPlaceholder's twin, reached through the data instead of the
+	// template: the template does not fit this runner.
+	ErrEmptyRenderedID = errors.New("junit-xml: id_template rendered an empty id")
 )
 
 // idPlaceholders is the vocabulary internal/adapter's validateTemplates already enforces
@@ -110,11 +118,16 @@ func RenderID(tmpl string, c JUnitCase) (string, error) {
 		return "", err
 	}
 	var b strings.Builder
+	// filled records whether any placeholder contributed text. An id built from the
+	// template's literals alone is one constant for every case in the report, which is the
+	// collapse ErrEmptyRenderedID names.
+	filled := false
 	for _, s := range segs {
 		if !s.placeholder {
 			b.WriteString(s.text)
 			continue
 		}
+		before := b.Len()
 		switch s.text {
 		case "{file}":
 			// A missing file= is never derived from classname or the suite name: a wrong
@@ -132,6 +145,20 @@ func RenderID(tmpl string, c JUnitCase) (string, error) {
 		case "{name}":
 			b.WriteString(c.Name)
 		}
+		if b.Len() > before {
+			filled = true
+		}
+	}
+	// An empty {classname} beside a {name} that rendered still identifies the case, so the
+	// rule is about the WHOLE rendered id and not one placeholder: it fires only when the
+	// report filled none of them. Left to stand, every such case renders the same id and
+	// ReadJUnitReport folds the suite into one row whose status is whichever case ranked
+	// worst — ErrNoPlaceholder's failure, reached through the data instead of the template.
+	// ExpandTests does refuse an empty id, but only on the NEXT run and without naming the
+	// template that produced it.
+	if !filled {
+		return "", fmt.Errorf("report: %w: id_template %q: suite %q case %q: this runner's report fills none of the template's placeholders, so every case renders the id %q; use an id_template naming an attribute this runner emits",
+			ErrEmptyRenderedID, tmpl, c.Suite, c.Name, b.String())
 	}
 	return b.String(), nil
 }

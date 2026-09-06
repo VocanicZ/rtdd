@@ -284,3 +284,67 @@ func TestRenderIDAndParseIDRejectATemplateThatNamesNoPlaceholder(t *testing.T) {
 		}
 	}
 }
+
+// An id_template can name a placeholder and still render nothing, when the report leaves
+// that attribute empty. The rendered id is then "" for every such case, so de-duplication
+// folds the whole suite into one row named "" whose status is whichever case ranked worst
+// — exactly the collapse ErrNoPlaceholder refuses at the template level, reached through
+// the DATA instead. The rule is about the whole rendered id: a placeholder that renders
+// empty beside one that does not is fine.
+func TestRenderIDRefusesAnIDThatRendersEmpty(t *testing.T) {
+	c := JUnitCase{Suite: "tests/math.test.ts", Name: "adds two numbers"}
+	_, err := RenderID("{classname}", c)
+	if err == nil {
+		t.Fatalf("RenderID = nil error; an id that renders \"\" folds every case behind it into one row")
+	}
+	if !errors.Is(err, ErrEmptyRenderedID) {
+		t.Fatalf("error = %v, want errors.Is(_, ErrEmptyRenderedID)", err)
+	}
+	for _, want := range []string{"tests/math.test.ts", "adds two numbers", "{classname}"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not name %q — the fix is the adapter's id_template, so the message must name the suite, the case and the template", err, want)
+		}
+	}
+}
+
+// "Renders empty" is about what the CASE contributed, not about the string being zero
+// length: a template whose every placeholder rendered empty produces its own literals and
+// nothing else, which is the same one-constant-id-for-every-case collapse.
+func TestRenderIDRefusesAnIDThatIsOnlyTheTemplatesLiterals(t *testing.T) {
+	_, err := RenderID("{classname}#{name}", JUnitCase{Suite: "s"})
+	if !errors.Is(err, ErrEmptyRenderedID) {
+		t.Fatalf("error = %v, want errors.Is(_, ErrEmptyRenderedID) for an id that is only %q", err, "#")
+	}
+}
+
+// The rule must not cost a report that merely omits classname on a top-level test: an
+// empty {classname} beside a {name} that rendered still identifies the case, still renders,
+// and still reads back.
+func TestRenderIDKeepsAnEmptyClassnameWhenTheTemplateAlsoNamesName(t *testing.T) {
+	const tmpl = "{classname}#{name}"
+	c := JUnitCase{Suite: "tests/math.test.ts", Name: "adds two numbers"}
+	got, err := RenderID(tmpl, c)
+	if err != nil {
+		t.Fatalf("RenderID(%q): %v", tmpl, err)
+	}
+	if got != "#adds two numbers" {
+		t.Fatalf("RenderID(%q) = %q, want %q", tmpl, got, "#adds two numbers")
+	}
+	back, err := ParseID(tmpl, got)
+	if err != nil {
+		t.Fatalf("ParseID(%q, %q): %v", tmpl, got, err)
+	}
+	if back.Classname != "" || back.Name != c.Name {
+		t.Errorf("ParseID = %+v, want an empty classname and name %q", back, c.Name)
+	}
+}
+
+// The sentinels are told apart with errors.Is, so a new one that aliased an existing one
+// would make "which failure was it" unanswerable.
+func TestErrEmptyRenderedIDIsDistinctFromTheOtherIDSentinels(t *testing.T) {
+	for _, other := range []error{ErrNoFileAttr, ErrAmbiguousTemplate, ErrNoPlaceholder} {
+		if errors.Is(ErrEmptyRenderedID, other) || errors.Is(other, ErrEmptyRenderedID) {
+			t.Errorf("ErrEmptyRenderedID and %v are not distinguishable", other)
+		}
+	}
+}
