@@ -78,10 +78,12 @@ func cmdRun(args []string) int {
 	// `rtdd which` calls: the advisory command and the executing command disagreeing
 	// about one tree is a defect this package has already shipped once.
 	//
-	// Enumerate is supplied here and nowhere else: runner.List costs a full collection,
-	// and T2 is the one tier whose test list IS the whole suite, so paying it on every T0
-	// run would put a collection on the critical path of the loop this tool exists to
-	// make fast.
+	// Enumerate is supplied here and nowhere else: enumerating costs a full collection —
+	// and, for a junit-xml adapter, a full suite RUN, because that adapter's ids live in
+	// report_path and only a run writes one — and T2 is the one tier whose test list IS
+	// the whole suite, so paying it on every T0 run would put a collection on the critical
+	// path of the loop this tool exists to make fast. What that run produced is carried on
+	// the block and reused below rather than paid for twice.
 	blocks, err := selectPerAdapter(root, ads, m, mt, selectionContext{
 		Changes: changes,
 		Cfg:     selector.DefaultConfig(),
@@ -94,7 +96,10 @@ func cmdRun(args []string) int {
 			}
 			return d
 		},
-		Enumerate: func(ad *adapter.Adapter) ([]string, error) { return runner.List(ad, root) },
+		Enumerate: func(ad *adapter.Adapter) (suiteRun, error) {
+			res, tests, err := runner.ListRun(ad, root)
+			return suiteRun{Tests: tests, Result: res}, err
+		},
 	})
 	if err != nil {
 		return reportRunErr(err)
@@ -186,12 +191,12 @@ func cmdRun(args []string) int {
 	// green, so the two lists never meet — not here, and not in the map rows below,
 	// which carry the adapter that produced them.
 	//
-	// TODO(#318): a per-adapter failure still returns here, so one broken toolchain
-	// discards another adapter's results. Task 9 of docs/plans/06-m6d-shipped-adapters.md
-	// makes the loop recover per adapter and folds the codes by the stated precedence;
-	// the "worst wins" fold below is that rule's arithmetic, not yet its recovery.
-	code := 0
+	// A per-adapter failure is RECOVERED, never returned: one broken toolchain does not
+	// void another adapter's selection or its results (spec §4.4, PRD #232 AC7). Each
+	// adapter runs to completion, its failure is reported in the block that names it, and
+	// the codes are folded by FoldExitCodes at the end — worst wins.
 	var (
+		runs     []AdapterRun
 		outcomes []report.Outcome
 		reports  []uncovered.FileReport
 		failed   []string
@@ -200,12 +205,20 @@ func cmdRun(args []string) int {
 	sig := SignalOutput{Instrumentable: map[string]bool{}}
 	unmapped := map[string]bool{}
 	for _, blk := range blocks {
-		if selectionIsEmpty(blk.Selection) {
+		// An adapter whose enumeration failed is reported even with nothing to run: the
+		// empty selection is a CONSEQUENCE of the failure, and skipping it silently would
+		// turn a broken toolchain into "nothing to do here".
+		if blk.EnumErr == nil && selectionIsEmpty(blk.Selection) {
 			continue
 		}
-		res, err := runner.Run(blk.Ad, root, blk.Selection.Tests, *failFast)
+		res, err := runSelection(blk, root, *failFast)
 		if err != nil {
-			return reportRunErr(err)
+			code, hints := runErrClass(err)
+			runs = append(runs, AdapterRun{Adapter: blk.Adapter, Err: err, Code: code, Hints: hints})
+			// The warning reaches the --json document too: a consumer discards stderr,
+			// and a run whose Maven half never started must not read as a green one.
+			warnings = append(warnings, fmt.Sprintf("%s: the subset invocation failed: %v", blk.Adapter, err))
+			continue
 		}
 		for _, row := range rowsFrom(res, sha, blk.Adapter) {
 			// UNION, NEVER REPLACE. See the doc comment on cmdRun. UnionFor rather than
@@ -245,11 +258,17 @@ func cmdRun(args []string) int {
 		if blkCode == 0 && res.ExitCode != 0 {
 			blkCode = res.ExitCode
 		}
-		// Worst wins, never last: an adapter that failed must not be reported as success
-		// because the next one happened to pass.
-		if blkCode > code {
-			code = blkCode
-		}
+		runs = append(runs, AdapterRun{Adapter: blk.Adapter, Result: res, Code: blkCode})
+	}
+	// Worst wins, never last: an adapter that failed must not be reported as success
+	// because the next one happened to pass.
+	code := FoldExitCodes(runs)
+
+	// The per-adapter block is printed whenever an adapter failed to run at all: a flat
+	// "N ran, M failed" cannot say which toolchain never started, and under --json stdout
+	// is one document, so it goes to stderr in both modes.
+	if anyAdapterFailedToRun(runs) {
+		fmt.Fprint(os.Stderr, renderAdapterRuns(runs))
 	}
 	for f := range unmapped {
 		sig.UnmappedFiles = append(sig.UnmappedFiles, f)
@@ -396,4 +415,15 @@ func finishCycle(root string, mt meta, code int) int {
 		return 3
 	}
 	return code
+}
+
+// anyAdapterFailedToRun reports whether some adapter's subset invocation never produced a
+// result. A failing TEST is not this: that is an outcome, and it is already reported by id.
+func anyAdapterFailedToRun(runs []AdapterRun) bool {
+	for _, r := range runs {
+		if r.Err != nil {
+			return true
+		}
+	}
+	return false
 }

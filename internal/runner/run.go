@@ -263,9 +263,9 @@ func runReportCmd(a *adapter.Adapter, repoRoot, logPath string, captured []byte,
 // de-duplication keeps is report.FoldOutcome's decision, not this dispatch's.
 func readOutcomes(a *adapter.Adapter, logPath string, rp report.ReportPath) ([]report.Outcome, error) {
 	switch a.Report {
-	case "pytest-reportlog":
+	case reportPytestLog:
 		return report.ReadReportLog(logPath)
-	case "junit-xml":
+	case reportJUnitXML:
 		return report.ReadJUnitReport(rp, a.IDTemplate)
 	default:
 		return nil, fmt.Errorf("runner: adapter %s: unsupported report %q", a.Name, a.Report)
@@ -325,6 +325,14 @@ func Seed(a *adapter.Adapter, repoRoot string) (*RunResult, error) {
 // ids RTDD produced selected nothing, which is fatal.
 const emptySuiteLabel = "no-tests-collected"
 
+// The two report formats the engine parses. They are the adapter's own `report:` values,
+// named here because the enumeration path now dispatches on them too and a literal in two
+// places is one typo away from a silent second parser.
+const (
+	reportPytestLog = "pytest-reportlog"
+	reportJUnitXML  = "junit-xml"
+)
+
 // List returns every test id the adapter's list command reports, in COLLECTION
 // ORDER — pytest runs the suite in that order, so sorting here would silently
 // reorder every run driven off the result.
@@ -337,14 +345,47 @@ const emptySuiteLabel = "no-tests-collected"
 // read, and — the asymmetry that matters — an exit mapped to "no-tests-collected"
 // is an empty suite here, not the fatal "the ids I produced selected nothing" it
 // means for a subset run.
+//
+// A `report: junit-xml` adapter takes the other branch, in ListRun: its ids live in the
+// report, and only a run writes one.
 func List(a *adapter.Adapter, repoRoot string) ([]string, error) {
+	_, ids, err := ListRun(a, repoRoot)
+	return ids, err
+}
+
+// ListRun is List plus the outcomes the enumeration produced, when it produced any.
+//
+// It dispatches on Report exactly as readOutcomes does. No runner's enumeration command
+// emits ids in the adapter's own id namespace — `vitest list` prints case names while the
+// vitest id is a file path, `jest --listTests` prints absolute paths while the id is
+// repo-relative, and Maven and Gradle have no enumeration command at all. The one place a
+// runner and its adapter agree is report_path, because that is where id_template renders.
+// So for a junit-xml adapter the list command IS the full-suite invocation its declaration
+// says it is, and the RunResult is handed back rather than discarded: enumerating a suite
+// and then running the same suite as a subset pays twice for one answer.
+//
+// A coverage adapter enumerates with a COLLECTION — `pytest --collect-only` executes
+// nothing — so it returns a nil result, which is how a caller knows there is nothing to
+// reuse.
+func ListRun(a *adapter.Adapter, repoRoot string) (*RunResult, []string, error) {
 	if a.List == "" {
-		return nil, fmt.Errorf("runner: adapter %s has no list command", a.Name)
+		return nil, nil, fmt.Errorf("runner: adapter %s has no list command", a.Name)
+	}
+	if a.Report == reportJUnitXML {
+		res, err := execute(a, repoRoot, a.List, nil, false)
+		if err != nil {
+			return nil, nil, err
+		}
+		ids := make([]string, 0, len(res.Outcomes))
+		for _, o := range res.Outcomes {
+			ids = append(ids, o.Test)
+		}
+		return res, ids, nil
 	}
 
 	tmpDir, err := os.MkdirTemp("", "rtdd-list-")
 	if err != nil {
-		return nil, fmt.Errorf("runner: %w", err)
+		return nil, nil, fmt.Errorf("runner: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
 
@@ -357,7 +398,7 @@ func List(a *adapter.Adapter, repoRoot string) ([]string, error) {
 	}
 	argv, err := a.Expand(a.List, vars)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var combined bytes.Buffer
@@ -372,27 +413,27 @@ func List(a *adapter.Adapter, repoRoot string) ([]string, error) {
 	if runErr != nil {
 		var ee *exec.ExitError
 		if !errors.As(runErr, &ee) {
-			return nil, fmt.Errorf("runner: executing %s: %w", argv[0], runErr)
+			return nil, nil, fmt.Errorf("runner: executing %s: %w", argv[0], runErr)
 		}
 		code = ee.ExitCode()
 	}
 
 	// Before the exit code, as in execute: the warning rides a run that exits 0.
 	if hasSysmonWarning(combined.Bytes()) {
-		return nil, ErrSysmonContext
+		return nil, nil, ErrSysmonContext
 	}
 
 	if label, ok := a.ExitCodes[code]; ok {
 		if label == emptySuiteLabel {
-			return nil, nil // an empty suite is empty, not an error
+			return nil, nil, nil // an empty suite is empty, not an error
 		}
-		return nil, &FatalExitError{Chunk: 0, Code: code, Label: label}
+		return nil, nil, &FatalExitError{Chunk: 0, Code: code, Label: label}
 	}
 	if code != 0 {
-		return nil, fmt.Errorf("runner: listing tests: %s exited %d\n%s",
+		return nil, nil, fmt.Errorf("runner: listing tests: %s exited %d\n%s",
 			argv[0], code, tail(combined.Bytes(), 4000))
 	}
-	return parseTestIDs(combined.String()), nil
+	return nil, parseTestIDs(combined.String()), nil
 }
 
 // parseTestIDs reads collect-only output: one id per line up to the blank line

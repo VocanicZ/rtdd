@@ -8,6 +8,7 @@ import (
 	"github.com/VocanicZ/rtdd/internal/adapter"
 	"github.com/VocanicZ/rtdd/internal/gitctx"
 	"github.com/VocanicZ/rtdd/internal/mapstore"
+	"github.com/VocanicZ/rtdd/internal/runner"
 	"github.com/VocanicZ/rtdd/internal/selector"
 )
 
@@ -47,6 +48,27 @@ type AdapterSelection struct {
 	// SuiteEnumerated is true when a T2 selection listed the whole suite rather than the
 	// map rows rtdd happened to know. `which` never enumerates; `run` does, for T2 only.
 	SuiteEnumerated bool
+
+	// SuiteResult is the enumeration's own outcomes, for the adapter whose enumeration
+	// was itself a full-suite RUN — a `report: junit-xml` adapter lists from report_path,
+	// and only a run writes one. It is what runSelection returns instead of invoking the
+	// same suite a second time; nil for a collection, which executed nothing.
+	SuiteResult *runner.RunResult
+
+	// EnumErr is THIS adapter's enumeration failing, carried rather than returned. For a
+	// junit-xml adapter enumerating is running, so an enumeration that cannot start is the
+	// same class of failure as a subset that cannot start — and PRD #232 AC7 makes it one
+	// adapter's failure, not the command's. It is reported per adapter and folded into the
+	// exit code; the adapter itself is not run, because its selection is a knowingly
+	// partial list and running that would report a narrowed suite as a completed one.
+	EnumErr error
+}
+
+// suiteRun is what enumerating one adapter's suite produced: the ids, and — when the
+// enumeration was itself a run — the outcomes of that run.
+type suiteRun struct {
+	Tests  []string
+	Result *runner.RunResult
 }
 
 // selectionContext is everything a selection needs that does NOT vary by adapter: the
@@ -63,7 +85,7 @@ type selectionContext struct {
 	// means the suite is not enumerated — `rtdd which` deliberately does not pay a
 	// collection run — and a T2 selection is then a partial list, which whichNotes says
 	// in as many words.
-	Enumerate func(ad *adapter.Adapter) ([]string, error)
+	Enumerate func(ad *adapter.Adapter) (suiteRun, error)
 }
 
 // selectPerAdapter runs the existing pure selector once per detected adapter, each over
@@ -133,12 +155,17 @@ func selectFor(root string, ad *adapter.Adapter, ads []*adapter.Adapter, m *maps
 	// it on every T0 run would put a collection on the critical path of the loop this
 	// tool exists to make fast.
 	if ctx.Enumerate != nil && blk.Selection.Tier == selector.TierT2 && ad != nil {
-		all, err := ctx.Enumerate(ad)
-		if err != nil {
-			return AdapterSelection{}, err
+		sr, err := ctx.Enumerate(ad)
+		switch {
+		case err != nil:
+			// SuiteEnumerated stays false, so the document's `complete` says the T2 list
+			// is partial — which it is. The error itself is the block's, not the loop's.
+			blk.EnumErr = err
+		default:
+			blk.Selection = choose(sr.Tests)
+			blk.SuiteEnumerated = true
+			blk.SuiteResult = sr.Result
 		}
-		blk.Selection = choose(all)
-		blk.SuiteEnumerated = true
 	}
 
 	// Read AFTER selection: the declared scan runs inside Select, through the resolver.
@@ -306,4 +333,114 @@ func detectedSet(ads []*adapter.Adapter) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// AdapterRun is one adapter's run, kept whole. A failure is data on this struct, never a
+// short circuit: the next adapter's selection is still worth running and still worth
+// reporting (spec §4.4, PRD #232 AC7). A broken Maven install says nothing at all about
+// whether the Vitest half of the repository passes.
+type AdapterRun struct {
+	Adapter string
+	Result  *runner.RunResult
+	Err     error
+	Code    int
+
+	// Hints are the operator lines that explain Err — the same ones the single-adapter
+	// path prints — carried here so the block that names the adapter is the block that
+	// says them.
+	Hints []string
+}
+
+// FoldExitCodes returns the worst code any adapter produced, by the plan's precedence:
+// 3 > 2 > 1 > 0. "Worst" and not "last": a fatal environment error in the first adapter
+// must not be reported as success because the second one happened to pass.
+//
+// 3 and 2 say RTDD's answer is untrustworthy, 1 says the answer is trustworthy and is bad
+// news, and collapsing either of the first two into 1 would tell an agent a test failed
+// when in fact nothing ran.
+func FoldExitCodes(runs []AdapterRun) int {
+	worst := 0
+	for _, r := range runs {
+		if c := foldableCode(r.Code); exitSeverity(c) > exitSeverity(worst) {
+			worst = c
+		}
+	}
+	return worst
+}
+
+// foldableCode maps a per-adapter code onto the frozen exit-code table. `rtdd run` may
+// only ever exit 0, 1, 2 or 3 (00-interfaces.md), so a code from outside it — a signal
+// death a runner surfaced as 137, say — is reported as 3: it is an environment that broke,
+// and passing it through would invent a fifth code while treating it as 0 would report a
+// broken toolchain as a pass.
+func foldableCode(code int) int {
+	switch code {
+	case 0, 1, 2, 3:
+		return code
+	default:
+		return 3
+	}
+}
+
+// exitSeverity ranks the four codes by how badly they contradict "this run answered".
+func exitSeverity(code int) int {
+	switch code {
+	case 3:
+		return 3
+	case 2:
+		return 2
+	case 1:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// renderAdapterRuns is the per-adapter execution report AC7 requires: one block per
+// adapter, naming the adapter, and then either what broke or what ran. It is rendered
+// whenever any adapter failed, because that is when a flat count of failures stops saying
+// which toolchain produced them.
+func renderAdapterRuns(runs []AdapterRun) string {
+	var b strings.Builder
+	for _, r := range runs {
+		fmt.Fprintf(&b, "adapter: %s\n", r.Adapter)
+		if r.Err != nil {
+			fmt.Fprintf(&b, "  FAILED TO RUN (exit %d): %v\n", r.Code, r.Err)
+			for _, h := range r.Hints {
+				fmt.Fprintf(&b, "  %s\n", h)
+			}
+			continue
+		}
+		if r.Result == nil {
+			fmt.Fprintf(&b, "  nothing ran\n")
+			continue
+		}
+		fmt.Fprintf(&b, "  %d ran, %d failed (exit %d)\n", len(r.Result.Outcomes), len(r.Result.Failed), r.Code)
+		for _, id := range r.Result.Failed {
+			fmt.Fprintf(&b, "  FAILED %s\n", id)
+		}
+	}
+	return b.String()
+}
+
+// runSubset is the subset invocation, as a variable so a test can count how often the
+// suite is actually invoked. It is runner.Run and nothing else.
+var runSubset = runner.Run
+
+// runSelection executes one adapter's selection, or returns the outcomes an enumeration
+// of the same suite already produced.
+//
+// The reuse is the plan's decision 12 consequence: for a `report: junit-xml` adapter a T2
+// escalation reads its ids from report_path, and only a full-suite run writes one — so by
+// the time the selection exists, the suite has already run, and running it again as a
+// subset buys the identical answer at twice the cost on the loop this tool exists to make
+// fast. A collection produced no outcomes (SuiteResult is nil) and is still run.
+func runSelection(blk AdapterSelection, root string, failFast bool) (*runner.RunResult, error) {
+	if blk.EnumErr != nil {
+		return nil, blk.EnumErr
+	}
+	if blk.SuiteEnumerated && blk.SuiteResult != nil {
+		return blk.SuiteResult, nil
+	}
+	return runSubset(blk.Ad, root, blk.Selection.Tests, failFast)
 }

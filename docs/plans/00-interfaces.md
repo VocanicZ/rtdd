@@ -1362,3 +1362,98 @@ func RenderNextStep(detected []*adapter.Adapter) string
 records nothing, and writes no map — it points at `rtdd which` instead. It is a
 configuration error, not a run failure: a seed that silently succeeds having built no map
 is what PRD #230 AC9 closes.
+
+---
+
+## M6d amendments — folding several adapters' runs into one exit code
+
+Added by [`06-m6d-shipped-adapters.md`](06-m6d-shipped-adapters.md). These are part of the
+contract.
+
+`adapter.Detect` returns a **set** since M6d, so `rtdd run` executes one subset invocation
+per detected adapter. The four process exit codes above are unchanged — polyglot execution
+adds no code — but it does add the rule for folding several runs into one.
+
+### The fold: worst wins, never last
+
+| code | meaning | wins over |
+|---|---|---|
+| 3 | a fatal environment error in any adapter (`.coverage` unreadable, `no-sysmon-context`, a runner that is not installed) | 2, 1, 0 |
+| 2 | a configuration error in any adapter (unparseable adapter, a mapped `bad-selector` exit) | 1, 0 |
+| 1 | a test failed or errored under any adapter | 0 |
+| 0 | every adapter's selection ran and nothing failed | — |
+
+The ordering is not arbitrary: 3 and 2 say RTDD's answer is untrustworthy, 1 says the
+answer is trustworthy and is *bad news*, and collapsing either of the first two into 1
+would tell an agent a test failed when in fact nothing ran. A code from outside this table
+— a runner surfacing a signal death as 137, say — folds as **3**: `rtdd` may only ever exit
+0, 1, 2 or 3, so passing it through would invent a fifth code, and treating it as 0 would
+report a broken toolchain as a pass.
+
+**One adapter's failure never voids another's run.** Each adapter's selection runs to
+completion and its failure is recorded rather than returned, so a missing `npx` cannot
+throw away a completed pytest run. That holds one stage earlier too: for a junit-xml
+adapter *enumerating is running*, so an enumeration that cannot start is carried on that
+adapter's block as `EnumErr` rather than returned from the selection loop. An adapter whose
+enumeration failed is reported and **not** run — its T2 list is the partial one the map
+happened to hold, and running that would report a narrowed suite as a completed one. The per-adapter detail is printed to **stderr** in both
+output modes — stdout is one document under `--json` — and reaches the JSON document as a
+`warnings` entry, because a consumer that discards stderr would otherwise read a run whose
+Maven half never started as a green one. The code is a summary of a report the caller can
+already read, never a substitute for it.
+
+### cmd/rtdd — internal to `main`
+
+```go
+// AdapterRun is one adapter's run, kept whole. A failure is data on this struct, never a
+// short circuit: the next adapter's selection is still worth running and still worth
+// reporting. Hints are the operator lines that explain Err, carried so the block that
+// names the adapter is the block that says them.
+type AdapterRun struct {
+	Adapter string
+	Result  *runner.RunResult
+	Err     error
+	Code    int
+	Hints   []string
+}
+
+// FoldExitCodes returns the worst code any adapter produced, by the table above.
+func FoldExitCodes(runs []AdapterRun) int
+
+// renderAdapterRuns is the per-adapter execution report: one block per adapter, naming the
+// adapter and then either what broke or what ran.
+func renderAdapterRuns(runs []AdapterRun) string
+
+// runErrClass is reportRunErr without the printing — the exit code a runner error maps to,
+// and the hints that explain it. The polyglot loop must not print as it goes.
+func runErrClass(err error) (int, []string)
+
+// suiteRun is what enumerating one adapter's suite produced: the ids, and — when the
+// enumeration was itself a run — the outcomes of that run.
+type suiteRun struct {
+	Tests  []string
+	Result *runner.RunResult
+}
+
+// runSelection executes one adapter's selection, returns the outcomes an enumeration of
+// the same suite already produced, or returns that enumeration's failure. For a `report: junit-xml` adapter a T2 escalation reads
+// its ids from report_path, and only a full-suite run writes one — so the suite has already
+// run by the time the selection exists, and running it again as a subset buys the identical
+// answer at twice the cost.
+func runSelection(blk AdapterSelection, root string, failFast bool) (*runner.RunResult, error)
+```
+
+### internal/runner
+
+```go
+// ListRun is List plus the outcomes the enumeration produced, when it produced any. It
+// dispatches on `report:` exactly as readOutcomes does: a junit-xml adapter's ids live in
+// report_path, which only a run writes, so its list command IS a full-suite invocation and
+// the RunResult is returned rather than discarded. A coverage adapter enumerates with a
+// collection, executes nothing, and returns a nil result.
+func ListRun(a *adapter.Adapter, repoRoot string) (*RunResult, []string, error)
+
+// List is ListRun with the result dropped. Its behaviour on a pytest-reportlog adapter is
+// unchanged.
+func List(a *adapter.Adapter, repoRoot string) ([]string, error)
+```
