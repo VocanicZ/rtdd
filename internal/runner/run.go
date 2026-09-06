@@ -156,7 +156,10 @@ func execute(a *adapter.Adapter, repoRoot, tmpl string, chunks [][]string, failF
 		}
 		for _, o := range outs {
 			if j, seen := byTest[o.Test]; seen {
-				res.Outcomes[j] = o // last invocation wins
+				// NOT last-invocation-wins: a junit chunk reports every case in the
+				// files it loaded, so a later chunk re-reports an earlier chunk's
+				// failure as <skipped/>. report.FoldOutcome keeps the worse status.
+				res.Outcomes[j] = report.FoldOutcome(res.Outcomes[j], o)
 				continue
 			}
 			byTest[o.Test] = len(res.Outcomes)
@@ -200,8 +203,9 @@ func execute(a *adapter.Adapter, repoRoot, tmpl string, chunks [][]string, failF
 // The junit path reads the adapter's report_path rather than the per-chunk {log}: an
 // adapter-declared path is fixed, which is why the caller clears it and reads it per
 // chunk. Both parsers produce report.Outcome in the same vocabulary, whose Test is in the
-// same namespace as the ids spliced into the command — so the caller's
-// last-invocation-wins de-duplication keeps meaning what it means on the pytest path.
+// same namespace as the ids spliced into the command — so the caller's cross-chunk
+// de-duplication keeps meaning what it means on the pytest path. Which outcome that
+// de-duplication keeps is report.FoldOutcome's decision, not this dispatch's.
 func readOutcomes(a *adapter.Adapter, logPath string, rp report.ReportPath) ([]report.Outcome, error) {
 	switch a.Report {
 	case "pytest-reportlog":

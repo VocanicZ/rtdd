@@ -1025,3 +1025,45 @@ func TestReadJUnitReportRefusesCasesWhoseIDRendersEmpty(t *testing.T) {
 		t.Fatalf("error = %v, want errors.Is(_, ErrEmptyRenderedID)", err)
 	}
 }
+
+// FoldOutcome is the cross-invocation rule (#300): the worse status survives whichever
+// invocation reported it, an unknown status never collapses to green, and equally-bad
+// news keeps the later invocation's outcome and duration.
+func TestFoldOutcomeKeepsTheWorseStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		prev, next Outcome
+		want       Outcome
+	}{
+		{"a later skip never erases a failure",
+			Outcome{Test: "t", Status: "fail", DurationMS: 30},
+			Outcome{Test: "t", Status: "skip", DurationMS: 1},
+			Outcome{Test: "t", Status: "fail", DurationMS: 30}},
+		{"a later failure survives an earlier skip",
+			Outcome{Test: "t", Status: "skip", DurationMS: 1},
+			Outcome{Test: "t", Status: "fail", DurationMS: 30},
+			Outcome{Test: "t", Status: "fail", DurationMS: 30}},
+		{"an error outranks a failure",
+			Outcome{Test: "t", Status: "fail", DurationMS: 30},
+			Outcome{Test: "t", Status: "error", DurationMS: 2},
+			Outcome{Test: "t", Status: "error", DurationMS: 2}},
+		{"a later pass never erases a failure",
+			Outcome{Test: "t", Status: "fail", DurationMS: 30},
+			Outcome{Test: "t", Status: "pass", DurationMS: 2},
+			Outcome{Test: "t", Status: "fail", DurationMS: 30}},
+		{"an unrecognised status outranks pass",
+			Outcome{Test: "t", Status: "pass", DurationMS: 2},
+			Outcome{Test: "t", Status: "xfail", DurationMS: 3},
+			Outcome{Test: "t", Status: "xfail", DurationMS: 3}},
+		{"equal statuses keep the later invocation, duration and all",
+			Outcome{Test: "t", Status: "pass", DurationMS: 2},
+			Outcome{Test: "t", Status: "pass", DurationMS: 40},
+			Outcome{Test: "t", Status: "pass", DurationMS: 40}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := FoldOutcome(tc.prev, tc.next); got != tc.want {
+				t.Errorf("FoldOutcome(%+v, %+v) = %+v, want %+v", tc.prev, tc.next, got, tc.want)
+			}
+		})
+	}
+}

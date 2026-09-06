@@ -298,12 +298,13 @@ func kindWord(isDir bool) string {
 // {classname}, RSpec's {file} — is deliberately shared by every case in the file, and a
 // per-test template collides too whenever a runner permits two tests of one file to carry
 // the same name. Emitting both outcomes handed the collapse to internal/runner's
-// "last invocation wins", which would let a passing case erase the failing one ahead of
-// it and report a red run green. Folding here is not a second de-duplicator disagreeing
-// with that rule: the runner's rule is about the SAME id seen in two invocations, where
-// the later invocation is genuinely the newer result, and it still decides that. This one
-// is about one invocation's own report, where neither case supersedes the other and the
-// id is only green when every case behind it is.
+// cross-chunk fold, which would let a passing case erase the failing one ahead of it and
+// report a red run green. Folding here is not a second de-duplicator disagreeing with
+// that rule: the runner's rule is about the SAME id seen in two invocations, and
+// FoldOutcome settles that one the same worst-status-wins way. This one is about one
+// invocation's own report, where neither case supersedes the other and the id is only
+// green when every case behind it is — so unlike FoldOutcome it also sums the folded
+// cases' durations rather than keeping one survivor's.
 //
 // Two files of ONE directory claiming the same id are a different thing — nothing
 // downstream can tell those apart, so they are named here rather than folded.
@@ -390,4 +391,31 @@ func worseStatus(a, b string) string {
 		return b
 	}
 	return a
+}
+
+// FoldOutcome is the survivor when the SAME rendered id is reported by two separate
+// invocations — the runner's cross-chunk rule, exposed here so it cannot drift from the
+// within-report rule above.
+//
+// It is worst-status-wins for the same reason ReadJUnitReport folds one report's cases
+// that way (#300). On the junit path a chunk's report is not a report of the chunk's
+// selection: jest (-t), vitest (-t) and RSpec load whole files and spell every case the
+// filter excluded as <skipped/>, so a later chunk routinely re-reports a test an earlier
+// chunk actually ran and failed. Taking the later invocation unconditionally turned that
+// failure into a skip — no FAILED line, a green row in the map for a red test, and a map
+// that every later selection is derived from. The pytest path is unaffected: pytest runs
+// precisely the ids it is handed, so no two chunks report the same id and the two rules
+// never disagree. Where a chunk genuinely re-runs a test, worst-status-wins is still the
+// safe direction: a red run is never reported green.
+//
+// Duration is the survivor's own, not the sum: unlike two cases of one file behind one
+// file-granular id, these are two reports OF the same test, and adding them would inflate
+// a re-report into a longer test.
+func FoldOutcome(prev, next Outcome) Outcome {
+	// Ties go to next: equally-bad news makes the later invocation the newer result,
+	// which is the rule that held before worst-status-wins narrowed it.
+	if statusRank(next.Status) >= statusRank(prev.Status) {
+		return next
+	}
+	return prev
 }

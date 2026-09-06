@@ -138,8 +138,7 @@ func TestRunClearsAStaleReportBeforeInvoking(t *testing.T) {
 }
 
 // Decision 4: report_path is fixed, so chunk i+1 overwrites chunk i's report. The read
-// therefore happens per chunk, and the existing last-invocation-wins de-duplication
-// carries over unchanged.
+// therefore happens per chunk, and the cross-chunk de-duplication carries over unchanged.
 func TestRunMergesEveryChunksReportBeforeTheNextOverwritesIt(t *testing.T) {
 	repo := t.TempDir()
 	a := junitStubAdapter(t, repo, nil)
@@ -359,5 +358,97 @@ func TestRunSurfacesARootLevelReportFailure(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "config blew up") {
 		t.Errorf("error %q does not carry the runner's own message", err)
+	}
+}
+
+// perChunkStubAdapter is junitStubAdapter with a wrapper that writes a DIFFERENT report
+// per chunk: the file named after the chunk's first selector argument. A real junit runner
+// reports every case in the files it loads, not just the ones its -t filter selected, so
+// two chunks' reports routinely overlap.
+func perChunkStubAdapter(t *testing.T, repo string) *adapter.Adapter {
+	t.Helper()
+	a := junitStubAdapter(t, repo, nil)
+	perChunk := filepath.Join(repo, "stubperchunk")
+	script := `#!/bin/sh
+out=""
+first=""
+for a in "$@"; do
+  case "$a" in
+    --outputFile=*) out="${a#--outputFile=}" ;;
+    *) if [ -z "$first" ]; then first="$a"; fi ;;
+  esac
+done
+cat "` + repo + `/$first.xml" > "$out"
+`
+	if err := os.WriteFile(perChunk, []byte(script), 0o755); err != nil {
+		t.Fatalf("write stub: %v", err)
+	}
+	a.Subset = perChunk + " {tests} --outputFile={report}"
+	return a
+}
+
+// #300: on the junit path a chunk reports cases it did not select — jest, vitest and RSpec
+// spell the filtered-out cases of every file they load as <skipped/>. Folding chunks with
+// "last invocation wins" therefore lets a later chunk's skip erase an earlier chunk's
+// genuine failure, putting a green row in the map for a red test. Chunks fold
+// worst-status-wins, exactly as the cases of one report already do.
+func TestALaterChunksSkipDoesNotEraseAnEarlierChunksFailure(t *testing.T) {
+	repo := t.TempDir()
+	a := perChunkStubAdapter(t, repo)
+	writeStubXML(t, repo, "s.B#two.xml", `<testsuite name="s"><testcase classname="s.B" name="two" time="0.01"><failure message="nope"/></testcase></testsuite>`)
+	writeStubXML(t, repo, "s.C#three.xml", `<testsuite name="s">
+  <testcase classname="s.B" name="two" time="0.01"><skipped/></testcase>
+  <testcase classname="s.C" name="three" time="0.01"/>
+</testsuite>`)
+
+	res, err := runWithBudget(a, repo, []string{"s.B#two", "s.C#three"}, 12)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	byTest := map[string]string{}
+	for _, o := range res.Outcomes {
+		byTest[o.Test] = o.Status
+	}
+	if byTest["s.B#two"] != "fail" {
+		t.Errorf("Outcomes = %+v, want s.B#two to stay fail after chunk 1 reported it skipped", res.Outcomes)
+	}
+	if byTest["s.C#three"] != "pass" {
+		t.Errorf("Outcomes = %+v, want s.C#three pass", res.Outcomes)
+	}
+	if len(res.Failed) != 1 || res.Failed[0] != "s.B#two" {
+		t.Errorf("Failed = %v, want [s.B#two]", res.Failed)
+	}
+	if res.ExitCode != 1 {
+		t.Errorf("ExitCode = %d, want 1 — a failure a later chunk reported as skipped is still a failure", res.ExitCode)
+	}
+}
+
+// The symmetric direction: the failure arrives in the LATER chunk. Worst-status-wins is not
+// "the first chunk wins" — the red result survives whichever chunk reported it.
+func TestALaterChunksFailureSurvivesAnEarlierChunksSkip(t *testing.T) {
+	repo := t.TempDir()
+	a := perChunkStubAdapter(t, repo)
+	writeStubXML(t, repo, "s.B#two.xml", `<testsuite name="s"><testcase classname="s.B" name="two" time="0.01"><skipped/></testcase></testsuite>`)
+	writeStubXML(t, repo, "s.C#three.xml", `<testsuite name="s">
+  <testcase classname="s.B" name="two" time="0.01"><failure message="nope"/></testcase>
+  <testcase classname="s.C" name="three" time="0.01"/>
+</testsuite>`)
+
+	res, err := runWithBudget(a, repo, []string{"s.B#two", "s.C#three"}, 12)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	byTest := map[string]string{}
+	for _, o := range res.Outcomes {
+		byTest[o.Test] = o.Status
+	}
+	if byTest["s.B#two"] != "fail" {
+		t.Errorf("Outcomes = %+v, want s.B#two fail", res.Outcomes)
+	}
+	if len(res.Failed) != 1 || res.Failed[0] != "s.B#two" {
+		t.Errorf("Failed = %v, want [s.B#two]", res.Failed)
+	}
+	if res.ExitCode != 1 {
+		t.Errorf("ExitCode = %d, want 1", res.ExitCode)
 	}
 }
