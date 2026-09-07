@@ -24,6 +24,7 @@ from replay.records import (
     CommitRecord,
     StrategyRecord,
     WallClockRecord,
+    parse_jsonl_lines,
     to_jsonl_lines,
 )
 from replay.replay import ReplayOutput
@@ -137,14 +138,21 @@ def stub_replay(monkeypatch):
     return seen
 
 
-# --- the four subcommands ------------------------------------------------
+# --- the six subcommands -------------------------------------------------
 
 
-def test_the_parser_exposes_exactly_the_five_documented_subcommands():
+def test_the_parser_exposes_exactly_the_six_documented_subcommands():
     parser = cli.build_parser()
     actions = [a for a in parser._actions if a.dest == "cmd"]
     assert actions, "the parser has no subcommand slot"
-    assert set(actions[0].choices) == {"replay", "session", "report", "doctor", "audit"}
+    assert set(actions[0].choices) == {
+        "replay",
+        "session",
+        "report",
+        "doctor",
+        "audit",
+        "derive",
+    }
 
 
 # --- the corpus guards ---------------------------------------------------
@@ -760,3 +768,156 @@ def test_rebuild_publishes_strategies_in_the_order_the_run_did(bench):
     assert rows[0] == "rtdd", (
         f"the published table leads with {rows[0]}, not the strategy that ran first"
     )
+
+
+# --- deriving the static arm from the committed records (#349) ------------
+
+
+def _published_with_importgraph(results: pathlib.Path, repo_id: str) -> pathlib.Path:
+    """`_published_repo` plus the level-2 record the static derivation reads."""
+    d = _published_repo(results, repo_id)
+    records = parse_jsonl_lines((d / "commits.jsonl").read_text(encoding="utf-8").splitlines())
+    records.append(
+        StrategyRecord(repo_id, "c1", "natural", "importgraph", ("b",), False, "closure", 4)
+    )
+    (d / "commits.jsonl").write_text("".join(to_jsonl_lines(records)), encoding="utf-8")
+    return d
+
+
+def test_derive_appends_a_static_record_per_commit(bench, capsys):
+    results = pathlib.Path(cli.RESULTS)
+    d = _published_with_importgraph(results, "synth")
+    assert cli.main(["derive"]) == cli.EXIT_OK
+    recs = parse_jsonl_lines((d / "commits.jsonl").read_text(encoding="utf-8").splitlines())
+    static = [r for r in recs if isinstance(r, StrategyRecord) and r.strategy == "static"]
+    assert len(static) == 1
+    assert static[0].derived is True
+    assert static[0].select_ms == 0
+    assert "derived static for synth" in capsys.readouterr().out
+
+
+def test_derive_is_idempotent_to_the_byte(bench):
+    """`bench/results/` is committed and diffable — `git diff --stat` is the review. A
+    verb that appended on every invocation would make the file grow without the numbers
+    changing, and the diff would stop being the check."""
+    results = pathlib.Path(cli.RESULTS)
+    d = _published_with_importgraph(results, "synth")
+    assert cli.main(["derive"]) == cli.EXIT_OK
+    once = (d / "commits.jsonl").read_bytes()
+    assert cli.main(["derive"]) == cli.EXIT_OK
+    assert (d / "commits.jsonl").read_bytes() == once
+
+
+def test_derive_supersedes_a_stale_derived_record_rather_than_doubling_it(bench):
+    """Re-deriving after the model changes must replace the previous answer. A second
+    `static` row for one commit would double that commit's weight in every metric."""
+    results = pathlib.Path(cli.RESULTS)
+    d = _published_with_importgraph(results, "synth")
+    stale = StrategyRecord("synth", "c1", "natural", "static", (), False, "stale", 0, derived=True)
+    with (d / "commits.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(to_jsonl_lines([stale])[0])
+    assert cli.main(["derive"]) == cli.EXIT_OK
+    recs = parse_jsonl_lines((d / "commits.jsonl").read_text(encoding="utf-8").splitlines())
+    static = [r for r in recs if isinstance(r, StrategyRecord) and r.strategy == "static"]
+    assert len(static) == 1
+    assert static[0].selected != ()
+
+
+def test_derive_leaves_the_measured_records_exactly_as_the_run_wrote_them(bench):
+    """A derivation adds an arm; it never edits a measurement."""
+    results = pathlib.Path(cli.RESULTS)
+    d = _published_with_importgraph(results, "synth")
+    before = parse_jsonl_lines((d / "commits.jsonl").read_text(encoding="utf-8").splitlines())
+    assert cli.main(["derive"]) == cli.EXIT_OK
+    after = parse_jsonl_lines((d / "commits.jsonl").read_text(encoding="utf-8").splitlines())
+    kept = [r for r in after if not (isinstance(r, StrategyRecord) and r.strategy == "static")]
+    assert kept == before
+
+
+def test_derive_never_touches_a_repo_the_corpus_no_longer_admits(bench):
+    """`sqlfluff` is a corpus_version: 1 artifact that #184 dropped. Its published bytes
+    are frozen, and a derivation that walked every directory would rewrite them."""
+    results = pathlib.Path(cli.RESULTS)
+    dropped = results / "sqlfluff"
+    dropped.mkdir(parents=True)
+    (dropped / "commits.jsonl").write_text("", encoding="utf-8")
+    before = (dropped / "commits.jsonl").read_bytes()
+    _published_with_importgraph(results, "synth")
+    assert cli.main(["derive"]) == cli.EXIT_OK
+    assert (dropped / "commits.jsonl").read_bytes() == before
+
+
+def test_derive_refuses_a_repo_whose_records_cannot_support_it(bench, capsys):
+    """A repo with no importgraph records has no level 2. Refusing is the whole point:
+    the alternative publishes a level-1-only arm under a name claiming both levels."""
+    results = pathlib.Path(cli.RESULTS)
+    _published_repo(results, "synth")  # rtdd and path only
+    assert cli.main(["derive"]) == cli.EXIT_GUARD
+    assert "importgraph" in capsys.readouterr().err
+
+
+def test_derive_leaves_config_json_untouched(bench):
+    """config.json stamps the run that produced the numbers. A derivation is not a run."""
+    results = pathlib.Path(cli.RESULTS)
+    d = _published_with_importgraph(results, "synth")
+    before = (d / "config.json").read_text(encoding="utf-8")
+    assert cli.main(["derive"]) == cli.EXIT_OK
+    assert (d / "config.json").read_text(encoding="utf-8") == before
+
+
+def test_derive_refuses_when_there_is_nothing_to_derive(bench, capsys):
+    (pathlib.Path(cli.RESULTS) / "synth").mkdir(parents=True)
+    assert cli.main(["derive"]) == cli.EXIT_GUARD
+    assert "no per-repo records found" in capsys.readouterr().err
+
+
+def test_rebuild_publishes_an_arm_the_records_carry_and_the_config_does_not(bench):
+    """`config.json` lists the arms the RUN executed and is never rewritten by a rebuild
+    — it stamps that run. A derived arm therefore only ever appears in the records, and a
+    rebuild that read its arm list from the config alone would compute the derivation,
+    write it to commits.jsonl, and then publish a summary that does not mention it."""
+    results = pathlib.Path(cli.RESULTS)
+    d = _published_with_importgraph(results, "synth")
+    assert cli.main(["derive"]) == cli.EXIT_OK
+    assert cli.main(["report", "--rebuild"]) == cli.EXIT_OK
+
+    summary = json.loads((d / "summary.json").read_text(encoding="utf-8"))
+    stamp = json.loads((d / "config.json").read_text(encoding="utf-8"))
+    assert "static" in summary["strategies"]
+    assert "static" not in stamp["config"]["strategies"]
+    assert summary["strategies"]["static"]["cycles"] == 1
+
+
+def test_rebuild_orders_a_derived_arm_the_way_strategy_order_does(bench):
+    """`rtdd` first, then the rest alphabetically — the published table's reading order,
+    and a derived arm is no exception to it. `summary.json` is canonical (sorted keys) by
+    design, so the published *table* is where that order is visible."""
+    results = pathlib.Path(cli.RESULTS)
+    d = _published_with_importgraph(results, "synth")
+    assert cli.main(["derive"]) == cli.EXIT_OK
+    assert cli.main(["report", "--rebuild"]) == cli.EXIT_OK
+    md = (d / "summary.md").read_text(encoding="utf-8")
+    order = [
+        line.split("|")[1].strip()
+        for line in md.split("## Per-strategy", 1)[1].splitlines()
+        if line.startswith("| ") and not line.startswith("| strategy |")
+    ]
+    assert order[0] == "rtdd"
+    assert order.index("path") < order.index("static")
+
+
+def test_the_rebuilt_markdown_publishes_the_derived_arm_as_not_measured(bench):
+    """The static arm executed nothing, so every wall-clock cell in its comparison row
+    says so — never a blank, which in a millisecond column reads as zero."""
+    results = pathlib.Path(cli.RESULTS)
+    d = _published_with_importgraph(results, "synth")
+    assert cli.main(["derive"]) == cli.EXIT_OK
+    assert cli.main(["report", "--rebuild"]) == cli.EXIT_OK
+    md = (d / "summary.md").read_text(encoding="utf-8")
+    assert "## The static arm" in md
+    row = [
+        ln
+        for ln in md.split("## The static arm", 1)[1].splitlines()
+        if ln.startswith("| `static`")
+    ]
+    assert row and row[0].count("not measured") == 4
