@@ -167,6 +167,12 @@ func whichNotes(e *env, blk AdapterSelection, multi bool) []string {
 	if blk.ScanErr != nil && blk.Ad != nil {
 		note("%s", adapterImportScanNote(blk.Ad.Name, blk.ScanErr))
 	}
+	// Last, because it qualifies the whole of this adapter's answer rather than naming
+	// one thing that went wrong with it: a static selection is a working selection, and
+	// the note says what believing it is worth.
+	if s := staticSelectionNote(blk.Selection); s != "" {
+		note("%s", s)
+	}
 	return out
 }
 

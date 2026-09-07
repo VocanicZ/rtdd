@@ -48,12 +48,24 @@ func Hubs(m *mapstore.Map) []Hub {
 	return out
 }
 
+// StaticSelectionCaveat is the sentence itself, without the CAVEAT: prefix doctor's own
+// table format wants. It is a separate const because `which` and `run` carry the same
+// limitation into their notes and into the --json `warnings` array (issue #348), where a
+// table's prefix would read as noise and, in a polyglot repository, sit between the
+// adapter name and the sentence it qualifies.
+//
+// One const, three commands: a static selection described one way on doctor's table and
+// another in the document an agent parses is a difference the agent has to reconcile, and
+// the wording is the whole point — it says what a static selection can MISS and what
+// passing one is worth.
+const StaticSelectionCaveat = "a static selection is derived from declared correspondence " +
+	"and imports, not from a recorded run, so it can miss a test that execution-derived " +
+	"selection would have caught. A passing static selection is therefore weaker evidence " +
+	"than a passing execution-derived one."
+
 // StaticCaveat is the limitation rtdd doctor MUST print alongside any `static` or `none`
 // selection fidelity (spec §6). A static selection is derived from declaration rather than
 // from a recorded run, so it can miss a test execution-derived selection would have caught;
 // saying so is what keeps a green static selection from being read as the same evidence a
 // green execution-derived one is.
-const StaticCaveat = "CAVEAT: a static selection is derived from declared correspondence " +
-	"and imports, not from a recorded run, so it can miss a test that execution-derived " +
-	"selection would have caught. A passing static selection is therefore weaker evidence " +
-	"than a passing execution-derived one."
+const StaticCaveat = "CAVEAT: " + StaticSelectionCaveat
