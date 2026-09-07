@@ -24,10 +24,14 @@ from replay.hardware import Hardware
 from replay.records import CommitRecord, StrategyRecord, UncoveredRecord, WallClockRecord
 from replay.replay import ReplayOutput
 from replay.report import (
+    COMPARISON_ARMS,
+    COMPARISON_WALLCLOCK_COLUMN,
     FAILURE_WORDING,
+    NOT_MEASURED,
     ReportError,
     assert_distribution_beside_mean,
     build_summary,
+    comparison_table,
     fmt,
     render_aggregate,
     render_markdown,
@@ -504,3 +508,174 @@ def test_render_markdown_refuses_to_return_a_document_the_guard_rejects(monkeypa
     )
     with pytest.raises(ReportError):
         render_markdown(build_summary(_spread_out(), ("rtdd", "path"), HW), CFG, HW)
+
+
+# --- §7: the static arm against the measured arms (issue #342) -------------------
+#
+# The renderer half only. Every test below is driven from a synthetic summary dict or
+# a synthetic `ReplayOutput` — no benchmark runs, no `~/.cache/rtdd-bench` access, and
+# `bench/results/` is not regenerated here.
+
+
+def _ratio(value, num=0, den=0):
+    return {"num": num, "den": den, "value": value}
+
+
+def _arm(recall, ratio, duration):
+    return {
+        "change_level_recall": _ratio(recall),
+        "selection_ratio": _ratio(ratio),
+        "selected_duration_fraction": _ratio(duration),
+    }
+
+
+def _wc_row(n, mean, p50, p90, worst):
+    col = COMPARISON_WALLCLOCK_COLUMN
+    return {
+        "n": n,
+        f"mean_{col}": mean,
+        f"p50_{col}": p50,
+        f"p90_{col}": p90,
+        f"worst_{col}": worst,
+    }
+
+
+def _synthetic_summary(*, arms=None, wallclock_rows=None, suppressed=False):
+    """A `summary.json`-shaped dict, hand-built rather than measured."""
+    arms = (
+        arms
+        if arms is not None
+        else {
+            "static": _arm(0.333, 0.100, 0.120),
+            "rtdd": _arm(1.000, 0.050, 0.060),
+            "path": _arm(0.333, 0.200, 0.220),
+            "full": _arm(1.000, 1.000, 1.000),
+        }
+    )
+    return {
+        "repo_id": "synth",
+        "primary_variant": "natural",
+        "strategies": arms,
+        "by_variant": {"natural": arms},
+        "wallclock": {
+            "suppressed": suppressed,
+            "reason": "withheld" if suppressed else "",
+            "rows": (
+                {"rtdd": _wc_row(2, 410, 400, 420, 420)}
+                if wallclock_rows is None
+                else wallclock_rows
+            ),
+        },
+    }
+
+
+def _comparison_row(text, arm):
+    line = next(ln for ln in text.splitlines() if ln.startswith(f"| `{arm}` |"))
+    return [c.strip() for c in line.strip().strip("|").split("|")]
+
+
+def _static_out():
+    """`_out()` plus a derived `static` arm that has no `WallClockRecord` of its own."""
+    o = _out()
+    for commit, selected in (("c1", ("a",)), ("c2", ("a",)), ("c3", ())):
+        o.strategies.append(
+            StrategyRecord("synth", commit, "natural", "static", selected, False, "test_for", 0)
+        )
+        o.strategies.append(
+            StrategyRecord("synth", commit, "natural", "full", ALL, False, "everything", 0)
+        )
+    return o
+
+
+def test_the_comparison_table_scores_static_against_rtdd_path_and_full():
+    """PRD #233 AC3: the §7 evidence table is `static` beside the three arms it has to
+    be read against, not a lone row a reader has to diff by eye."""
+    text = "\n".join(comparison_table(_synthetic_summary()))
+    for arm in COMPARISON_ARMS:
+        assert f"| `{arm}` |" in text, arm
+
+
+def test_the_comparison_table_publishes_recall_selection_ratio_and_selected_duration():
+    header = comparison_table(_synthetic_summary())[0].lower()
+    for column in ("change recall", "selection ratio", "selected duration"):
+        assert column in header, column
+
+
+def test_an_arm_with_no_wallclock_record_renders_an_explicit_not_measured_cell():
+    """The `static` arm is derived offline from committed records, so it executed
+    nothing. The absence is stated: never a blank that reads as zero, and never a
+    figure borrowed from an arm that really ran."""
+    text = "\n".join(comparison_table(_synthetic_summary()))
+    static, rtdd = _comparison_row(text, "static"), _comparison_row(text, "rtdd")
+    assert len(static) == len(rtdd)
+    for cell in static[-4:]:
+        assert cell == NOT_MEASURED
+        assert cell != ""
+    assert "410 ms" in rtdd, "the measured arm must still publish its own mean"
+    for cell in static:
+        assert "410 ms" not in cell, "a derived arm must not borrow another arm's timing"
+
+
+def test_the_comparison_table_names_the_arm_whose_wallclock_is_not_measured():
+    text = "\n".join(comparison_table(_synthetic_summary()))
+    assert "executed nothing" in text
+    assert "`static`" in text
+
+
+def test_the_distribution_guard_covers_the_comparison_table():
+    """AC4: any wall-clock figure in a new table carries `p50`, `p90` and `worst`."""
+    assert_distribution_beside_mean("\n".join(comparison_table(_synthetic_summary())))
+
+
+def test_a_comparison_table_carrying_a_bare_mean_is_refused():
+    doc = (
+        "| arm | change recall | selection ratio | selected duration "
+        "| mean subset uninstrumented |\n"
+        "|---|---|---|---|---|\n"
+        "| `static` | 0.333 | 0.100 | 0.120 | not measured |\n"
+        "| `rtdd` | 1.000 | 0.050 | 0.060 | 410 ms |\n"
+    )
+    with pytest.raises(ReportError) as exc:
+        assert_distribution_beside_mean(doc)
+    assert "p50" in str(exc.value)
+
+
+def test_the_guard_is_not_satisfiable_by_omitting_the_wallclock_column():
+    """Dropping the column is the other way to hide a spread, and it is the one a
+    derived arm invites: no timing to print, so print no column. The guard refuses a
+    §7 comparison that publishes no wall-clock at all."""
+    doc = (
+        "| arm | change recall | selection ratio | selected duration |\n"
+        "|---|---|---|---|\n"
+        "| `static` | 0.333 | 0.100 | 0.120 |\n"
+        "| `rtdd` | 1.000 | 0.050 | 0.060 |\n"
+    )
+    with pytest.raises(ReportError) as exc:
+        assert_distribution_beside_mean(doc)
+    assert "mean" in str(exc.value)
+
+
+def test_a_suppressed_wallclock_run_still_publishes_the_comparison_columns():
+    """`--no-wallclock` and a CI runner both leave every arm unmeasured — that is
+    still a not-measured cell, not a missing column."""
+    lines = comparison_table(_synthetic_summary(wallclock_rows={}, suppressed=True))
+    text = "\n".join(lines)
+    assert_distribution_beside_mean(text)
+    assert _comparison_row(text, "rtdd")[-4:] == [NOT_MEASURED] * 4
+
+
+def test_the_comparison_table_is_rendered_into_the_published_markdown():
+    summary = build_summary(_static_out(), ("rtdd", "path", "full", "static"), HW)
+    md = render_markdown(summary, CFG, HW)
+    section = md.split("## The static arm", 1)[1].split("## Stratified", 1)[0]
+    for arm in COMPARISON_ARMS:
+        assert f"| `{arm}` |" in section, arm
+    assert NOT_MEASURED in section
+    assert_distribution_beside_mean(md)
+
+
+def test_no_comparison_section_where_the_run_carries_no_static_arm():
+    """A "static versus" table without the static arm compares nothing. Existing
+    summaries are unchanged until the arm is backfilled."""
+    md = render_markdown(build_summary(_out(), ("rtdd", "path"), HW), CFG, HW)
+    assert "## The static arm" not in md
