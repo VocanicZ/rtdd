@@ -350,7 +350,7 @@ func renderRunTiers(blocks []AdapterSelection) string {
 		if len(blocks) > 1 {
 			fmt.Fprintf(&b, "adapter: %s\n", blk.Adapter)
 		}
-		fmt.Fprintf(&b, "tier %s: %d selected", blk.Selection.Tier, len(blk.Selection.Tests))
+		fmt.Fprintf(&b, "tier %s: %d selected", tierLabel(blk.Selection.Tier), len(blk.Selection.Tests))
 		if blk.Selection.Reason != "" {
 			fmt.Fprintf(&b, " (%s)", blk.Selection.Reason)
 		}

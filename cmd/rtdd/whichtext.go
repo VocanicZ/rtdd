@@ -20,7 +20,7 @@ import (
 func RenderWhich(sel selector.Selection, unmapped []string, ad *adapter.Adapter) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "  tier: %s  (%d %s selected, ranked)\n",
-		sel.Tier.String(), len(sel.Tests), plural(len(sel.Tests), "test", "tests"))
+		tierLabel(sel.Tier), len(sel.Tests), plural(len(sel.Tests), "test", "tests"))
 	if len(sel.Direct) > 0 {
 		fmt.Fprintf(&b, "  direct: %s\n", strings.Join(sel.Direct, ", "))
 	}
@@ -41,6 +41,24 @@ func RenderWhich(sel selector.Selection, unmapped []string, ad *adapter.Adapter)
 			"tests selected by static import scan)\n", f)
 	}
 	return b.String()
+}
+
+// tierLabel is the human tier name, and the one place the static tier's FIDELITY is
+// stated (PRD #233 AC8, spec §6): `TS (static)`.
+//
+// The parenthetical exists because the tier letter alone does not distinguish the two
+// axes spec §2 splits apart. TS is the only tier reached without executing anything, so
+// rendered in the same voice as T1 it invites a human to read declared correspondence and
+// import hops as evidence a test suite produced. The word "static" is the whole signal.
+//
+// Every execution-derived tier keeps the label it has: the fidelity claim is true of TS
+// and of nothing else, and the machine surfaces are untouched — `tier` in the JSON
+// document stays the bare `TS` an agent front-end parses.
+func tierLabel(t selector.Tier) string {
+	if t == selector.TierTS {
+		return t.String() + " (static)"
+	}
+	return t.String()
 }
 
 // unmappedNoticeApplies reports whether the no-map-row notice is true of this adapter.
