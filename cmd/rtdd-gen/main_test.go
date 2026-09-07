@@ -361,3 +361,58 @@ func TestVerifyCatchesAgentsSwallowingANonAgentsSection(t *testing.T) {
 		t.Errorf("stdout = %q, want it to name the agents target", stdout)
 	}
 }
+
+// TestCheckCatchesAnUnrenderedProtocolEdit is the drift direction that actually
+// happens: PROTOCOL.md is edited and `rtdd-gen render` is never run, so dist/
+// still carries the previous text and the shipped skill is stale. The mutated-file
+// test above proves check notices a hand-edited dist/ file; this one proves it
+// notices the source moving out from under an untouched one, which is what makes
+// the CI step a drift gate rather than a tamper gate.
+func TestCheckCatchesAnUnrenderedProtocolEdit(t *testing.T) {
+	dir := newProtoRepo(t)
+	if code, _, stderr := rtddgen(t, dir, "render"); code != 0 {
+		t.Fatalf("render: code = %d, stderr = %s", code, stderr)
+	}
+	if code, stdout, stderr := rtddgen(t, dir, "check"); code != 0 {
+		t.Fatalf("check before the edit: code = %d, stdout = %s, stderr = %s", code, stdout, stderr)
+	}
+
+	protoPath := filepath.Join(dir, "protocol", "PROTOCOL.md")
+	src, err := os.ReadFile(protoPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Append a section every target carries, so all three go stale at once. An
+	// edit inside an existing section would only reach the targets that do not
+	// override it with a variant.
+	edited := string(src) + `
+<!-- rtdd:section id=drifttest title="Drift test" targets=skill,agents,mdc order=95 -->
+a sentence no generated file has seen yet
+<!-- rtdd:endsection -->
+`
+	if err := os.WriteFile(protoPath, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, _ := rtddgen(t, dir, "check")
+	if code == 0 {
+		t.Fatalf("check: code = 0, want non-zero when PROTOCOL.md changed and dist/ was not regenerated")
+	}
+	for _, tgt := range protocol.Targets {
+		if !strings.Contains(stdout, tgt.OutPath) {
+			t.Errorf("stdout does not report %s as stale:\n%s", tgt.OutPath, stdout)
+		}
+	}
+	if !strings.Contains(stdout, "rtdd-gen render") {
+		t.Errorf("stdout does not say how to fix the drift:\n%s", stdout)
+	}
+
+	// Rendering is the fix, and check must go quiet again afterwards — otherwise
+	// the gate is unpassable and gets deleted rather than obeyed.
+	if code, _, stderr := rtddgen(t, dir, "render"); code != 0 {
+		t.Fatalf("render after the edit: code = %d, stderr = %s", code, stderr)
+	}
+	if code, stdout, _ := rtddgen(t, dir, "check"); code != 0 {
+		t.Fatalf("check after re-render: code = %d, stdout = %s", code, stdout)
+	}
+}
