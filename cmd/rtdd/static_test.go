@@ -250,3 +250,48 @@ func TestWhichWarnsWhenTheDeclaredImportscanFails(t *testing.T) {
 		t.Errorf("warnings = %v, want the failing adapter named", out.Warnings)
 	}
 }
+
+// AC8 end to end, on the surface a human actually reads: a real static repository, the
+// text output of `which`, the tier line stating the fidelity and the reason line beneath
+// it naming the evidence it really has.
+//
+// The reason is asserted for the ABSENCE of coverage vocabulary rather than for one exact
+// string: spec §2 splits fidelity from tier precisely so a static selection never
+// describes itself with the words an execution-derived one uses, and any wording that
+// keeps that split is fine here.
+func TestWhichStatesTheStaticFidelityAndKeepsCoverageOutOfTheReason(t *testing.T) {
+	dir := newUnsupportedRepo(t)
+	writeVitestAdapter(t, dir, "")
+	gittest.Write(t, dir, "src/logic.ts", "export const add = (a: number, b: number) => a + b + 1;\n")
+
+	code, stdout, stderr := rtdd(t, dir, "which")
+
+	if code != 0 {
+		t.Fatalf("rtdd which = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	if !strings.Contains(stdout, "  tier: TS (static)  ") {
+		t.Errorf("which does not state the static fidelity on the tier line:\n%s", stdout)
+	}
+	reason := reasonLine(t, stdout)
+	for _, unwanted := range []string{"coverage", "recorded", "covered"} {
+		if strings.Contains(strings.ToLower(reason), unwanted) {
+			t.Errorf("reason = %q, must not borrow the coverage vocabulary %q for a "+
+				"selection nothing was executed to produce", reason, unwanted)
+		}
+	}
+	if !strings.Contains(reason, "correspondence") && !strings.Contains(reason, "import") {
+		t.Errorf("reason = %q, want it to name correspondence or imports", reason)
+	}
+}
+
+// reasonLine is the single `reason:` line of a rendered selection, without its label.
+func reasonLine(t *testing.T, out string) string {
+	t.Helper()
+	for _, line := range strings.Split(out, "\n") {
+		if _, rest, ok := strings.Cut(strings.TrimSpace(line), "reason: "); ok {
+			return rest
+		}
+	}
+	t.Fatalf("no reason line in:\n%s", out)
+	return ""
+}

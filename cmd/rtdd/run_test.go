@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/VocanicZ/rtdd/internal/gitctx"
+	"github.com/VocanicZ/rtdd/internal/selector"
 )
 
 // touchLogic appends a function to the fixture's src/logic.py, which is the file
@@ -598,5 +599,31 @@ func TestCmdRunJSONReportsACompleteSelectionWithNoWarnings(t *testing.T) {
 	}
 	if len(got.Warnings) != 0 {
 		t.Errorf("warnings = %#v, want none for an unremarkable run", got.Warnings)
+	}
+}
+
+// AC8 reaches `run` too: the two commands disagreeing about one selection is the defect
+// this repo has been bitten by before, and a fidelity stated by `which` but dropped by
+// `run` is that same disagreement in the surface that actually executes tests.
+func TestRunTierLineStatesTheStaticFidelity(t *testing.T) {
+	blocks := []AdapterSelection{{
+		Adapter:   "vitest",
+		Selection: selector.Selection{Tier: selector.TierTS, Tests: []string{"src/logic.test.ts"}},
+	}}
+	want := "tier TS (static): 1 selected\n"
+	if got := renderRunTiers(blocks); got != want {
+		t.Fatalf("renderRunTiers() = %q, want %q", got, want)
+	}
+}
+
+// And nowhere else: an execution-derived tier prints the line it printed before.
+func TestRunTierLineIsUnchangedForAnExecutionDerivedTier(t *testing.T) {
+	blocks := []AdapterSelection{{
+		Adapter:   "python",
+		Selection: selector.Selection{Tier: selector.TierT1, Tests: []string{"tests/test_it.py"}},
+	}}
+	want := "tier T1: 1 selected\n"
+	if got := renderRunTiers(blocks); got != want {
+		t.Fatalf("renderRunTiers() = %q, want %q", got, want)
 	}
 }
