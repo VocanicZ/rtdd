@@ -102,6 +102,12 @@ class StrategyRecord:
     #: because they cannot run, published because a shrunken count on its own
     #: does not say why.
     stale_dropped: tuple[str, ...] = ()
+    #: True when this record was COMPUTED from other committed records rather than
+    #: produced by a strategy that ran. A derived arm executed nothing, so its
+    #: `select_ms` is 0 because nothing was timed and it has no `WallClockRecord` at
+    #: all — see `replay.derive`. Defaulted and read back with `.get` so every line
+    #: already committed under `bench/results/` parses unchanged.
+    derived: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -117,6 +123,7 @@ class StrategyRecord:
             "select_ms": self.select_ms,
             "stale_dropped": list(self.stale_dropped),
             "n_stale_dropped": len(self.stale_dropped),
+            "derived": self.derived,
         }
 
     @classmethod
@@ -131,6 +138,7 @@ class StrategyRecord:
             reason=d["reason"],
             select_ms=int(d["select_ms"]),
             stale_dropped=tuple(d.get("stale_dropped", ())),
+            derived=bool(d.get("derived", False)),
         )
 
 
