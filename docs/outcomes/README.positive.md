@@ -26,8 +26,13 @@ tier T0: 2 selected (tests whose recorded coverage intersects the changed set)
 ```
 
 Execution-derived selection — the run above — is Python only today. Every other language
-gets static selection instead, which is weaker evidence. See
-[What it does not do](#what-it-does-not-do).
+gets static selection instead, which is weaker evidence — and on the replay corpus that
+static tier was pre-registered against the naive path heuristic and **did not beat it**, so
+it does not carry its weight as a distinct tier on the evidence there is. It ships because a
+repository RTDD cannot instrument is otherwise offered nothing, not because it is measured to
+be better. The numbers are in
+[The static tier against the same baseline](#the-static-tier-against-the-same-baseline--the-pre-registered-kill-condition);
+the limits are in [What it does not do](#what-it-does-not-do).
 
 ## Install
 
@@ -189,6 +194,49 @@ the duration on this sample.
 `natural`.** No stratified `|F_full| == 1` table is shown: zero detecting commits occurred at
 any `|F_full|` in `natural`, in any repo, at the depth reached.
 
+#### The static tier against the same baseline — the pre-registered kill condition
+
+The map is not the only thing that was pre-registered against `path`. So was the **static
+tier** — the tier every non-Python repository gets — in
+[`docs/specs/2026-09-05-multi-language.md`](docs/specs/2026-09-05-multi-language.md) §7:
+
+> If the static tier does not beat the `path` baseline it is not worth shipping as a
+> distinct tier, and the README says so.
+
+"Beat", on the metrics that section publishes: higher change-level recall at a comparable or
+better selected-duration fraction. A tie is not a beat, and recall bought by selecting more
+of the suite is not a beat either — an arm that buys recall with time is on its way to being
+`full`.
+
+The `static` arm executes nothing: it is a function of each replayed commit's own committed
+records — the changed set, the tests that commit collected, and its `importgraph` selection —
+so it was derived offline and **no benchmark was re-run** to score it. Read from
+[`bench/results/flask/summary.json`](bench/results/flask/summary.json) and
+[`bench/results/httpie/summary.json`](bench/results/httpie/summary.json):
+
+| repo | population | change recall (static) | change recall (path heuristic) | selected duration (static) | selected duration (path) |
+|---|---|---|---|---|---|
+| flask | natural | n/a (0/0) | n/a (0/0) | 0.056 | 0.056 |
+| flask | probe (upper bound) | 0.333 (1/3) | 0.333 (1/3) | 0.010 | 0.010 |
+| httpie | natural | n/a (0/0) | n/a (0/0) | 0.426 | 0.032 |
+| httpie | probe (upper bound) | n/a (0/0) | n/a (0/0) | 0.286 | 0.000 |
+
+**The kill condition fired.** On the one population that has any ground truth at all —
+flask's `probe`, three detecting commits — `static` scores 0.333 change-level recall at a
+0.010 selected-duration fraction and the path heuristic scores 0.333 at 0.010: the same
+commits caught, at the same cost. A tie is not a beat, and the criterion asks for a beat.
+Nowhere else is the comparison computable — neither repo's `natural` population and neither
+httpie population contains a single detecting commit, so recall has no denominator — and
+where only cost can be read, httpie's `natural` `static` arm spends 0.426 of the suite's
+duration against the path heuristic's 0.032, roughly 13× more of the suite for recall nobody
+could measure.
+
+**So the static tier does not carry its weight as a distinct tier on this evidence.** It
+selects what a naive `tests/test_<module>.py` heuristic already selects, and where it selects
+more it has not been shown to catch more. It ships anyway because a repository RTDD cannot
+instrument is otherwise offered nothing at all — not because it is measured to be better —
+and two repositories would not be a general result in either direction.
+
 #### Wall-clock: the distribution, never a bare mean
 
 Wall-clock is from disclosed hardware in each repo's own `config.json`, never from a CI
@@ -264,7 +312,11 @@ Duration-weighted aggregate (ordering only — recall is never pooled), from
   language gets *static* selection instead: declared file correspondence and imports, with
   nothing instrumented. It never watched a test run, so it can miss a test an
   execution-derived selection would have caught, and passing it is weaker evidence. Every
-  surface says which tier you are reading, because the two are not interchangeable.
+  surface says which tier you are reading, because the two are not interchangeable. **The
+  static tier was pre-registered against the naive path heuristic and did not beat it** —
+  level with it where recall could be scored at all, and more expensive where it could not
+  (see [the kill condition](#the-static-tier-against-the-same-baseline--the-pre-registered-kill-condition))
+  — so it does not carry its weight as a distinct tier on the evidence there is.
 - **Coverage is blind in its own way.** It only knows paths some test actually took, and it
   attributes nothing to code executed at import time — which is why the uncovered report has
   a separate import-time class instead of calling dataclasses and enums untested.

@@ -19,6 +19,20 @@ is weaker evidence. The result below is a verdict on the measured tier only; the
 was never the thing on trial, and losing on the tier that instruments is not a reason to
 trust the tier that does not.
 
+The static tier carries a losing pre-registration of its own, and it is separate from this
+one. Spec §7 fixed, before the arm existed, that the `static` arm had to beat the naive
+`tests/test_<module>.py` path heuristic on change-level recall at comparable or better
+selected-duration fraction. On the Axis 2 replay corpus it did not: on flask's `probe`
+population — the only one of the four with any detecting commits at all — `static` and the
+path heuristic both score 0.333 change-level recall at a 0.010 selected-duration fraction,
+and on httpie's `natural` population, where recall has no denominator to be scored against,
+`static` spends 0.426 of the suite's duration against the heuristic's 0.032. A tie is not a
+beat, so **the static tier does not carry its weight as a distinct tier** either. It is a
+fallback for repositories nothing can instrument, not a second result. The numbers are in
+[`bench/results/flask/summary.json`](bench/results/flask/summary.json) and
+[`bench/results/httpie/summary.json`](bench/results/httpie/summary.json), derived from
+records the benchmark had already committed — no benchmark was re-run to produce them.
+
 The binaries are not released. Use **[TDAD](https://github.com/pepealonso95/TDAD)** instead.
 
 ## The result
