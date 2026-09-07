@@ -1092,19 +1092,28 @@ func TestDocumentedResolutionOrderMatchesTheSelector(t *testing.T) {
 	}
 }
 
-// What this protects: the `selection_fidelity` vocabulary stays in ONE document. It is
-// PRD #233's — the front-end honesty milestone owns the field, its three values and which
-// surfaces carry it — and a second copy here is a copy that goes stale the first time that
-// PRD refines it. The TS tier needs no part of it: a tier name and a fidelity are answers
-// to different questions.
+// What this protects: `selection_fidelity` is documented where the --json schema is
+// documented, and nowhere by halves.
 //
-// If ownership ever moves, delete this guard in the same commit that writes the vocabulary
-// here, and say in the message which PRD licenses the move.
-func TestInterfaceContractDoesNotDuplicateTheSelectionFidelityVocabulary(t *testing.T) {
+// The field used to be PRD #233's alone, and this file used to FORBID its vocabulary in
+// 00-interfaces.md so the two could not drift. #233 itself moved that ownership — issue
+// #343 requires the field beside `warnings` in the schema's own field contract, which is
+// also what TestJSONSchemaV1KeySetMatchesTheInterfaceContract now demands of every
+// top-level key. The guard is therefore inverted rather than deleted: the wire field, its
+// three values, and the polyglot rule must ALL be stated here, so a later edit that
+// removes half of the vocabulary is red rather than silent.
+func TestInterfaceContractDocumentsTheSelectionFidelityVocabulary(t *testing.T) {
 	src := readRepoFile(t, "docs/plans/00-interfaces.md")
 
-	if strings.Contains(src, "selection_fidelity") {
-		t.Error("00-interfaces.md documents the `selection_fidelity` wire field; it belongs " +
-			"to PRD #233 alone, and two copies of a vocabulary drift")
+	for _, want := range []string{
+		"selection_fidelity",
+		"execution-derived",
+		"`static`",
+		"`none`",
+		"selections[].selection_fidelity",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("00-interfaces.md must state the selection_fidelity vocabulary %q", want)
+		}
 	}
 }

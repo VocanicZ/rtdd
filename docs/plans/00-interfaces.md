@@ -753,6 +753,7 @@ agent front-ends depend on, so it is defined in full here. `cmd/rtdd/jsonout.go`
   "adapter": "python",
   "tier": "T0",
   "reason": "3 map rows intersect the changed set",
+  "selection_fidelity": "execution-derived",
   "complete": true,
   "warnings": [],
   "changed": [
@@ -800,9 +801,10 @@ agent front-ends depend on, so it is defined in full here. `cmd/rtdd/jsonout.go`
 | `command` | string | `"run"` or `"which"`. |
 | `base` | string | The `--base` ref actually used. |
 | `adapter` | string | Detected adapter name. |
-| `tier` | string | `"empty"`, `"direct"`, `"T0"`, `"T1"`, `"T2"` — `selector.Tier.String()`. |
+| `tier` | string | `"empty"`, `"direct"`, `"T0"`, `"T1"`, `"TS"`, `"T2"` — `selector.Tier.String()`. |
 | `reason` | string | Human-readable escalation cause; `""` when none. |
 | `complete` | bool | Whether `selection.tests` is the WHOLE run. `false` exactly when `tier` is `"T2"` and the suite was not enumerated — `rtdd which` never enumerates it, so `which` reports `false` on every T2. Direct tests present in the list do NOT make it complete. Every other tier names its tests exhaustively and reports `true`, the empty tier included. |
+| `selection_fidelity` | string | What THIS selection was derived from: `"execution-derived"`, `"static"`, or `"none"`. **Never null, never absent, never any other string.** It is a property of the answer, not of the adapter: `Adapter.Fidelity()` says what an adapter could ever produce, while this says what it actually produced here — a coverage adapter with an unseeded map escalates to `T2` and reports `none`. Derived from `tier`: `direct`/`T0`/`T1`/`empty` → `execution-derived`, `TS` → `static`, `T2` (and any tier this table does not know) → `none`. `empty` is `execution-derived` because it is reachable only from a usable map: the map answered, and its answer was "nothing". In a **polyglot** repository the flat value is the WEAKEST fidelity any answering adapter reported — the flat `selection` it labels is the union of every block, and a union is only as well-evidenced as its worst member; the per-adapter values are on `selections[].selection_fidelity`, so the split is carried rather than collapsed. |
 | `warnings` | array of string | The caveats saying the selection is narrower, or less authoritative, than it looks — a missing adapter (file classification disabled), an empty selection, an unenumerated T2 suite, a failed import scan. Verbatim, in the order the command produced them. Never null; `[]` means there are none. The same sentences also go to stderr for a human, but a `--json` consumer normally discards stderr, so the document carries them too. |
 | `changed[].path` | string | Repo-relative, slash-separated. |
 | `changed[].status` | string | `"added"`, `"modified"`, `"deleted"`, `"renamed"`, `"untracked"`. |
@@ -826,6 +828,21 @@ agent front-ends depend on, so it is defined in full here. `cmd/rtdd/jsonout.go`
 
 **Invariant, and it is tested:** `exit_code` is `1` if and only if `run.failed + run.errored
 > 0`. A non-empty uncovered report never changes it.
+
+**The polyglot addition, `selections`.** A repository where more than one adapter was
+detected also carries an OPTIONAL top-level `selections` array — one block per adapter,
+each with its own `adapter`, `tier`, `reason`, `selection_fidelity`, `complete` and
+`selection`. It is absent from a single-adapter document, which therefore stays
+byte-identical to what schema v1 has always emitted. A consumer that means to invoke a
+runner reads exactly ONE block's ids: the flat `selection` is the union across toolchains
+and is not a runner invocation, and a pytest nodeid handed to `npx vitest run` selects
+nothing and reports green.
+
+`selections[].selection_fidelity` carries the same three values and the same never-null
+guarantee as the flat field, for that adapter alone. Two adapters can answer at two
+fidelities — a seeded Python block beside a Go block that can only ever be `static` — and
+one flat value cannot be right about both, which is why the flat one states the weakest
+and the split is kept here rather than collapsed.
 
 ---
 

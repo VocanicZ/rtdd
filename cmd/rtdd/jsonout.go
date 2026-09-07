@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"sort"
 
+	"github.com/VocanicZ/rtdd/internal/adapter"
 	"github.com/VocanicZ/rtdd/internal/gitctx"
 	"github.com/VocanicZ/rtdd/internal/report"
 	"github.com/VocanicZ/rtdd/internal/selector"
@@ -110,11 +111,15 @@ func (u JSONUncovered) MarshalJSON() ([]byte, error) {
 // one block's ids; the flat `selection` stays what it always was — everything rtdd
 // selected, in rank order — for the consumers that only display it.
 type JSONAdapterSelection struct {
-	Adapter   string        `json:"adapter"`
-	Tier      string        `json:"tier"`
-	Reason    string        `json:"reason"`
-	Complete  bool          `json:"complete"`
-	Selection JSONSelection `json:"selection"`
+	Adapter string `json:"adapter"`
+	Tier    string `json:"tier"`
+	Reason  string `json:"reason"`
+	// SelectionFidelity is THIS adapter's own fidelity, and it is why the split is not
+	// lost: a seeded Python block beside a Go block that can only ever be static answer
+	// at two fidelities, and the one flat value cannot be right about both.
+	SelectionFidelity adapter.Fidelity `json:"selection_fidelity"`
+	Complete          bool             `json:"complete"`
+	Selection         JSONSelection    `json:"selection"`
 }
 
 // Output is the top-level --json document. Field order here is the emitted key order:
@@ -127,19 +132,28 @@ type JSONAdapterSelection struct {
 // stderr/stdout notes stay; these two fields are the machine-readable half of the same
 // facts.
 type Output struct {
-	Schema        int           `json:"schema"`
-	Command       string        `json:"command"`
-	Base          string        `json:"base"`
-	Adapter       string        `json:"adapter"`
-	Tier          string        `json:"tier"`
-	Reason        string        `json:"reason"`
-	Complete      bool          `json:"complete"`
-	Warnings      []string      `json:"warnings"`
-	Changed       []JSONChange  `json:"changed"`
-	Selection     JSONSelection `json:"selection"`
-	Run           JSONRun       `json:"run"`
-	Uncovered     JSONUncovered `json:"uncovered"`
-	UnmappedFiles []string      `json:"unmapped_files"`
+	Schema  int    `json:"schema"`
+	Command string `json:"command"`
+	Base    string `json:"base"`
+	Adapter string `json:"adapter"`
+	Tier    string `json:"tier"`
+	Reason  string `json:"reason"`
+	// SelectionFidelity says what this selection was derived from — spec §6's
+	// `execution-derived` | `static` | `none`, never null and never absent. It sits here,
+	// beside the tier and reason it qualifies, because field order is emitted key order.
+	//
+	// In a polyglot repository it is the WEAKEST fidelity any answering adapter reported:
+	// the flat `selection` it labels is the union of every block, and a union is only as
+	// well-evidenced as its worst member. The per-adapter values are on `selections`, so
+	// the split is carried rather than collapsed.
+	SelectionFidelity adapter.Fidelity `json:"selection_fidelity"`
+	Complete          bool             `json:"complete"`
+	Warnings          []string         `json:"warnings"`
+	Changed           []JSONChange     `json:"changed"`
+	Selection         JSONSelection    `json:"selection"`
+	Run               JSONRun          `json:"run"`
+	Uncovered         JSONUncovered    `json:"uncovered"`
+	UnmappedFiles     []string         `json:"unmapped_files"`
 	// Selections is the per-adapter split, present ONLY in a repository where more than
 	// one adapter was detected. `omitempty` is the compatibility promise: a
 	// single-adapter document is byte-identical to the one schema v1 has always emitted,
@@ -187,18 +201,23 @@ type OutputInput struct {
 // NEVER changes it: RTDD reports, it does not gate (spec §2, §6).
 func BuildOutput(in OutputInput) Output {
 	out := Output{
-		Schema:    SchemaVersion,
-		Command:   in.Command,
-		Base:      in.Base,
-		Adapter:   in.Adapter,
-		Tier:      in.Sel.Tier.String(),
-		Reason:    in.Sel.Reason,
-		Changed:   buildChanged(in),
-		Selection: buildSelection(in),
-		Run:       buildRun(in),
-		Uncovered: buildUncovered(in),
-		Complete:  buildComplete(in),
-		Warnings:  nonNilStrings(in.Warnings),
+		Schema:  SchemaVersion,
+		Command: in.Command,
+		Base:    in.Base,
+		Adapter: in.Adapter,
+		Tier:    in.Sel.Tier.String(),
+		Reason:  in.Sel.Reason,
+		// The folded tier is the WIDEST of the blocks (foldBlocks), and fidelity is
+		// monotonically non-increasing in tier breadth, so reading the flat tier already
+		// yields the weakest block's fidelity. Computing it a second way would be a
+		// second thing to keep in step with the fold.
+		SelectionFidelity: selectionFidelity(in.Sel.Tier),
+		Changed:           buildChanged(in),
+		Selection:         buildSelection(in),
+		Run:               buildRun(in),
+		Uncovered:         buildUncovered(in),
+		Complete:          buildComplete(in),
+		Warnings:          nonNilStrings(in.Warnings),
 	}
 
 	out.Selections = buildSelections(in)
@@ -221,10 +240,11 @@ func buildSelections(in OutputInput) []JSONAdapterSelection {
 	out := make([]JSONAdapterSelection, 0, len(in.Blocks))
 	for _, blk := range in.Blocks {
 		out = append(out, JSONAdapterSelection{
-			Adapter:  blk.Adapter,
-			Tier:     blk.Selection.Tier.String(),
-			Reason:   blk.Selection.Reason,
-			Complete: blk.Selection.Tier != selector.TierT2 || blk.SuiteEnumerated,
+			Adapter:           blk.Adapter,
+			Tier:              blk.Selection.Tier.String(),
+			Reason:            blk.Selection.Reason,
+			SelectionFidelity: selectionFidelity(blk.Selection.Tier),
+			Complete:          blk.Selection.Tier != selector.TierT2 || blk.SuiteEnumerated,
 			Selection: buildSelection(OutputInput{
 				Sel:            blk.Selection,
 				ImportFallback: blk.ImportFallback,
