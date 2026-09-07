@@ -15,10 +15,24 @@ verdict: not computable (no detecting commits)
 | importgraph | 17 | 0 | n/a (0/0) | n/a (0/0) | n/a (0/0) | 0.416 (7274/17476) | 0.426 (637080/1.49501e+06) | 0.000 (0/17) |
 | lf | 17 | 0 | n/a (0/0) | n/a (0/0) | n/a (0/0) | 0.002 (34/17476) | 0.000 (721/1.49501e+06) | 0.000 (0/17) |
 | path | 17 | 0 | n/a (0/0) | n/a (0/0) | n/a (0/0) | 0.032 (567/17476) | 0.032 (48226/1.49501e+06) | 0.000 (0/17) |
+| static | 17 | 0 | n/a (0/0) | n/a (0/0) | n/a (0/0) | 0.416 (7274/17476) | 0.426 (637080/1.49501e+06) | 0.000 (0/17) |
 | testmon | 17 | 0 | n/a (0/0) | n/a (0/0) | n/a (0/0) | 0.257 (4495/17476) | 0.239 (358016/1.49501e+06) | 0.000 (0/17) |
 | xdist | 17 | 0 | n/a (0/0) | n/a (0/0) | n/a (0/0) | 1.000 (17476/17476) | 1.000 (1.49501e+06/1.49501e+06) | 1.000 (17/17) |
 | random | 17 | 0 | n/a (0/0) | n/a (0/0) | n/a (0/0) | 0.186 (3250/17476) | 0.197 (295151/1.49501e+06) | 0.000 (0/17) |
 | full | 17 | 0 | n/a (0/0) | n/a (0/0) | n/a (0/0) | 1.000 (17476/17476) | 1.000 (1.49501e+06/1.49501e+06) | 1.000 (17/17) |
+
+## The static arm
+
+Spec §7 asks what the `TS` static tier is worth against the corpus where the coverage-derived answer is already known. `static` is scored here against `rtdd`, the naive `path` baseline and the `full` ceiling, on the three metrics the pre-registration names.
+
+| arm | change recall | selection ratio | selected duration | mean subset uninstrumented | p50 | p90 | worst |
+|---|---|---|---|---|---|---|---|
+| `static` | n/a (0/0) | 0.416 (7274/17476) | 0.426 (637080/1.49501e+06) | not measured | not measured | not measured | not measured |
+| `rtdd` | n/a (0/0) | 0.186 (3250/17476) | 0.188 (280956/1.49501e+06) | 25423 ms | 0 ms | 96666 ms | 171039 ms |
+| `path` | n/a (0/0) | 0.032 (567/17476) | 0.032 (48226/1.49501e+06) | 443 ms | 0 ms | 0 ms | 7971 ms |
+| `full` | n/a (0/0) | 1.000 (17476/17476) | 1.000 (1.49501e+06/1.49501e+06) | 89957 ms | 83994 ms | 106813 ms | 114537 ms |
+
+`static` carry no wall-clock record in this run — a derived arm **executed nothing** at all, and any arm can simply have gone unsampled. Nothing was invented to fill the gap: the cells read `not measured` rather than a blank that would read as zero, a figure synthesised from `durations_ms` (another execution's per-test time), or a row borrowed from an arm that really ran. The cost those arms do publish is the **selected duration** column, a ratio of the same commit's own recorded per-test durations and therefore independent of the machine.
 
 ## Stratified by |F_full| — the `|F_full| == 1` stratum is where selection safety is genuinely under test
 
@@ -91,6 +105,7 @@ A strategy that carries `Selection.exec_args` — `xdist` is the only one in the
 | importgraph | 17 | n/a (0/0) | n/a (0/0) | 0.416 (7274/17476) | 0.426 (637080/1.49501e+06) | — |
 | lf | 17 | n/a (0/0) | n/a (0/0) | 0.002 (34/17476) | 0.000 (721/1.49501e+06) | — |
 | path | 17 | n/a (0/0) | n/a (0/0) | 0.032 (567/17476) | 0.032 (48226/1.49501e+06) | — |
+| static | 17 | n/a (0/0) | n/a (0/0) | 0.416 (7274/17476) | 0.426 (637080/1.49501e+06) | — |
 | testmon | 17 | n/a (0/0) | n/a (0/0) | 0.257 (4495/17476) | 0.239 (358016/1.49501e+06) | — |
 | xdist | 17 | n/a (0/0) | n/a (0/0) | 1.000 (17476/17476) | 1.000 (1.49501e+06/1.49501e+06) | — |
 | random | 17 | n/a (0/0) | n/a (0/0) | 0.186 (3250/17476) | 0.197 (295151/1.49501e+06) | — |
@@ -104,6 +119,7 @@ A strategy that carries `Selection.exec_args` — `xdist` is the only one in the
 | importgraph | 18 | n/a (0/0) | n/a (0/0) | 0.277 (5130/18504) | 0.286 (439640/1.5388e+06) | — |
 | lf | 18 | n/a (0/0) | n/a (0/0) | 0.003 (53/18504) | 0.000 (763/1.5388e+06) | — |
 | path | 18 | n/a (0/0) | n/a (0/0) | 0.000 (0/18504) | 0.000 (0/1.5388e+06) | — |
+| static | 18 | n/a (0/0) | n/a (0/0) | 0.277 (5130/18504) | 0.286 (439640/1.5388e+06) | — |
 | testmon | 18 | n/a (0/0) | n/a (0/0) | 0.134 (2472/18504) | 0.113 (173606/1.5388e+06) | upper bound (map seeded at the child commit) |
 | xdist | 18 | n/a (0/0) | n/a (0/0) | 1.000 (18504/18504) | 1.000 (1.5388e+06/1.5388e+06) | — |
 | random | 18 | n/a (0/0) | n/a (0/0) | 0.145 (2683/18504) | 0.163 (250294/1.5388e+06) | — |

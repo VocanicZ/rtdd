@@ -142,6 +142,7 @@ uv run python -m replay.cli replay --repo flask --replay-commits 25 --wallclock-
 uv run python -m replay.cli session --repo flask --cycles 25   # drift.json
 uv run python -m replay.cli report                             # aggregate.md
 uv run python -m replay.cli report --rebuild                   # summary.{json,md} too
+uv run python -m replay.cli derive                             # the derived arms, offline
 ```
 
 `report --rebuild` re-derives each admitted repo's `summary.json` and `summary.md` from
@@ -152,6 +153,28 @@ re-render, not a re-measurement on hardware that may no longer exist. It re-deri
 never re-measures: `config.json` is left exactly as the run wrote it, an operator's
 `--no-wallclock` refusal stays refused, and `skipped` and `rtdd_run_errors` (which leave
 no record behind, by construction) are carried across from the published summary.
+
+`derive` is the other half of that idea, for an *arm* rather than an aggregation. The
+`static` arm models RTDD's `TS` tier and is a function of fields every replayed commit
+already committed — its `changed` set, the `all_tests` it collected and the `importgraph`
+selection recorded beside it — so it is **computed from `commits.jsonl`, never executed**
+(`bench/replay/derive.py`). `derive` reads each admitted repo's records, drops any stale
+copy of a derived arm, recomputes it and rewrites the file through the same byte-stable
+serialiser the run used; `report --rebuild` then publishes it:
+
+```bash
+cd bench
+uv run python -m replay.cli derive           # appends the static arm to commits.jsonl
+uv run python -m replay.cli report --rebuild # re-renders summary.{json,md}
+git diff --stat bench/results/               # the review
+```
+
+Both commands are offline: nothing is cloned, provisioned or executed, no test is run,
+and nothing is written to `RTDD_BENCH_CACHE`. `derive` is idempotent — a second run
+leaves `commits.jsonl` byte-identical — and it touches only repos the corpus currently
+admits, so `results/sqlfluff/` (dropped at `corpus_version: 2`) stays exactly as v1
+published it. The derived arm carries no `WallClockRecord`, because it executed nothing
+and none is invented; `summary.md` renders those cells as `not measured`.
 
 `doctor` needs the binary under test on `PATH`, which is the same static build the CI
 gate produces:

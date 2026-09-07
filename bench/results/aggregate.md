@@ -10,5 +10,6 @@ Per spec §10 recall is **never pooled** across repos. The rows below weight eac
 | path | 0.033 | 2 |
 | random | 0.199 | 2 |
 | rtdd | 0.190 | 2 |
+| static | 0.417 | 2 |
 | testmon | 0.238 | 2 |
 | xdist | 1.000 | 2 |

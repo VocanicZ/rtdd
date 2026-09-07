@@ -17,10 +17,24 @@ verdict (probe, upper bound — map seeded at the child commit, never pooled wit
 | importgraph | 23 | 0 | n/a (0/0) | n/a (0/0) | n/a (0/0) | 0.041 (460/11274) | 0.047 (1714/36469) | 0.000 (0/23) |
 | lf | 23 | 0 | n/a (0/0) | n/a (0/0) | n/a (0/0) | 0.783 (8825/11274) | 0.790 (28810/36469) | 0.783 (18/23) |
 | path | 23 | 0 | n/a (0/0) | n/a (0/0) | n/a (0/0) | 0.050 (568/11274) | 0.056 (2036/36469) | 0.000 (0/23) |
+| static | 23 | 0 | n/a (0/0) | n/a (0/0) | n/a (0/0) | 0.050 (568/11274) | 0.056 (2036/36469) | 0.000 (0/23) |
 | testmon | 23 | 0 | n/a (0/0) | n/a (0/0) | n/a (0/0) | 0.158 (1786/11274) | 0.190 (6939/36469) | 0.000 (0/23) |
 | xdist | 23 | 0 | n/a (0/0) | n/a (0/0) | n/a (0/0) | 1.000 (11274/11274) | 1.000 (36469/36469) | 1.000 (23/23) |
 | random | 23 | 0 | n/a (0/0) | n/a (0/0) | n/a (0/0) | 0.235 (2650/11274) | 0.258 (9411/36469) | 0.000 (0/23) |
 | full | 23 | 0 | n/a (0/0) | n/a (0/0) | n/a (0/0) | 1.000 (11274/11274) | 1.000 (36469/36469) | 1.000 (23/23) |
+
+## The static arm
+
+Spec §7 asks what the `TS` static tier is worth against the corpus where the coverage-derived answer is already known. `static` is scored here against `rtdd`, the naive `path` baseline and the `full` ceiling, on the three metrics the pre-registration names.
+
+| arm | change recall | selection ratio | selected duration | mean subset uninstrumented | p50 | p90 | worst |
+|---|---|---|---|---|---|---|---|
+| `static` | n/a (0/0) | 0.050 (568/11274) | 0.056 (2036/36469) | not measured | not measured | not measured | not measured |
+| `rtdd` | n/a (0/0) | 0.235 (2650/11274) | 0.282 (10288/36469) | 1284 ms | 0 ms | 3109 ms | 4045 ms |
+| `path` | n/a (0/0) | 0.050 (568/11274) | 0.056 (2036/36469) | 255 ms | 0 ms | 1064 ms | 1680 ms |
+| `full` | n/a (0/0) | 1.000 (11274/11274) | 1.000 (36469/36469) | 3133 ms | 3081 ms | 3558 ms | 4761 ms |
+
+`static` carry no wall-clock record in this run — a derived arm **executed nothing** at all, and any arm can simply have gone unsampled. Nothing was invented to fill the gap: the cells read `not measured` rather than a blank that would read as zero, a figure synthesised from `durations_ms` (another execution's per-test time), or a row borrowed from an arm that really ran. The cost those arms do publish is the **selected duration** column, a ratio of the same commit's own recorded per-test durations and therefore independent of the machine.
 
 ## Stratified by |F_full| — the `|F_full| == 1` stratum is where selection safety is genuinely under test
 
@@ -93,6 +107,7 @@ A strategy that carries `Selection.exec_args` — `xdist` is the only one in the
 | importgraph | 23 | n/a (0/0) | n/a (0/0) | 0.041 (460/11274) | 0.047 (1714/36469) | — |
 | lf | 23 | n/a (0/0) | n/a (0/0) | 0.783 (8825/11274) | 0.790 (28810/36469) | — |
 | path | 23 | n/a (0/0) | n/a (0/0) | 0.050 (568/11274) | 0.056 (2036/36469) | — |
+| static | 23 | n/a (0/0) | n/a (0/0) | 0.050 (568/11274) | 0.056 (2036/36469) | — |
 | testmon | 23 | n/a (0/0) | n/a (0/0) | 0.158 (1786/11274) | 0.190 (6939/36469) | — |
 | xdist | 23 | n/a (0/0) | n/a (0/0) | 1.000 (11274/11274) | 1.000 (36469/36469) | — |
 | random | 23 | n/a (0/0) | n/a (0/0) | 0.235 (2650/11274) | 0.258 (9411/36469) | — |
@@ -106,6 +121,7 @@ A strategy that carries `Selection.exec_args` — `xdist` is the only one in the
 | importgraph | 23 | 0.000 (0/3) | 0.000 (0/3) | 0.000 (0/11274) | 0.000 (0/34336) | — |
 | lf | 23 | 1.000 (3/3) | 1.000 (3/3) | 0.783 (8825/11274) | 0.768 (26377/34336) | — |
 | path | 23 | 0.333 (1/3) | 0.333 (1/3) | 0.012 (134/11274) | 0.010 (348/34336) | — |
+| static | 23 | 0.333 (1/3) | 0.333 (1/3) | 0.012 (134/11274) | 0.010 (348/34336) | — |
 | testmon | 23 | 1.000 (3/3) | 1.000 (3/3) | 0.104 (1171/11274) | 0.131 (4481/34336) | upper bound (map seeded at the child commit) |
 | xdist | 23 | 1.000 (3/3) | 1.000 (3/3) | 1.000 (11274/11274) | 1.000 (34336/34336) | — |
 | random | 23 | 0.667 (2/3) | 0.667 (2/3) | 0.220 (2481/11274) | 0.220 (7539/34336) | — |

@@ -21,6 +21,7 @@ from replay import rtddio
 from replay.cache import Cache
 from replay.config import TRACKED_TOOLS, RunConfig, canonical_json, tool_versions
 from replay.corpus import CorpusError, audit, load_corpus
+from replay.derive import DERIVED_ARMS, DerivationError, derive_static
 from replay.envsetup import EnvError, activate, provision, tool_versions_for, with_source_path
 from replay.gitwork import add_worktree, clone_pinned, remove_worktree, replay_points
 from replay.hardware import CIWallClockRefused, Hardware, probe, require_wallclock
@@ -31,6 +32,7 @@ from replay.records import (
     UncoveredRecord,
     WallClockRecord,
     parse_jsonl_lines,
+    to_jsonl_lines,
 )
 from replay.report import build_summary, render_aggregate, render_markdown, write_results
 from replay.session import run_drift
@@ -338,9 +340,17 @@ def _rebuild_repo(d: pathlib.Path) -> dict:
     wc = prior.get("wallclock", {})
     wallclock_enabled = not (wc.get("suppressed") and "--no-wallclock" in wc.get("reason", ""))
 
-    summary = build_summary(
-        out, strategy_order(cfg.strategies), hw, wallclock_enabled=wallclock_enabled
-    )
+    # The arms the RECORDS carry, not only the arms the run's config lists. A derived
+    # arm (`replay.derive`) is computed after the run and appended to `commits.jsonl`;
+    # `config.json` stamps the run that produced the numbers and a rebuild has no
+    # standing to rewrite it — that list also feeds `cfg.digest()`, which keys the
+    # ground-truth cache, so adding `static` there would orphan every entry the
+    # benchmark ever measured. Reading the ids out of the records is the more honest
+    # rule for a measured arm too: a summary should publish what was recorded.
+    recorded = {s.strategy for s in out.strategies}
+    ids = strategy_order([*cfg.strategies, *sorted(recorded - set(cfg.strategies))])
+
+    summary = build_summary(out, ids, hw, wallclock_enabled=wallclock_enabled)
     summary_path.write_text(canonical_json(summary), encoding="utf-8")
     (d / "summary.md").write_text(render_markdown(summary, cfg, hw), encoding="utf-8")
     return summary
@@ -364,6 +374,53 @@ def cmd_rebuild(args) -> int:
         rebuilt.append(d.name)
         print(f"rebuilt {d.name} from {d / 'commits.jsonl'}")
     if not rebuilt:
+        print("no per-repo records found; run `replay` first", file=sys.stderr)
+        return EXIT_GUARD
+    return EXIT_OK
+
+
+def cmd_derive(args) -> int:
+    """`derive`: compute the derived arms from each admitted repo's own records.
+
+    This is the whole of how the `static` arm reaches a published summary without a
+    benchmark re-run (PRD #233, spec §7). `bench/results/<repo>/commits.jsonl` already
+    holds, per replayed commit, every field the derivation consumes, so this reads that
+    file, drops any stale copy of a derived arm, recomputes it from the MEASURED records
+    alone and rewrites the file through the same sorted, byte-stable serialiser the run
+    used. Re-deriving therefore supersedes its own previous answer instead of appending
+    beside it, and a second invocation diffs to nothing.
+
+    It clones nothing, provisions nothing, materialises no worktree, executes no test,
+    and never reads or writes the ground-truth cache — the arm executed nothing, so it
+    gets no `WallClockRecord` and none is invented. Run `report --rebuild` afterwards to
+    re-render the summaries from the records this leaves behind.
+
+    Only repos the corpus currently admits are touched: a results directory for a repo a
+    later corpus version dropped stays exactly as it was published.
+    """
+    ids = set(_corpus(getattr(args, "corpus_version", None)).ids())
+    done = []
+    for d in sorted(RESULTS.iterdir()) if RESULTS.exists() else []:
+        if d.name not in ids or not (d / "commits.jsonl").exists():
+            continue
+        path = d / "commits.jsonl"
+        records = parse_jsonl_lines(path.read_text(encoding="utf-8").splitlines())
+        # Stale derived records are dropped BEFORE the derivation, so its answer never
+        # depends on whether this file was derived into once already.
+        kept = [
+            r
+            for r in records
+            if not (isinstance(r, StrategyRecord) and r.strategy in DERIVED_ARMS)
+        ]
+        try:
+            derived = derive_static(kept)
+        except DerivationError as exc:
+            print(f"{d.name}: {exc}", file=sys.stderr)
+            return EXIT_GUARD
+        path.write_text("".join(to_jsonl_lines([*kept, *derived])), encoding="utf-8")
+        done.append(d.name)
+        print(f"derived static for {d.name} from {path}")
+    if not done:
         print("no per-repo records found; run `replay` first", file=sys.stderr)
         return EXIT_GUARD
     return EXIT_OK
@@ -462,6 +519,13 @@ def build_parser() -> argparse.ArgumentParser:
     au = sub.add_parser("audit", help="check the corpus against its own admission criteria")
     au.add_argument("--corpus-version", type=int, default=None, dest="corpus_version")
     au.set_defaults(func=cmd_audit)
+
+    dv = sub.add_parser(
+        "derive",
+        help="compute the derived arms from committed records; runs no benchmark",
+    )
+    dv.add_argument("--corpus-version", type=int, default=None, dest="corpus_version")
+    dv.set_defaults(func=cmd_derive)
 
     rep = sub.add_parser("report", help="regenerate aggregate.md from committed summaries")
     rep.add_argument("--corpus-version", type=int, default=None, dest="corpus_version")

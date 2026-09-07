@@ -51,6 +51,33 @@ population had no detecting commits at this length, so the pre-registered criter
 undecided there, and on the `probe` upper bound RTDD wins recall but not at equal or
 better selected duration, which is what the criterion asks for.
 
+## The `static` arm, backfilled offline
+
+`flask` and `httpie` were replayed before the `TS` static tier had a model, and the arm
+that models it (`bench/replay/derive.py`) **executes nothing**: it is a function of the
+`changed` set, the `all_tests` and the `importgraph` selection each replayed commit
+already committed here. So it was backfilled from the records rather than measured:
+
+```bash
+cd bench
+uv run python -m replay.cli derive           # static StrategyRecords -> commits.jsonl
+uv run python -m replay.cli report --rebuild # summary.{json,md} and aggregate.md
+```
+
+Re-running either command is safe and is how these files are regenerated. `derive` is
+idempotent to the byte, it replaces a stale derived record rather than appending beside
+it, and it leaves every measured record exactly as the run wrote it. Neither command
+clones, provisions, materialises a worktree, executes a test or writes to
+`RTDD_BENCH_CACHE`, and `config.json` — which stamps the run and whose strategy list
+feeds the digest that keys that cache — is not rewritten, so the arm reaches the tables
+through the records instead.
+
+The `static` rows therefore publish **no wall-clock**: `summary.md` prints `not measured`
+in every timing cell rather than a blank that would read as zero, a figure synthesised
+from `durations_ms` (another execution's per-test time) or a row borrowed from an arm
+that really ran. The cost it does publish is the selected-duration fraction, a ratio of
+the same commit's own recorded durations and so independent of the machine.
+
 ## Re-freezing the corpus without orphaning what is already published
 
 `corpus.yaml` is content-addressed: `corpus.lock` holds the sha256 of its bytes, and
