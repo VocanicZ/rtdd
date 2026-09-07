@@ -64,6 +64,30 @@ When nothing is selected, `rtdd` says so explicitly. An empty selection is a dis
 outcome from "all selected tests passed", because every under-selection path terminates
 there. Treat it as "the map has nothing to say about this change", not as a pass.
 
+## Selection fidelity
+
+Every `--json` document carries `selection_fidelity`, which answers a different question
+from `tier`: `tier` says how much of the suite was selected, `selection_fidelity` says what
+that answer was derived from. It is never null and never absent, and it is one of three
+values:
+
+- **`execution-derived`** — tests were chosen from per-test coverage recorded by a real
+  run. Everything else in this document assumes this fidelity.
+- **`static`** — this toolchain records nothing, so tests were chosen from declared
+  correspondence and imports.
+- **`none`** — neither is available, so nothing narrower than the full suite can be
+  selected.
+
+The distinction changes how a green run should be read: a static selection is derived from
+declared correspondence and imports, not from a recorded run, so it can miss a test that
+execution-derived selection would have caught. A passing static selection is therefore
+weaker evidence than a passing execution-derived one. Read a green `static` run as "the
+tests I could name passed", not as "this change is covered".
+
+`rtdd doctor` is the one command that reports which fidelity this repository can achieve
+and why: one row per detected adapter, the fidelity it can reach here, and the clause of
+its own declaration that determined it.
+
 ## JSON output
 
 `--json` emits one object for programmatic consumption:
@@ -72,6 +96,7 @@ there. Treat it as "the map has nothing to say about this change", not as a pass
 {
   "tier": "T0",
   "reason": "changed files intersect 12 recorded test rows",
+  "selection_fidelity": "execution-derived",
   "base": "HEAD",
   "changed": ["src/auth.py", "src/db.py"],
   "direct": ["tests/test_auth.py"],

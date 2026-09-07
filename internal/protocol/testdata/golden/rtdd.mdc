@@ -65,6 +65,16 @@ When nothing is selected, `rtdd` says so explicitly. An empty selection is a dis
 outcome from "all selected tests passed", because every under-selection path terminates
 there. Treat it as "the map has nothing to say about this change", not as a pass.
 
+## Selection fidelity
+
+`--json` carries `selection_fidelity`, which says what the selection was derived from:
+`execution-derived` (tests chosen from coverage recorded by a real run), `static` (chosen
+from declared correspondence and imports, because this toolchain records nothing), or
+`none` (nothing narrower than the full suite is available). A static selection can miss a
+test an execution-derived one would have caught, so a passing static selection is
+weaker evidence — read a green `static` run as "the tests I could name passed".
+`rtdd doctor` reports which fidelity this repository can achieve, and why.
+
 ## What it cannot see
 
 Coverage only knows paths some test actually took; a never-exercised branch has no edge.

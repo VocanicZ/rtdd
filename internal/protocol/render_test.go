@@ -28,6 +28,10 @@ uncovered body
 empty body
 <!-- rtdd:endsection -->
 
+<!-- rtdd:section id=fidelity title="Selection fidelity" targets=skill,agents,mdc order=55 -->
+fidelity body
+<!-- rtdd:endsection -->
+
 <!-- rtdd:section id=json title="JSON output" targets=skill order=60 -->
 json body
 <!-- rtdd:endsection -->

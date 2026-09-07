@@ -17,4 +17,11 @@ reported separately and are not a coverage gap.
 
 An empty selection is reported as its own outcome, never as a pass.
 
+`--json` carries `selection_fidelity`: `execution-derived` (tests chosen from recorded
+coverage), `static` (chosen from declared correspondence and imports, because this
+toolchain records nothing), or `none` (nothing narrower than the full suite). A static
+selection can miss a test an execution-derived one would have caught, so a passing static
+selection is weaker evidence. `rtdd doctor` reports which fidelity this repository can
+achieve, and why.
+
 <!-- END rtdd -->

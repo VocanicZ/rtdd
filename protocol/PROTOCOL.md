@@ -83,6 +83,47 @@ An empty selection is reported as its own outcome, never as a pass.
 <!-- rtdd:endvariant -->
 <!-- rtdd:endsection -->
 
+<!-- rtdd:section id=fidelity title="Selection fidelity" targets=skill,agents,mdc order=55 -->
+Every `--json` document carries `selection_fidelity`, which answers a different question
+from `tier`: `tier` says how much of the suite was selected, `selection_fidelity` says what
+that answer was derived from. It is never null and never absent, and it is one of three
+values:
+
+- **`execution-derived`** — tests were chosen from per-test coverage recorded by a real
+  run. Everything else in this document assumes this fidelity.
+- **`static`** — this toolchain records nothing, so tests were chosen from declared
+  correspondence and imports.
+- **`none`** — neither is available, so nothing narrower than the full suite can be
+  selected.
+
+The distinction changes how a green run should be read: a static selection is derived from
+declared correspondence and imports, not from a recorded run, so it can miss a test that
+execution-derived selection would have caught. A passing static selection is therefore
+weaker evidence than a passing execution-derived one. Read a green `static` run as "the
+tests I could name passed", not as "this change is covered".
+
+`rtdd doctor` is the one command that reports which fidelity this repository can achieve
+and why: one row per detected adapter, the fidelity it can reach here, and the clause of
+its own declaration that determined it.
+<!-- rtdd:variant target=agents -->
+`--json` carries `selection_fidelity`: `execution-derived` (tests chosen from recorded
+coverage), `static` (chosen from declared correspondence and imports, because this
+toolchain records nothing), or `none` (nothing narrower than the full suite). A static
+selection can miss a test an execution-derived one would have caught, so a passing static
+selection is weaker evidence. `rtdd doctor` reports which fidelity this repository can
+achieve, and why.
+<!-- rtdd:endvariant -->
+<!-- rtdd:variant target=mdc -->
+`--json` carries `selection_fidelity`, which says what the selection was derived from:
+`execution-derived` (tests chosen from coverage recorded by a real run), `static` (chosen
+from declared correspondence and imports, because this toolchain records nothing), or
+`none` (nothing narrower than the full suite is available). A static selection can miss a
+test an execution-derived one would have caught, so a passing static selection is
+weaker evidence — read a green `static` run as "the tests I could name passed".
+`rtdd doctor` reports which fidelity this repository can achieve, and why.
+<!-- rtdd:endvariant -->
+<!-- rtdd:endsection -->
+
 <!-- rtdd:section id=json title="JSON output" targets=skill order=60 -->
 `--json` emits one object for programmatic consumption:
 
@@ -90,6 +131,7 @@ An empty selection is reported as its own outcome, never as a pass.
 {
   "tier": "T0",
   "reason": "changed files intersect 12 recorded test rows",
+  "selection_fidelity": "execution-derived",
   "base": "HEAD",
   "changed": ["src/auth.py", "src/db.py"],
   "direct": ["tests/test_auth.py"],
