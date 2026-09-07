@@ -139,6 +139,16 @@ func cmdRun(args []string) int {
 			}
 			warnings = append(warnings, n)
 		}
+		// runNotes already put the static-tier caveat in `warnings`; this is the same
+		// sentence on stderr, for the reason the scan notes above are printed there:
+		// under --json stdout is one document, and a caveat only the document carries is
+		// one nobody reading the terminal is ever told.
+		if caveat := staticSelectionNote(blk.Selection); caveat != "" {
+			if len(blocks) > 1 {
+				caveat = blk.Adapter + ": " + caveat
+			}
+			fmt.Fprintf(os.Stderr, "rtdd run: %s\n", caveat)
+		}
 	}
 
 	if selectionIsEmpty(sel) {
@@ -451,6 +461,12 @@ func runNotes(sel selector.Selection, scanErr error, extra ...string) []string {
 		if e != "" {
 			out = append(out, e)
 		}
+	}
+	// Last, and never gated on the selection being non-empty: a static selection that
+	// named nothing is the weakest evidence of all, and the note above says only that
+	// nothing ran — not that what would have run was chosen from a declaration.
+	if s := staticSelectionNote(sel); s != "" {
+		out = append(out, s)
 	}
 	return out
 }
