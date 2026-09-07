@@ -71,6 +71,44 @@ WALLCLOCK_COLUMN_LABELS: dict[str, str] = {
 #: asks for exactly these three beside every wall-clock figure.
 _DISTRIBUTION_HEADERS: tuple[str, ...] = ("p50", "p90", "worst")
 
+COMPARISON_ARMS: tuple[str, ...] = ("static", "rtdd", "path", "full")
+"""The §7 evidence table, in table order.
+
+`static` is the arm under test; `rtdd` is the coverage-derived answer it is being
+measured against, `path` is the pre-registered baseline, and `full` is the ceiling
+every ratio is read against. A reader given `static` alone can compare it to nothing.
+"""
+
+COMPARISON_METRICS: tuple[tuple[str, str], ...] = (
+    ("change_level_recall", "change recall"),
+    ("selection_ratio", "selection ratio"),
+    ("selected_duration_fraction", "selected duration"),
+)
+"""The three §7 metrics (PRD #233 AC3), as `(summary key, column label)`."""
+
+COMPARISON_WALLCLOCK_COLUMN = "subset_uninstrumented_ms"
+"""The one wall-clock column the comparison publishes.
+
+The cost question §7 asks is what running the selection cost, so the uninstrumented
+subset run is the honest figure; the other two columns stay in `## Wall-clock`, where
+all three are published side by side.
+"""
+
+COMPARISON_HEADER_KEY = "arm"
+"""The first header cell of a §7 comparison table, and how the guard recognises one.
+
+A marker rather than a heuristic: :func:`assert_distribution_beside_mean` refuses a
+table starting with this cell that publishes no wall-clock at all, so the column
+cannot be dropped to escape the spread requirement.
+"""
+
+NOT_MEASURED = "not measured"
+"""What an arm with no wall-clock record publishes.
+
+Never a blank — a blank cell in a millisecond column reads as zero — and never another
+arm's figure. A derived arm executed nothing, and the table says exactly that.
+"""
+
 
 class ReportError(RuntimeError):
     """The document the renderer produced is not publishable as written."""
@@ -97,6 +135,11 @@ def _is_wallclock_header(header: Sequence[str]) -> bool:
     return any(label in cell.lower() for cell in header for label in labels)
 
 
+def _is_comparison_header(header: Sequence[str]) -> bool:
+    """Whether ``header`` opens a §7 comparison table."""
+    return bool(header) and header[0].strip().lower() == COMPARISON_HEADER_KEY
+
+
 def assert_distribution_beside_mean(text: str) -> None:
     """Refuse any table that publishes a wall-clock figure without its spread.
 
@@ -113,13 +156,24 @@ def assert_distribution_beside_mean(text: str) -> None:
     """
     for table in _tables(text):
         header = table[0]
+        comparison = _is_comparison_header(header)
         cites_mean = any("mean" in cell.lower() for cell in header)
-        if not cites_mean and not _is_wallclock_header(header):
+        if not comparison and not cites_mean and not _is_wallclock_header(header):
             continue
-        missing = [
-            h for h in _DISTRIBUTION_HEADERS if not any(h in cell.lower() for cell in header)
-        ]
+        # A comparison table owes the mean itself, not only its spread: an arm that
+        # measured nothing invites dropping the column entirely, and a table with no
+        # wall-clock column at all would otherwise satisfy this guard by omission.
+        required = ("mean", *_DISTRIBUTION_HEADERS) if comparison else _DISTRIBUTION_HEADERS
+        missing = [h for h in required if not any(h in cell.lower() for cell in header)]
         if missing:
+            if comparison and "mean" in missing:
+                raise ReportError(
+                    f"the §7 comparison table with header {header} publishes no "
+                    f"wall-clock column at all ({', '.join(missing)} missing) — an arm "
+                    "that measured nothing renders "
+                    f"`{NOT_MEASURED}`, it does not delete the column and take the "
+                    "spread requirement with it (PRD #233 acceptance criterion 4)"
+                )
             raise ReportError(
                 f"table with header {header} publishes a wall-clock mean with no "
                 f"{', '.join(missing)} beside it — the population is bimodal, so a "
@@ -353,6 +407,67 @@ def _headline_rows(summary: dict) -> list[str]:
     return lines
 
 
+def _comparison_wallclock_cells(summary: dict, arm: str) -> list[str]:
+    """One arm's four wall-clock cells, or four explicit not-measured ones.
+
+    Three states collapse to the same honest cell and none of them to a blank: the
+    arm is derived and executed nothing, the run was on a CI runner, or the operator
+    withheld timings. In all three no number exists, so none is printed — not one
+    synthesised from `durations_ms`, which is another execution's per-test time, and
+    not one borrowed from an arm that really ran.
+    """
+    wc = summary.get("wallclock") or {}
+    row = (wc.get("rows") or {}).get(arm)
+    if wc.get("suppressed") or not row:
+        return [NOT_MEASURED] * (1 + len(_DISTRIBUTION_HEADERS))
+    return [
+        _ms(row.get(f"{stat}_{COMPARISON_WALLCLOCK_COLUMN}"))
+        for stat in ("mean", *_DISTRIBUTION_HEADERS)
+    ]
+
+
+def comparison_table(summary: dict) -> list[str]:
+    """The §7 evidence table: `static` against `rtdd`, `path` and `full`.
+
+    Three metrics per arm — change-level recall, selection ratio, selected-duration
+    fraction (PRD #233 AC3) — and the measured wall-clock beside them, mean and spread
+    together so :func:`assert_distribution_beside_mean` covers these rows like any
+    other. Arms absent from this run are absent from the table; nothing is imputed.
+    """
+    arms = [a for a in COMPARISON_ARMS if a in summary.get("strategies", {})]
+    label = WALLCLOCK_COLUMN_LABELS[COMPARISON_WALLCLOCK_COLUMN]
+    stats = " | ".join((f"mean {label}", *_DISTRIBUTION_HEADERS))
+    metrics_header = " | ".join(name for _, name in COMPARISON_METRICS)
+    cells = 1 + len(COMPARISON_METRICS) + 1 + len(_DISTRIBUTION_HEADERS)
+    lines = [
+        f"| {COMPARISON_HEADER_KEY} | {metrics_header} | {stats} |",
+        "|" + "---|" * cells,
+    ]
+    unmeasured: list[str] = []
+    for arm in arms:
+        s = summary["strategies"][arm]
+        scores = " | ".join(fmt(s.get(key)) for key, _ in COMPARISON_METRICS)
+        wall = _comparison_wallclock_cells(summary, arm)
+        if wall[0] == NOT_MEASURED:
+            unmeasured.append(arm)
+        lines.append(f"| `{arm}` | {scores} | {' | '.join(wall)} |")
+    if unmeasured:
+        lines.append("")
+        lines.append(
+            "`"
+            + "`, `".join(unmeasured)
+            + "` carry no wall-clock record in this run — a derived arm **executed "
+            "nothing** at all, and any arm can simply have gone unsampled. Nothing was "
+            f"invented to fill the gap: the cells read `{NOT_MEASURED}` rather than a "
+            "blank that would read as zero, a figure synthesised from `durations_ms` "
+            "(another execution's per-test time), or a row borrowed from an arm that "
+            "really ran. The cost those arms do publish is the **selected duration** "
+            "column, a ratio of the same commit's own recorded per-test durations and "
+            "therefore independent of the machine."
+        )
+    return lines
+
+
 def render_markdown(summary: dict, cfg: RunConfig, hw: Hardware) -> str:
     """The published per-repo table. One repo, one primary variant, one verdict line."""
     primary = summary["primary_variant"] or "n/a"
@@ -382,6 +497,18 @@ def render_markdown(summary: dict, cfg: RunConfig, hw: Hardware) -> str:
     lines.append(f"## Per-strategy — `{primary}`, all strata pooled within this repo")
     lines.append("")
     lines += _headline_rows(summary)
+    if "static" in summary.get("strategies", {}):
+        lines.append("")
+        lines.append("## The static arm")
+        lines.append("")
+        lines.append(
+            "Spec §7 asks what the `TS` static tier is worth against the corpus where "
+            "the coverage-derived answer is already known. `static` is scored here "
+            "against `rtdd`, the naive `path` baseline and the `full` ceiling, on the "
+            "three metrics the pre-registration names."
+        )
+        lines.append("")
+        lines += comparison_table(summary)
     lines.append("")
     lines.append(
         "## Stratified by |F_full| — the `|F_full| == 1` stratum is where selection "
