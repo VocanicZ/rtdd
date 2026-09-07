@@ -270,3 +270,35 @@ def test_a_strategy_record_publishes_the_stale_ids_it_dropped():
     # An older line without the key still reads back.
     older = {k: v for k, v in d.items() if not k.startswith(("stale_", "n_stale"))}
     assert StrategyRecord.from_dict(older).stale_dropped == ()
+
+
+def test_strategy_record_defaults_to_measured():
+    """Every record written before M6e came from a strategy that really ran."""
+    rec = StrategyRecord("flask", "c1", "natural", "path", ("a",), False, "sib", 3)
+    assert rec.derived is False
+    assert rec.to_dict()["derived"] is False
+
+
+def test_a_derived_record_is_marked_on_the_wire():
+    """`select_ms` on a derived record is 0 because nothing was timed, not because it was
+    fast. `derived` is the field that says which of those two a 0 means, and it has to
+    survive the round-trip or a reader cannot tell them apart at all."""
+    rec = StrategyRecord(
+        "flask", "c1", "natural", "static", ("a", "b"), False, "derived offline", 0,
+        derived=True,
+    )
+    d = rec.to_dict()
+    assert d["derived"] is True
+    assert StrategyRecord.from_dict(d) == rec
+
+
+def test_an_already_committed_line_reads_back_as_measured():
+    """bench/results/*/commits.jsonl predates this field. A missing key is `false`, not a
+    KeyError: the published records are the input to every derivation and re-writing them
+    to add a default would be a schema migration of committed ground truth."""
+    old = {
+        "kind": "strategy", "repo_id": "flask", "commit": "c1", "variant": "natural",
+        "strategy": "path", "selected": ["a"], "n_selected": 1, "escalated": False,
+        "reason": "sib", "select_ms": 3, "stale_dropped": [], "n_stale_dropped": 0,
+    }
+    assert StrategyRecord.from_dict(old).derived is False

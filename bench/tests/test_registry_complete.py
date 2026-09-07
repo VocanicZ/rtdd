@@ -37,6 +37,13 @@ REQUIRED_BASELINES = frozenset(
 SYSTEM_UNDER_TEST = "rtdd"
 REQUIRED = REQUIRED_BASELINES | {SYSTEM_UNDER_TEST}
 
+# `static` — M6e's system-under-test arm, and NOT a PRD #4 baseline — is deliberately
+# absent from this list. Registry membership means the orchestrator may EXECUTE an arm
+# against a materialised worktree, and executing that one is the thing PRD #233 forbids:
+# it is derived offline from committed records instead, reaching the published tables
+# through `replay.derive.DERIVED_ARMS`. `test_derive.py` asserts the absence with that
+# reason attached, so this exact-equality assertion stays as it is.
+
 
 def test_every_required_baseline_is_registered():
     missing = REQUIRED - set(all_ids())
