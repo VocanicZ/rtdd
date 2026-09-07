@@ -220,6 +220,14 @@ func cmdRun(args []string) int {
 	)
 	sig := SignalOutput{Instrumentable: map[string]bool{}}
 	unmapped := map[string]bool{}
+	// The adapters that ran and declare `coverage: none`, in block order. They are what
+	// the uncovered surface states a reason for instead of a report (issue #345).
+	// coverageRan is the other side of the same split: whether ANY adapter that ran can
+	// back an uncovered report at all.
+	var (
+		noCoverage  []string
+		coverageRan bool
+	)
 	for _, blk := range blocks {
 		// An adapter whose enumeration failed is reported even with nothing to run: the
 		// empty selection is a CONSEQUENCE of the failure, and skipping it silently would
@@ -236,11 +244,23 @@ func cmdRun(args []string) int {
 			warnings = append(warnings, adapterFailureNote(blk.Adapter, err, blk.EnumErr != nil))
 			continue
 		}
-		for _, row := range rowsFrom(res, sha, blk.Adapter) {
-			// UNION, NEVER REPLACE. See the doc comment on cmdRun. UnionFor rather than
-			// Union because an untagged row IS this adapter's row when meta.json names
-			// it, and writing a tagged copy beside it would leave the map holding both.
-			m.UnionFor(row, mt.Adapter, older)
+		// The map is refreshed only from an adapter that records coverage, and issue
+		// #345's investigation is why. The rows a `coverage: none` adapter produced were
+		// real rows — one per outcome, carrying t, s and d — but every one of them had an
+		// EMPTY f, so none could ever be selected through: Select routes a static adapter
+		// down the TS tier before any map lookup happens (mapCannotAnswer), and `rtdd
+		// seed` refuses such an adapter outright because it has nothing to record. So the
+		// count the summary line printed was not miscounted — it was of rows that should
+		// never have existed, and writing them left map.jsonl claiming a coverage
+		// relation the adapter had already declared it cannot produce.
+		if recordsCoverage(blk.Ad) {
+			for _, row := range rowsFrom(res, sha, blk.Adapter) {
+				// UNION, NEVER REPLACE. See the doc comment on cmdRun. UnionFor rather
+				// than Union because an untagged row IS this adapter's row when meta.json
+				// names it, and writing a tagged copy beside it would leave the map
+				// holding both.
+				m.UnionFor(row, mt.Adapter, older)
+			}
 		}
 
 		// Classify against the coverage THIS adapter just produced — never against
@@ -253,7 +273,16 @@ func cmdRun(args []string) int {
 			IsInstrumentable: instrumentableOf(blk.Ad),
 			Map:              m,
 		})
-		reports = append(reports, blkSig.Reports...)
+		// A `coverage: none` block's classification is fabricated by construction: its
+		// run instrumented nothing, so Classify sees an empty coverage result and reports
+		// EVERY changed line Uncovered. Dropping it here is what keeps the claim off both
+		// output paths — the text report below and the --json document's `uncovered`.
+		if recordsCoverage(blk.Ad) {
+			reports = append(reports, blkSig.Reports...)
+			coverageRan = true
+		} else {
+			noCoverage = append(noCoverage, blk.Adapter)
+		}
 		for p, ok := range blkSig.Instrumentable {
 			sig.Instrumentable[p] = sig.Instrumentable[p] || ok
 		}
@@ -307,16 +336,21 @@ func cmdRun(args []string) int {
 
 	if *asJSON {
 		out := BuildOutput(OutputInput{
-			Command:         "run",
-			Base:            *base,
-			Adapter:         blocksAdapterName(blocks),
-			Sel:             sel,
-			Changes:         changes,
-			Instrumentable:  sig.Instrumentable,
-			Executed:        true,
-			Outcomes:        outcomes,
-			Reports:         reports,
-			UncoveredOK:     true,
+			Command:        "run",
+			Base:           *base,
+			Adapter:        blocksAdapterName(blocks),
+			Sel:            sel,
+			Changes:        changes,
+			Instrumentable: sig.Instrumentable,
+			Executed:       true,
+			Outcomes:       outcomes,
+			Reports:        reports,
+			// Available only when SOME adapter that ran records coverage. `available:
+			// false` with a reason is the shape schema v1 already has for a report no
+			// fresh coverage backs; an empty `files` list would read as "nothing
+			// uncovered", which is the fabrication AC9a is about.
+			UncoveredOK:     coverageRan,
+			UncoveredReason: uncoveredAbsentReason(noCoverage),
 			UnmappedFiles:   sig.UnmappedFiles,
 			ImportFallback:  importFallback,
 			SuiteEnumerated: suiteEnumerated,
@@ -330,11 +364,11 @@ func cmdRun(args []string) int {
 		return finishCycle(root, mt, code)
 	}
 
-	fmt.Printf("%d ran, %d failed, %d rows in the map\n", ran, len(failed), m.Len())
+	fmt.Print(renderRunSummary(ran, len(failed), m.Len(), coverageWasRecorded(ads)))
 	for _, id := range failed {
 		fmt.Printf("FAILED %s\n", id)
 	}
-	if s := RenderUncovered(reports); s != "" {
+	if s := RenderUncoveredFor(reports, noCoverage); s != "" {
 		fmt.Fprint(os.Stdout, "\n"+s)
 	}
 	return finishCycle(root, mt, code)
@@ -357,6 +391,39 @@ func renderRunTiers(blocks []AdapterSelection) string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// renderRunSummary is the one-line summary of what the run did.
+//
+// The map-row clause is CONDITIONAL, and that is issue #345 AC9b. `rtdd run` printed
+// "N rows in the map" unconditionally, which claimed a coverage relation for an adapter
+// that records none — see the gate at the UnionFor call above for what those rows
+// actually were. It is dropped rather than printed as zero: "0 rows in the map" is a true
+// sentence about a map that should not be mentioned at all, and it still puts the
+// coverage vocabulary on a static run's output.
+//
+// The ran/failed counts are real for every adapter and always survive: tests were
+// executed and some of them failed, and neither claim needs coverage to be honest.
+func renderRunSummary(ran, failed, rows int, mapApplies bool) string {
+	if !mapApplies {
+		return fmt.Sprintf("%d ran, %d failed\n", ran, failed)
+	}
+	return fmt.Sprintf("%d ran, %d failed, %d rows in the map\n", ran, failed, rows)
+}
+
+// uncoveredAbsentReason is the --json document's `uncovered.reason` for a run whose
+// adapters record no coverage: the same sentences the text surface prints, so a consumer
+// reading the document and a human reading the terminal are told the same thing. It
+// returns "" when no adapter was suppressed, which leaves buildUncovered's own default.
+func uncoveredAbsentReason(noCoverage []string) string {
+	if len(noCoverage) == 0 {
+		return ""
+	}
+	reasons := make([]string, 0, len(noCoverage))
+	for _, name := range noCoverage {
+		reasons = append(reasons, noCoverageReason(name))
+	}
+	return strings.Join(reasons, "; ")
 }
 
 // selectionIsEmpty is the one reading of "nothing to run": an explicit empty tier, or a

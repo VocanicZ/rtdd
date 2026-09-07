@@ -166,11 +166,16 @@ type OutputInput struct {
 	SuiteEnumerated bool
 	// Warnings are the caveats the command already reports to a human, verbatim and in
 	// the order it produced them.
-	Warnings       []string
-	Reports        []uncovered.FileReport
-	UncoveredOK    bool
-	UnmappedFiles  []string
-	ImportFallback map[string][]string
+	Warnings    []string
+	Reports     []uncovered.FileReport
+	UncoveredOK bool
+	// UncoveredReason overrides the default explanation for an ABSENT uncovered report.
+	// The default says the signal needs a run; an adapter that ran and instrumented
+	// nothing needs the other sentence, and sending "run `rtdd run`" to a consumer that
+	// just did is how a suppression turns into a wrong instruction (issue #345).
+	UncoveredReason string
+	UnmappedFiles   []string
+	ImportFallback  map[string][]string
 	// Blocks is the per-adapter split for a polyglot repository. One element — or none —
 	// leaves the document exactly as it was before per-adapter selection existed.
 	Blocks []AdapterSelection
@@ -304,6 +309,9 @@ func buildRun(in OutputInput) JSONRun {
 // read as "nothing uncovered" — and `reason` says why, present only in that case.
 func buildUncovered(in OutputInput) JSONUncovered {
 	if !in.UncoveredOK {
+		if in.UncoveredReason != "" {
+			return JSONUncovered{Reason: in.UncoveredReason}
+		}
 		return JSONUncovered{Reason: unavailableReason}
 	}
 
