@@ -679,3 +679,137 @@ def test_no_comparison_section_where_the_run_carries_no_static_arm():
     summaries are unchanged until the arm is backfilled."""
     md = render_markdown(build_summary(_out(), ("rtdd", "path"), HW), CFG, HW)
     assert "## The static arm" not in md
+
+
+# --- the static arm's own verdict and the model it publishes (#366) -------
+#
+# Two documentation-accuracy defects, both of the same shape: an artifact asserts
+# something it does not do. `derive.STATIC_TEST_FOR` documents itself as a PUBLISHED
+# input that `summary.md` prints, and `summary.md` printed nothing; the plan's Task 6
+# promised the pre-registered static verdict "stated in prose, win or lose", and the
+# only place it was ever stated is `README.md`. A reader of one repo's `summary.md`
+# saw `static` and `path` tie in the by-variant table and was told nothing about it.
+
+
+def _static_verdict_lines(text: str) -> list[str]:
+    return [ln for ln in text.splitlines() if ln.startswith("static verdict")]
+
+
+def test_the_static_arm_section_discloses_every_template_it_models_with():
+    """`STATIC_TEST_FOR` determines the published number — `static`'s selection ratio,
+    its selected-duration fraction and therefore the kill-condition verdict all move if
+    the templates change. So it is a published input, and the section that prints the
+    number prints it beside them rather than leaving it in a source file."""
+    from replay.derive import STATIC_TEST_FOR
+
+    summary = build_summary(_static_out(), ("rtdd", "path", "full", "static"), HW)
+    md = render_markdown(summary, CFG, HW)
+    section = md.split("## The static arm", 1)[1].split("## Stratified", 1)[0]
+    for tmpl in STATIC_TEST_FOR:
+        assert tmpl in section, tmpl
+
+
+def test_the_static_arm_section_names_the_level_2_source_and_both_construction_facts():
+    """A reader comparing the row to `rtdd` has to be told that level 2 is the committed
+    `importgraph` selection (so `static ⊇ importgraph` is arithmetic, not a finding) and
+    that the adapter modelled here does not ship."""
+    from replay.derive import LEVEL2_SOURCE
+
+    summary = build_summary(_static_out(), ("rtdd", "path", "full", "static"), HW)
+    md = render_markdown(summary, CFG, HW)
+    section = md.split("## The static arm", 1)[1].split("## Stratified", 1)[0]
+    for needle in (LEVEL2_SOURCE, "by construction", "does not ship"):
+        assert needle in section, needle
+
+
+def test_the_static_verdict_fires_the_kill_condition_on_a_tie():
+    """Spec §7: "if the static tier does not beat the `path` baseline it is not worth
+    shipping as a distinct tier". A tie is not a beat — and a tie is the branch the
+    published corpus actually produces (flask/probe: 0.333 vs 0.333), so it is the
+    branch that has to be right."""
+    from replay.report import STATIC_FAILURE_WORDING, static_verdict_line
+
+    tied = _arm(0.333, 0.012, 0.010)
+    s = _synthetic_summary(arms={"static": tied, "path": dict(tied)})
+    assert STATIC_FAILURE_WORDING in static_verdict_line(s)
+
+
+def test_the_static_verdict_reports_a_win_when_there_is_one():
+    from replay.report import STATIC_SUCCESS_WORDING, static_verdict_line
+
+    s = _synthetic_summary(
+        arms={"static": _arm(0.800, 0.100, 0.100), "path": _arm(0.400, 0.100, 0.120)}
+    )
+    line = static_verdict_line(s)
+    assert STATIC_SUCCESS_WORDING in line
+
+
+def test_static_recall_bought_with_more_time_is_not_a_win():
+    """"at comparable or better selected-duration fraction" is half the criterion. An arm
+    that buys recall by selecting more of the suite is on its way to being `full`."""
+    from replay.report import STATIC_FAILURE_WORDING, STATIC_SUCCESS_WORDING, static_verdict_line
+
+    s = _synthetic_summary(
+        arms={"static": _arm(0.800, 0.900, 0.900), "path": _arm(0.400, 0.100, 0.100)}
+    )
+    line = static_verdict_line(s)
+    assert STATIC_FAILURE_WORDING in line
+    assert STATIC_SUCCESS_WORDING not in line
+
+
+def test_a_static_population_with_no_ground_truth_is_not_computable_not_a_loss():
+    """Neither published repo's `natural` population has a detecting commit. Scoring that
+    as a failure would publish a verdict about a comparison nothing was measured for."""
+    from replay.report import STATIC_FAILURE_WORDING, static_verdict_line
+
+    s = _synthetic_summary(
+        arms={"static": _arm(None, 0.05, 0.05), "path": _arm(None, 0.05, 0.05)}
+    )
+    assert "not computable" in static_verdict_line(s)
+    assert STATIC_FAILURE_WORDING not in static_verdict_line(s)
+
+
+def test_the_static_verdict_refuses_to_compute_without_both_arms():
+    from replay.report import static_verdict_line
+
+    s = _synthetic_summary(arms={"rtdd": _arm(1.0, 0.05, 0.06)})
+    assert static_verdict_line(s).startswith("static verdict: not computable")
+
+
+def test_the_static_secondary_verdict_labels_probe_as_an_upper_bound():
+    """`probe` is the only population with ground truth in the published corpus, so it is
+    the population the verdict actually turns on — and it is still an upper bound, so it
+    is labelled as one on its own line rather than promoted to the primary verdict."""
+    from replay.report import static_secondary_verdict_lines
+
+    arms = {"static": _arm(0.333, 0.012, 0.010), "path": _arm(0.333, 0.012, 0.010)}
+    s = _synthetic_summary(arms=arms)
+    s["by_variant"] = {"natural": arms, "probe": arms}
+    lines = static_secondary_verdict_lines(s)
+    assert len(lines) == 1
+    assert lines[0].startswith("static verdict (probe")
+    assert "upper bound" in lines[0]
+
+
+def test_the_markdown_states_the_static_verdict_beside_the_comparison_table():
+    """The per-repo artifact states its own result instead of relying on the reader
+    reaching `README.md`."""
+    summary = build_summary(_static_out(), ("rtdd", "path", "full", "static"), HW)
+    md = render_markdown(summary, CFG, HW)
+    section = md.split("## The static arm", 1)[1].split("## Stratified", 1)[0]
+    assert _static_verdict_lines(section), "the static arm section states no verdict"
+
+
+def test_a_run_with_no_static_arm_states_no_static_verdict():
+    md = render_markdown(build_summary(_out(), ("rtdd", "path"), HW), CFG, HW)
+    assert _static_verdict_lines(md) == []
+
+
+def test_the_rtdd_verdict_is_never_mistaken_for_the_static_one():
+    """Both verdicts share one body, so `^verdict: ` must still select exactly the
+    rtdd-vs-path line and never the static one."""
+    summary = build_summary(_static_out(), ("rtdd", "path", "full", "static"), HW)
+    md = render_markdown(summary, CFG, HW)
+    primary = [ln for ln in md.splitlines() if ln.startswith("verdict:")]
+    assert len(primary) == 1
+    assert "rtdd=" in primary[0]

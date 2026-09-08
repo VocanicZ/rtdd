@@ -11,7 +11,7 @@ bytes: `git diff --stat bench/results/<repo_id>/` is the check.
 bench/results/<repo_id>/
   commits.jsonl   one JSON line per record, sorted by (repo_id, commit, variant, kind, strategy)
   summary.json    every published metric, sorted keys, newline-terminated
-  summary.md      the published per-repo table, including the `verdict:` line
+  summary.md      the published per-repo table, including the `verdict:` and `static verdict:` lines
   config.json     the RunConfig, its digest and the Hardware that produced the other three
   drift.json      the cycles-since-commit curve, only when a drift session was run
 bench/results/aggregate.md   the sole cross-repo file — duration-weighted and labelled as such
@@ -27,7 +27,12 @@ Three rules the layout enforces:
   its rows are an upper bound and are labelled as one on the same line as the
   numbers.
 - **The verdict is unconditional.** Every `summary.md` carries a `verdict:` line
-  comparing RTDD against the naive path heuristic, printed win or lose.
+  comparing RTDD against the naive path heuristic, printed win or lose. A repo whose
+  records carry the derived `static` arm also carries a `static verdict:` line under
+  `## The static arm`, applying spec §7's pre-registered kill condition to that repo's
+  own numbers, beside the `test_for` templates the arm was derived with — the input
+  those numbers move with, rendered from `replay.derive.STATIC_TEST_FOR` rather than
+  re-typed.
 
 `bench/results/.cache/` is the one thing here that *is* gitignored.
 

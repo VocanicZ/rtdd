@@ -24,6 +24,10 @@ The `verdict:` line is unconditional. It prints in every `summary.md`, and when
 RTDD does not clearly beat the naive path heuristic it prints
 :data:`FAILURE_WORDING` verbatim — the pre-registered criterion fired, and the
 honest outcome is to publish that rather than re-run until the number improves.
+The `static verdict:` line is the same discipline applied to spec §7's second
+pre-registration: it prints wherever the run carries a `static` arm, shares one body
+with the first so the two rules cannot drift, and prints
+:data:`STATIC_FAILURE_WORDING` verbatim when the kill condition fires.
 """
 
 from __future__ import annotations
@@ -31,7 +35,7 @@ from __future__ import annotations
 import pathlib
 from collections.abc import Sequence
 
-from replay import falsesignal, metrics
+from replay import derive, falsesignal, metrics
 from replay.config import RunConfig, canonical_json
 from replay.hardware import Hardware
 from replay.records import to_jsonl_lines
@@ -192,6 +196,25 @@ FAILURE_WORDING = (
 
 SUCCESS_WORDING = "rtdd beats the naive path heuristic"
 
+STATIC_FAILURE_WORDING = (
+    "the static tier does NOT beat the naive path heuristic — per the pre-registration "
+    "in docs/specs/2026-09-05-multi-language.md §7 it is not worth shipping as a "
+    "distinct tier on this evidence and the README says so"
+)
+"""Spec §7's pre-registered failure sentence, used verbatim so it cannot be softened.
+
+The rule is the one `outcomes_test.go`'s
+`TestREADMEStaticVerdictMatchesTheCommittedSummaries` applies to `README.md`, and it is
+applied here to the per-repo artifact so a reader of one `summary.md` is told the result
+of the comparison its own by-variant table contains.
+"""
+
+STATIC_SUCCESS_WORDING = (
+    "the static tier beats the naive path heuristic at comparable or better selected "
+    "duration — per the pre-registration in docs/specs/2026-09-05-multi-language.md §7 "
+    "it carries its weight as a distinct tier"
+)
+
 
 def fmt(r: dict | None) -> str:
     """A `Ratio` dict as `"0.933 (14/15)"`. A number is never printed without its denominator."""
@@ -324,40 +347,77 @@ def build_summary(
     }
 
 
-def verdict_line(summary: dict) -> str:
-    """The pre-registered rtdd-vs-path comparison, printed win or lose."""
-    r = summary["strategies"].get("rtdd")
-    p = summary["strategies"].get("path")
-    if not r or not p:
-        return "verdict: not computable (rtdd or path heuristic missing from this run)"
-    rr = r["change_level_recall"]["value"]
+def _compare(a: dict, p: dict, arm: str, success: str, failure: str) -> str | None:
+    """The pre-registered comparison of one arm against `path`, or None if unscored.
+
+    One body, two verdicts. `rtdd` and `static` were each pre-registered against the
+    same baseline on the same criterion — strictly better change-level recall bought at
+    no more of the suite's duration — and the two are computed here rather than twice,
+    so a change to the rule cannot reach one verdict and miss the other. A population
+    where either arm has no detecting commit scores nothing and returns None: that is
+    `not computable`, which is not a loss.
+    """
+    ar = a["change_level_recall"]["value"]
     pr = p["change_level_recall"]["value"]
-    rd = r["selected_duration_fraction"]["value"]
+    if ar is None or pr is None:
+        return None
+    ad = a["selected_duration_fraction"]["value"]
     pd = p["selected_duration_fraction"]["value"]
-    if rr is None or pr is None:
-        return "verdict: not computable (no detecting commits)"
     # "Clearly beat ... at equal or better selected-duration fraction": strictly
     # better recall, and no more milliseconds spent buying it.
-    beats = rr > pr and (rd is None or pd is None or rd <= pd)
+    beats = ar > pr and (ad is None or pd is None or ad <= pd)
     return (
-        f"verdict: change-level recall rtdd={rr:.3f} vs path heuristic={pr:.3f}; "
-        f"selected-duration fraction rtdd={_num(rd)} vs path={_num(pd)} — "
-        f"{SUCCESS_WORDING if beats else FAILURE_WORDING}"
+        f"change-level recall {arm}={ar:.3f} vs path heuristic={pr:.3f}; "
+        f"selected-duration fraction {arm}={_num(ad)} vs path={_num(pd)} — "
+        f"{success if beats else failure}"
     )
 
 
-def _compare(r: dict, p: dict, label: str, bound: str) -> str | None:
-    rr = r["change_level_recall"]["value"]
-    pr = p["change_level_recall"]["value"]
-    if rr is None or pr is None:
-        return None
-    rd = r["selected_duration_fraction"]["value"]
-    pd = p["selected_duration_fraction"]["value"]
-    beats = rr > pr and (rd is None or pd is None or rd <= pd)
-    return (
-        f"verdict ({label}{bound}): change-level recall rtdd={rr:.3f} vs "
-        f"path heuristic={pr:.3f}; selected-duration fraction rtdd={_num(rd)} vs "
-        f"path={_num(pd)} — {SUCCESS_WORDING if beats else FAILURE_WORDING}"
+def _primary_verdict(
+    summary: dict, arm: str, prefix: str, missing: str, success: str, failure: str
+) -> str:
+    a = summary["strategies"].get(arm)
+    p = summary["strategies"].get("path")
+    if not a or not p:
+        return f"{prefix}: not computable ({missing})"
+    body = _compare(a, p, arm, success, failure)
+    if body is None:
+        return f"{prefix}: not computable (no detecting commits)"
+    return f"{prefix}: {body}"
+
+
+def _secondary_verdicts(
+    summary: dict, arm: str, prefix: str, success: str, failure: str
+) -> list[str]:
+    primary = summary.get("primary_variant")
+    out: list[str] = []
+    for variant, per in sorted(summary.get("by_variant", {}).items()):
+        if variant == primary:
+            continue
+        a, p = per.get(arm), per.get("path")
+        if not a or not p:
+            continue
+        bound = (
+            ", upper bound — map seeded at the child commit, never pooled with "
+            "`natural`"
+            if variant == "probe"
+            else ""
+        )
+        body = _compare(a, p, arm, success, failure)
+        if body:
+            out.append(f"{prefix} ({variant}{bound}): {body}")
+    return out
+
+
+def verdict_line(summary: dict) -> str:
+    """The pre-registered rtdd-vs-path comparison, printed win or lose."""
+    return _primary_verdict(
+        summary,
+        "rtdd",
+        "verdict",
+        "rtdd or path heuristic missing from this run",
+        SUCCESS_WORDING,
+        FAILURE_WORDING,
     )
 
 
@@ -371,24 +431,39 @@ def secondary_verdict_lines(summary: dict) -> list[str]:
     commit and is therefore an upper bound, so it is printed under its own label,
     beside the primary line and never in place of it.
     """
-    primary = summary.get("primary_variant")
-    out: list[str] = []
-    for variant, per in sorted(summary.get("by_variant", {}).items()):
-        if variant == primary:
-            continue
-        r, p = per.get("rtdd"), per.get("path")
-        if not r or not p:
-            continue
-        bound = (
-            ", upper bound — map seeded at the child commit, never pooled with "
-            "`natural`"
-            if variant == "probe"
-            else ""
-        )
-        line = _compare(r, p, variant, bound)
-        if line:
-            out.append(line)
-    return out
+    return _secondary_verdicts(summary, "rtdd", "verdict", SUCCESS_WORDING, FAILURE_WORDING)
+
+
+def static_verdict_line(summary: dict) -> str:
+    """Spec §7's static-vs-path comparison for the primary variant, win or lose.
+
+    The `TS` tier was pre-registered against the same `path` baseline the map was, and
+    until #366 the result of that comparison appeared only in `README.md`: a reader of
+    one repo's `summary.md` saw `static` and `path` tie in the by-variant table and was
+    told nothing about it. The per-repo artifact now states its own result, by the same
+    rule `outcomes_test.go` derives the README's claim from the committed summaries.
+    """
+    return _primary_verdict(
+        summary,
+        "static",
+        "static verdict",
+        "the static arm or path heuristic is missing from this run",
+        STATIC_SUCCESS_WORDING,
+        STATIC_FAILURE_WORDING,
+    )
+
+
+def static_secondary_verdict_lines(summary: dict) -> list[str]:
+    """Spec §7's comparison on every non-primary variant, each labelled.
+
+    `probe` is the only population in the published corpus with any ground truth, so it
+    is the population the kill condition actually turns on — and it is still an upper
+    bound, so it is labelled as one on its own line rather than promoted to the primary
+    verdict.
+    """
+    return _secondary_verdicts(
+        summary, "static", "static verdict", STATIC_SUCCESS_WORDING, STATIC_FAILURE_WORDING
+    )
 
 
 def _headline_rows(summary: dict) -> list[str]:
@@ -468,6 +543,39 @@ def comparison_table(summary: dict) -> list[str]:
     return lines
 
 
+def static_model_disclosure() -> list[str]:
+    """The `test_for` templates the static arm models with, and how to read them.
+
+    :data:`derive.STATIC_TEST_FOR` calls itself a PUBLISHED input rather than an
+    implementation detail, and it is one: change a template and `static`'s selection
+    ratio, its selected-duration fraction and therefore the kill-condition verdict all
+    move. Rendering it here is what makes that claim true — the templates are read from
+    `derive` itself, never re-typed, so the number and its most load-bearing input are
+    auditable side by side and cannot drift.
+    """
+    lines = [
+        "`static` models the `TS` tier (spec §4.1) over this corpus and is **derived** "
+        "from the records above, never re-run. Level 1 is `test_for` correspondence, "
+        "resolved against the test files each commit collected, first match wins:",
+        "",
+    ]
+    lines += [f"- `{tmpl}`" for tmpl in derive.STATIC_TEST_FOR]
+    lines.append("")
+    lines.append(
+        f"Level 2 is the committed `{derive.LEVEL2_SOURCE}` selection — that baseline "
+        "measures exactly the transitive-import question level 2 asks, and it ran on "
+        "every replayed commit. Level 3 (path proximity) orders and never admits, so it "
+        "cannot change the selected set and none of the metrics above depend on it. Two "
+        f"consequences follow: `static ⊇ {derive.LEVEL2_SOURCE}` **by construction**, so "
+        "beating that baseline is arithmetic rather than a finding, which is why the "
+        "pre-registered comparison is against `path`; and `adapters/python.yaml` "
+        "declares no `test_for`, so the adapter modelled here **does not ship** — the "
+        "row answers what the static tier WOULD have selected on this corpus, which is "
+        "the question §7 pre-registers."
+    )
+    return lines
+
+
 def render_markdown(summary: dict, cfg: RunConfig, hw: Hardware) -> str:
     """The published per-repo table. One repo, one primary variant, one verdict line."""
     primary = summary["primary_variant"] or "n/a"
@@ -508,7 +616,14 @@ def render_markdown(summary: dict, cfg: RunConfig, hw: Hardware) -> str:
             "three metrics the pre-registration names."
         )
         lines.append("")
+        lines.append(static_verdict_line(summary))
+        for extra in static_secondary_verdict_lines(summary):
+            lines.append("")
+            lines.append(extra)
+        lines.append("")
         lines += comparison_table(summary)
+        lines.append("")
+        lines += static_model_disclosure()
     lines.append("")
     lines.append(
         "## Stratified by |F_full| — the `|F_full| == 1` stratum is where selection "

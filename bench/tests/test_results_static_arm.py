@@ -121,6 +121,81 @@ def test_the_run_config_that_stamped_the_numbers_still_never_names_the_derived_a
     assert "static" not in stamp["config"]["strategies"]
 
 
+# --- what the published summaries say about their own most load-bearing input (#366) ----
+
+
+@pytest.mark.parametrize("repo_id", BACKFILLED)
+def test_the_published_markdown_prints_every_template_the_static_arm_models_with(
+    repo_id: str,
+) -> None:
+    """`derive.STATIC_TEST_FOR` documents itself as a PUBLISHED input rather than an
+    implementation detail, and it is one: change a template and `static`'s selection
+    ratio, its selected-duration fraction and therefore the kill-condition verdict all
+    move. A reader of `summary.md` was reading a number whose most load-bearing input was
+    invisible. The templates are rendered from `derive.STATIC_TEST_FOR` itself, never
+    re-typed, and this asserts the two cannot drift."""
+    from replay.derive import STATIC_TEST_FOR
+
+    md = (RESULTS / repo_id / "summary.md").read_text(encoding="utf-8")
+    section = md.split("## The static arm", 1)[1].split("## Stratified", 1)[0]
+    for tmpl in STATIC_TEST_FOR:
+        assert tmpl in section, f"{repo_id}/summary.md never names the template {tmpl!r}"
+
+
+@pytest.mark.parametrize("repo_id", BACKFILLED)
+def test_the_published_markdown_states_the_pre_registered_static_verdict(repo_id: str) -> None:
+    """Spec §7's verdict, stated in prose in the per-repo artifact, win or lose. Before
+    this a reader of `bench/results/<repo>/summary.md` alone saw `static` and `path` tie
+    in the by-variant table and was told nothing about it; only the `rtdd`-vs-`path`
+    verdict was rendered there, and the static one lived in `README.md`."""
+    md = (RESULTS / repo_id / "summary.md").read_text(encoding="utf-8")
+    lines = [ln for ln in md.splitlines() if ln.startswith("static verdict")]
+    assert lines, f"{repo_id}/summary.md states no static verdict"
+    assert all(ln in md.split("## The static arm", 1)[1] for ln in lines), (
+        "the static verdict belongs beside the comparison table it is drawn from"
+    )
+
+
+@pytest.mark.parametrize("repo_id", BACKFILLED)
+def test_the_published_static_verdict_agrees_with_the_committed_numbers(repo_id: str) -> None:
+    """The same pre-registered rule `outcomes_test.go`'s
+    `TestREADMEStaticVerdictMatchesTheCommittedSummaries` applies to `README.md`, applied
+    here to the per-repo prose: a regenerated `summary.json` that flipped the comparison
+    must not leave a stale claim standing in the markdown beside it."""
+    from replay.report import STATIC_FAILURE_WORDING, STATIC_SUCCESS_WORDING
+
+    summary = json.loads((RESULTS / repo_id / "summary.json").read_text(encoding="utf-8"))
+    md = (RESULTS / repo_id / "summary.md").read_text(encoding="utf-8")
+    lines = [ln for ln in md.splitlines() if ln.startswith("static verdict")]
+
+    scored = 0
+    for variant, per in summary["by_variant"].items():
+        static, base = per["static"], per["path"]
+        sr = static["change_level_recall"]["value"]
+        pr = base["change_level_recall"]["value"]
+        if sr is None or pr is None:
+            continue
+        scored += 1
+        sd = static["selected_duration_fraction"]["value"]
+        pd = base["selected_duration_fraction"]["value"]
+        beats = sr > pr and (sd is None or pd is None or sd <= pd)
+        want = STATIC_SUCCESS_WORDING if beats else STATIC_FAILURE_WORDING
+        unwanted = STATIC_FAILURE_WORDING if beats else STATIC_SUCCESS_WORDING
+        stated = [
+            ln
+            for ln in lines
+            if f"static={sr:.3f}" in ln and f"path heuristic={pr:.3f}" in ln
+        ]
+        assert stated, f"{repo_id}/{variant} scores the comparison and no line reports it"
+        assert any(want in ln for ln in stated), f"{repo_id}/{variant}: the numbers say {want!r}"
+        assert not any(unwanted in ln for ln in stated), (
+            f"{repo_id}/{variant} states {unwanted!r}, which its own numbers contradict"
+        )
+    assert scored or all("not computable" in ln for ln in lines), (
+        f"{repo_id} scores no population, so every static verdict line must say so"
+    )
+
+
 # --- what the backfill was not allowed to touch --------------------------
 
 
