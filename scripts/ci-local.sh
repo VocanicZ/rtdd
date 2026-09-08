@@ -36,6 +36,13 @@ diff -u protocol/PROTOCOL.md internal/install/protocol.md
 echo "==> prereg gate"
 scripts/ci-prereg.sh
 
+# Issue #340: bench/ (Axis 2 replay) is a separate uv project from bench/swebench, and
+# until this milestone neither gate ran it. It now holds the derivation that produces
+# bench/results/*/summary.{json,md}, so a change to derive.py, report.py or metrics.py
+# could otherwise go green through both gates while breaking every published table.
+echo "==> bench replay gate"
+(cd bench && uv sync && uv run pytest -q && uv run python -m replay.cli audit)
+
 echo "==> static binary"
 CGO_ENABLED=0 go build -o /tmp/rtdd ./cmd/rtdd
 file /tmp/rtdd

@@ -125,3 +125,12 @@ def test_published_docs_never_cite_a_wallclock_mean_without_its_spread(rel: str)
         f"{rel} publishes Axis 2 numbers with no wall-clock table at all"
     )
     assert_distribution_beside_mean(text)
+
+
+def test_the_local_ci_gate_runs_the_bench_replay_suite() -> None:
+    """From #340 on, `bench/replay/` is what produces the published numbers. ci-local.sh
+    is the authoritative gate for this repo, and it ran the swebench project and three
+    bench test files — a change to derive.py, report.py or metrics.py could go green
+    through both gates while breaking every table."""
+    gate = (BENCH.parent / "scripts" / "ci-local.sh").read_text(encoding="utf-8")
+    assert "bench replay gate" in gate

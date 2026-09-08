@@ -126,9 +126,8 @@ jobs:
         run: uv run python -m replay.cli audit
         working-directory: bench
 
-      # `test_results_static_arm.py` is in this list for the same reason
-      # `test_results_corpus_coverage.py` is: it asserts on the COMMITTED artifacts under
-      # `bench/results/`, which no amount of green library code can vouch for (#349).
-      - name: corpus and audit tests
-        run: uv run pytest tests/test_audit.py tests/test_corpus.py tests/test_results_corpus_coverage.py tests/test_results_static_arm.py -q
+      # #340: the whole replay suite, not three files of it. bench/replay/ now derives
+      # the published static arm, so its tests are a push gate.
+      - name: bench replay suite
+        run: uv run pytest -q
         working-directory: bench
