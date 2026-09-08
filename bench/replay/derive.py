@@ -56,8 +56,15 @@ STATIC_TEST_FOR: tuple[str, ...] = (
 
 `adapters/python.yaml` declares none and stays byte-frozen — it is the coverage
 adapter, and the shipped tool would never reach `TS` on flask or httpie. These four
-are the model, they are a PUBLISHED input rather than an implementation detail
-(`summary.md` prints them), and changing them changes the number.
+are the model, they are a PUBLISHED input rather than an implementation detail, and
+changing them changes the number: the selection ratio, the selected-duration fraction
+and therefore the §7 kill-condition verdict all move with them.
+
+So they are printed beside the number they produce. `report.static_model_disclosure`
+renders this tuple into every `summary.md`'s `## The static arm` section, reading it
+from here rather than re-typing it, and `test_results_static_arm.py`'s
+`test_the_published_markdown_prints_every_template_the_static_arm_models_with` asserts
+the published markdown names every entry, so the two cannot drift (#366).
 """
 
 DERIVED_ARMS: tuple[str, ...] = ("static",)

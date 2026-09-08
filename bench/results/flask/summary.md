@@ -27,6 +27,10 @@ verdict (probe, upper bound — map seeded at the child commit, never pooled wit
 
 Spec §7 asks what the `TS` static tier is worth against the corpus where the coverage-derived answer is already known. `static` is scored here against `rtdd`, the naive `path` baseline and the `full` ceiling, on the three metrics the pre-registration names.
 
+static verdict: not computable (no detecting commits)
+
+static verdict (probe, upper bound — map seeded at the child commit, never pooled with `natural`): change-level recall static=0.333 vs path heuristic=0.333; selected-duration fraction static=0.010 vs path=0.010 — the static tier does NOT beat the naive path heuristic — per the pre-registration in docs/specs/2026-09-05-multi-language.md §7 it is not worth shipping as a distinct tier on this evidence and the README says so
+
 | arm | change recall | selection ratio | selected duration | mean subset uninstrumented | p50 | p90 | worst |
 |---|---|---|---|---|---|---|---|
 | `static` | n/a (0/0) | 0.050 (568/11274) | 0.056 (2036/36469) | not measured | not measured | not measured | not measured |
@@ -35,6 +39,15 @@ Spec §7 asks what the `TS` static tier is worth against the corpus where the co
 | `full` | n/a (0/0) | 1.000 (11274/11274) | 1.000 (36469/36469) | 3133 ms | 3081 ms | 3558 ms | 4761 ms |
 
 `static` carry no wall-clock record in this run — a derived arm **executed nothing** at all, and any arm can simply have gone unsampled. Nothing was invented to fill the gap: the cells read `not measured` rather than a blank that would read as zero, a figure synthesised from `durations_ms` (another execution's per-test time), or a row borrowed from an arm that really ran. The cost those arms do publish is the **selected duration** column, a ratio of the same commit's own recorded per-test durations and therefore independent of the machine.
+
+`static` models the `TS` tier (spec §4.1) over this corpus and is **derived** from the records above, never re-run. Level 1 is `test_for` correspondence, resolved against the test files each commit collected, first match wins:
+
+- `{dir}/test_{name}.py`
+- `{dir}/tests/test_{name}.py`
+- `tests/{subdir}/test_{name}.py`
+- `tests/test_{name}.py`
+
+Level 2 is the committed `importgraph` selection — that baseline measures exactly the transitive-import question level 2 asks, and it ran on every replayed commit. Level 3 (path proximity) orders and never admits, so it cannot change the selected set and none of the metrics above depend on it. Two consequences follow: `static ⊇ importgraph` **by construction**, so beating that baseline is arithmetic rather than a finding, which is why the pre-registered comparison is against `path`; and `adapters/python.yaml` declares no `test_for`, so the adapter modelled here **does not ship** — the row answers what the static tier WOULD have selected on this corpus, which is the question §7 pre-registers.
 
 ## Stratified by |F_full| — the `|F_full| == 1` stratum is where selection safety is genuinely under test
 

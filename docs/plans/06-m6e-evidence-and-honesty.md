@@ -1050,13 +1050,47 @@ decision 1 and decision 3 require.
 - Modify: `bench/replay/report.py`
 - Test: `bench/tests/test_report.py`
 
-**Interfaces:**
-- Consumes: `derive.DERIVED_ARMS`, `derive.STATIC_TEST_FOR`.
+**Interfaces** — reconciled with what shipped (#366). The block below described an API
+that was never built, and a plan that describes a tree it does not have is the same defect
+this milestone exists to correct elsewhere. What the task actually produced, and why:
+
+- Consumes: `derive.STATIC_TEST_FOR`, `derive.LEVEL2_SOURCE`. **Not** `derive.DERIVED_ARMS`
+  — `report.py` never imported it. The derived arm is recognised at the point it matters,
+  by the absence of a `WallClockRecord`: `_comparison_wallclock_cells` prints
+  `NOT_MEASURED` for any arm with no row, which covers a derived arm, a CI runner and a
+  withheld run alike, and cannot go stale against a list.
 - Produces:
-  - `STATIC_SUCCESS_WORDING`, `STATIC_FAILURE_WORDING`
-  - `static_verdict_line(summary: dict) -> str`
-  - `static_secondary_verdict_lines(summary: dict) -> list[str]`
-  - `summary["derived_arms"]: list[str]`
+  - `COMPARISON_ARMS`, `COMPARISON_METRICS`, `COMPARISON_WALLCLOCK_COLUMN`,
+    `COMPARISON_HEADER_KEY`, `NOT_MEASURED`
+  - `comparison_table(summary: dict) -> list[str]` — the §7 evidence table (AC3), rendered
+    into `summary.md` under `## The static arm`, with the not-measured disclosure beneath it
+  - `static_model_disclosure() -> list[str]` (#366) — the `test_for` templates, read from
+    `derive.STATIC_TEST_FOR` and never re-typed, plus the level-2 source and both
+    construction facts. `STATIC_TEST_FOR`'s docstring calls itself a published input that
+    `summary.md` prints; until #366 it was not printed anywhere, and the number's most
+    load-bearing input was invisible to the reader of the number.
+  - `STATIC_SUCCESS_WORDING`, `STATIC_FAILURE_WORDING`,
+    `static_verdict_line(summary: dict) -> str`,
+    `static_secondary_verdict_lines(summary: dict) -> list[str]` (#366) — the verdict this
+    task set out to state in prose. It was missing from `summary.md` for three milestones:
+    a reader of `bench/results/flask/summary.md` alone saw `static` and `path` tie at 0.333
+    recall / 0.010 duration in the by-variant table and was told nothing about it. These
+    share one body, `_compare`, with `verdict_line` and `secondary_verdict_lines`, so the
+    two pre-registered comparisons cannot drift apart.
+- **Not** produced: `summary["derived_arms"]`. The key was never added and nothing needs
+  it — `summary.json` is committed, so a key that no consumer reads is a re-keying of a
+  published artifact for nothing.
+
+**Where AC12 was actually discharged.** Not in a `summary.md` line, as planned, but in
+`README.md`, guarded by `outcomes_test.go`'s
+`TestREADMEStaticVerdictMatchesTheCommittedSummaries` (#351). That check parses both
+committed `summary.json` files, applies the §7 rule to every population, and asserts the
+README states the claim the numbers imply and never the opposite one — so the kill
+condition is derived from the evidence rather than trusted as typed prose, which the
+planned `summary.md` line alone would not have achieved. The README is the artifact the
+pre-registration names ("and the README says so"), and it is the only place a reader is
+given both repos at once, which is what a verdict over both populations needs. #366 adds
+the per-repo line as well, by the same rule, so each artifact also states its own result.
 
 - [ ] **Step 1: Write the failing test**
 
