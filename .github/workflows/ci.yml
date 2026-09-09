@@ -3,6 +3,10 @@ on:
   pull_request:
   push:
     branches: [main]
+  # #377: the workflow was switched off on 2026-08-26 and every commit of M6a-M6e
+  # merged with no CI. A manual trigger means the next time it needs proving it can be
+  # run on demand, without inventing a commit to push at it.
+  workflow_dispatch:
 jobs:
   test:
     runs-on: ubuntu-latest
