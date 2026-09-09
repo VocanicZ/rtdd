@@ -87,4 +87,35 @@ case "$listed" in
 esac
 go test -count=1 -run '^TestEveryShippedAdapterSelectionMatchesItsSubsetSelector$|^TestEveryStaticShippedAdapterHasASelectorCase$|^TestEveryStaticShippedAdapterDeclaresATestSelector$|^TestGoFixtureSelectionActuallyExecutesTestAdd$' ./cmd/rtdd/
 
+# PRD #368 AC11 (#380): the archives a release would publish, and install.sh driven
+# against them. Both tests below read build/dist, which .gitignore ignores — on a clean
+# checkout nothing fills it, so the snapshot build is what makes them mean anything. It
+# publishes NOTHING: --snapshot creates no tag, no release and no draft, it re-runs no
+# benchmark and it primes no bench cache.
+#
+# --skip=before because .goreleaser.yaml's before hooks are `go mod tidy`, the two
+# rtdd-gen commands and `go test ./...` — every one of them already its own step above.
+# Running them a second time inside GoReleaser proves nothing new and doubles the suite.
+echo "==> release snapshot archives (#368 AC7)"
+scripts/release-snapshot.sh --skip=before
+
+# The `-list` line in front of each `-run` is this repo's idiom, and it is load-bearing
+# here: `go test -run` on a pattern that matches nothing exits 0, so a deleted or renamed
+# gate would sail through as a pass over zero executed tests.
+echo "==> release archives ship every shipped path (#368 AC7)"
+listed="$(go test -list '^TestGoreleaserSnapshotShipsFiveArchivesWithEveryShippedPath$' .)"
+case "$listed" in
+  *TestGoreleaserSnapshotShipsFiveArchivesWithEveryShippedPath*) ;;
+  *) echo "the release-archive contents gate is gone from the root package"; exit 1 ;;
+esac
+go test -count=1 -run '^TestGoreleaserSnapshotShipsFiveArchivesWithEveryShippedPath$' .
+
+echo "==> install.sh end to end against the real snapshot archives (#368 AC8)"
+listed="$(go test -list '^TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion$' .)"
+case "$listed" in
+  *TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion*) ;;
+  *) echo "the end-to-end install gate is gone from the root package"; exit 1 ;;
+esac
+go test -count=1 -run '^TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion$' .
+
 echo "==> ci-local: PASS"
