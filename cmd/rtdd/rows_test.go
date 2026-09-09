@@ -218,9 +218,7 @@ func TestMapPathIsUnderRtdd(t *testing.T) {
 
 func TestFindRepoRoot(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
-		t.Fatalf("mkdir .git: %v", err)
-	}
+	plantRepoMarker(t, root)
 	deep := filepath.Join(root, "a", "b", "c")
 	if err := os.MkdirAll(deep, 0o755); err != nil {
 		t.Fatalf("mkdir deep: %v", err)
@@ -248,7 +246,16 @@ func TestFindRepoRootOutsideAnyRepo(t *testing.T) {
 // every worktree, which is exactly where the fleet runs.
 func TestFindRepoRootWorktreeFile(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, ".git"), []byte("gitdir: /elsewhere\n"), 0o644); err != nil {
+	// The pointer must resolve: a `gitdir:` naming a path that does not exist is not a
+	// worktree, it is a stray, and #369 is the bug of accepting one.
+	gitDir := filepath.Join(t.TempDir(), "worktrees", "wt")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatalf("mkdir gitdir target: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatalf("write HEAD: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".git"), []byte("gitdir: "+gitDir+"\n"), 0o644); err != nil {
 		t.Fatalf("write .git file: %v", err)
 	}
 	got, err := findRepoRoot(root)
@@ -351,5 +358,155 @@ func TestRowsFromTagsEveryRowWithItsAdapter(t *testing.T) {
 		if row.A != "python" {
 			t.Errorf("row %q carries adapter %q, want python", row.T, row.A)
 		}
+	}
+}
+
+// plantRepoMarker writes a `.git` directory that git would accept as a repository:
+// a directory holding HEAD. Fixtures that plant an empty `.git` describe a tree git
+// itself rejects, so they cannot stand in for a repository.
+func plantRepoMarker(t *testing.T, dir string) {
+	t.Helper()
+	gitDir := filepath.Join(dir, ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatalf("write .git/HEAD: %v", err)
+	}
+}
+
+// The bug: an EMPTY `.git` directory left anywhere above the working directory was
+// accepted as the repository root, so every command that resolves a root operated on
+// the wrong tree. `git rev-parse --show-toplevel` says "not a git repository" on this
+// tree and so must findRepoRoot.
+func TestFindRepoRootRejectsAnEmptyGitDirectory(t *testing.T) {
+	outer := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outer, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	inner := filepath.Join(outer, "a", "b")
+	if err := os.MkdirAll(inner, 0o755); err != nil {
+		t.Fatalf("mkdir inner: %v", err)
+	}
+
+	got, err := findRepoRoot(inner)
+	if err == nil {
+		t.Fatalf("findRepoRoot under an empty .git ancestor = %q, want an error", got)
+	}
+}
+
+// The second stray shape observed on the triage host: a `.git` DIRECTORY that is
+// non-empty but carries no HEAD. A "is a directory and has entries" rule is still
+// fooled by it; HEAD is the discriminator.
+func TestFindRepoRootRejectsAGitDirectoryWithoutHEAD(t *testing.T) {
+	outer := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outer, ".git", "info"), 0o755); err != nil {
+		t.Fatalf("mkdir .git/info: %v", err)
+	}
+	inner := filepath.Join(outer, "a")
+	if err := os.MkdirAll(inner, 0o755); err != nil {
+		t.Fatalf("mkdir inner: %v", err)
+	}
+
+	got, err := findRepoRoot(inner)
+	if err == nil {
+		t.Fatalf("findRepoRoot under a HEAD-less .git ancestor = %q, want an error", got)
+	}
+}
+
+// An invalid `.git` is skipped, not fatal: the upward walk continues to the parent, so
+// a real repository whose ancestor holds a stray `.git` still resolves to itself.
+func TestFindRepoRootWalksPastAnInvalidGitBelowARealRoot(t *testing.T) {
+	root := t.TempDir()
+	plantRepoMarker(t, root)
+
+	stray := filepath.Join(root, "vendor", "sample")
+	if err := os.MkdirAll(filepath.Join(stray, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir stray .git: %v", err)
+	}
+	deep := filepath.Join(stray, "pkg")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatalf("mkdir deep: %v", err)
+	}
+
+	got, err := findRepoRoot(deep)
+	if err != nil {
+		t.Fatalf("findRepoRoot: %v", err)
+	}
+	assertSameDir(t, got, root)
+}
+
+// The mirror case: the real repository is BELOW the stray. The walk must stop at the
+// real root and never reach the stray above it.
+func TestFindRepoRootStopsAtTheRealRootUnderAStrayAncestor(t *testing.T) {
+	outer := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outer, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir stray .git: %v", err)
+	}
+	root := filepath.Join(outer, "project")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("mkdir project: %v", err)
+	}
+	plantRepoMarker(t, root)
+	deep := filepath.Join(root, "a", "b")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatalf("mkdir deep: %v", err)
+	}
+
+	got, err := findRepoRoot(deep)
+	if err != nil {
+		t.Fatalf("findRepoRoot: %v", err)
+	}
+	assertSameDir(t, got, root)
+}
+
+// A `.git` FILE whose `gitdir:` target no longer exists is not a repository — git
+// reports "not a git repository: /nonexistent" — so the walk must continue past it.
+func TestFindRepoRootRejectsAWorktreeFileWithADeadGitdir(t *testing.T) {
+	outer := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outer, ".git"), []byte("gitdir: /nonexistent-rtdd-369\n"), 0o644); err != nil {
+		t.Fatalf("write .git file: %v", err)
+	}
+
+	got, err := findRepoRoot(outer)
+	if err == nil {
+		t.Fatalf("findRepoRoot with a dead gitdir pointer = %q, want an error", got)
+	}
+}
+
+// A relative `gitdir:` target resolves against the directory holding the `.git` file.
+// This is the shape `git worktree add` writes for a worktree kept inside the repo.
+func TestFindRepoRootWorktreeFileWithARelativeGitdir(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "gitdirs", "wt")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatalf("mkdir target: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatalf("write HEAD: %v", err)
+	}
+	wt := filepath.Join(root, "wt")
+	if err := os.MkdirAll(wt, 0o755); err != nil {
+		t.Fatalf("mkdir wt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(wt, ".git"), []byte("gitdir: ../gitdirs/wt\n"), 0o644); err != nil {
+		t.Fatalf("write .git file: %v", err)
+	}
+
+	got, err := findRepoRoot(wt)
+	if err != nil {
+		t.Fatalf("findRepoRoot in a worktree with a relative gitdir: %v", err)
+	}
+	assertSameDir(t, got, wt)
+}
+
+// assertSameDir compares two paths after resolving symlinks — on macOS t.TempDir()
+// hands back a path under /var, which is a symlink to /private/var.
+func assertSameDir(t *testing.T, got, want string) {
+	t.Helper()
+	gotEval, _ := filepath.EvalSymlinks(got)
+	wantEval, _ := filepath.EvalSymlinks(want)
+	if gotEval != wantEval {
+		t.Fatalf("findRepoRoot = %q, want %q", gotEval, wantEval)
 	}
 }

@@ -9,31 +9,18 @@ import (
 	"sort"
 
 	"github.com/VocanicZ/rtdd/internal/adapter"
+	"github.com/VocanicZ/rtdd/internal/gitctx"
 	"github.com/VocanicZ/rtdd/internal/mapstore"
 	"github.com/VocanicZ/rtdd/internal/runner"
 )
 
-// findRepoRoot walks up from start looking for a .git entry.
+// findRepoRoot walks up from start to the working tree that contains it.
 //
-// It tests for the entry's existence, not for it being a directory: in a git
-// worktree — and in a submodule — .git is a FILE holding a `gitdir:` pointer, and
-// a directory-only check reports "not inside a git repository" for every one of
-// them.
+// The rule lives in gitctx so this command and rtdd-gen cannot drift: a `.git`
+// DIRECTORY counts only when it holds HEAD, a `.git` FILE only when its `gitdir:`
+// target does. A stray marker is skipped and the walk continues upward.
 func findRepoRoot(start string) (string, error) {
-	dir, err := filepath.Abs(start)
-	if err != nil {
-		return "", fmt.Errorf("resolving %s: %w", start, err)
-	}
-	for {
-		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
-			return dir, nil
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", fmt.Errorf("not inside a git repository (searched upward from %s)", start)
-		}
-		dir = parent
-	}
+	return gitctx.FindRepoRoot(start)
 }
 
 // detectAdapters returns every adapter that matches repoRoot, from the built-in set

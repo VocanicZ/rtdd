@@ -238,3 +238,34 @@ func TestInitFallsBackToTheWorkingDirectoryOutsideAGitRepository(t *testing.T) {
 		}
 	}
 }
+
+// Issue #369: a stray `.git` — an empty directory left above the working tree by an
+// unrelated process — used to be accepted as the repository root, so `rtdd init`
+// installed into that ancestor instead of the tree the user was standing in. git
+// rejects such a marker; init must fall back to the working directory.
+func TestInitIgnoresAStrayGitAncestorAndInstallsIntoTheWorkingDirectory(t *testing.T) {
+	outer := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outer, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir stray .git: %v", err)
+	}
+	dir := filepath.Join(outer, "project")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir project: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte("[project]\nname = \"demo\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	code, _, stderr := rtdd(t, dir, "init")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	for _, rel := range []string{".gitattributes", ".rtdd/config.yaml", "AGENTS.md", ".cursor/rules/rtdd.mdc", ".claude/skills/rtdd/SKILL.md"} {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
+			t.Errorf("%s was not installed into the working directory: %v", rel, err)
+		}
+		if _, err := os.Stat(filepath.Join(outer, filepath.FromSlash(rel))); err == nil {
+			t.Errorf("%s was installed into the stray-.git ancestor, not the working directory", rel)
+		}
+	}
+}

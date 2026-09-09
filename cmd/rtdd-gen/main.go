@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/VocanicZ/rtdd/internal/gitctx"
 	"github.com/VocanicZ/rtdd/internal/protocol"
 )
 
@@ -53,26 +54,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
-// findRepoRoot walks up from start looking for a .git entry.
-//
-// It tests for the entry's existence, not for it being a directory: in a git
-// worktree .git is a FILE holding a `gitdir:` pointer, and a directory-only
-// check reports "not inside a git repository" there.
+// findRepoRoot walks up from start to the working tree that contains it. It is the
+// same rule rtdd uses — one implementation, in gitctx, so the two cannot diverge.
 func findRepoRoot(start string) (string, error) {
-	dir, err := filepath.Abs(start)
-	if err != nil {
-		return "", fmt.Errorf("resolving %s: %w", start, err)
-	}
-	for {
-		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
-			return dir, nil
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", fmt.Errorf("not inside a git repository (searched upward from %s)", start)
-		}
-		dir = parent
-	}
+	return gitctx.FindRepoRoot(start)
 }
 
 // loadDoc finds the repo root and parses its protocol/PROTOCOL.md.
