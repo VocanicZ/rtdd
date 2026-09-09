@@ -36,8 +36,26 @@ the limits are in [What it does not do](#what-it-does-not-do).
 
 ## Install
 
+There are two routes, and which one works depends on whether a release exists: **no release
+is published yet**, so build from source today; the one-line installer below starts working
+the moment a release is published, and is the shorter route once it does.
+
+Build from source — Go 1.24 or newer:
+
+```
+git clone https://github.com/VocanicZ/rtdd && cd rtdd
+go build ./cmd/rtdd      # writes ./rtdd — put it somewhere on your PATH
+```
+
+Or, once a release exists:
+
 ```
 curl -fsSL https://raw.githubusercontent.com/VocanicZ/rtdd/main/install.sh | sh
+```
+
+Either way, the loop is the same:
+
+```
 cd your-python-repo
 rtdd init      # front-ends, .gitattributes merge=union, config
 rtdd seed      # one full instrumented run to build the map

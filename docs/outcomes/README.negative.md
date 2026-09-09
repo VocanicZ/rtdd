@@ -84,6 +84,25 @@ Stated as hypotheses, because a losing arm does not license a confident post-hoc
   has no equivalent in a static-graph tool, and it was not what this benchmark measured. It
   remains untested as a standalone intervention.
 
+## Install
+
+**There is no installer, and there will not be one.** No release is published, no tag is
+pushed, and the binaries stay unreleased on this branch — spec §15 says do not ship a
+competitor to a tool that beat you, so the one-line `install.sh` route the positive branch
+would have offered does not exist here and nothing is served for it to fetch.
+
+What is left is source. If you want to run the harness above for yourself, or reuse the
+pieces listed in the previous section, build it — Go 1.24 or newer:
+
+```
+git clone https://github.com/VocanicZ/rtdd && cd rtdd
+go build ./cmd/rtdd      # writes ./rtdd — enough to reproduce the measurement
+```
+
+That is a route to reproducing a negative result, not a recommendation to adopt the tool.
+For test context in an agent loop, use
+**[TDAD](https://github.com/pepealonso95/TDAD)**.
+
 ## Prior art
 
 RTDD did not invent test impact analysis, and this result is a reason to say so more loudly
