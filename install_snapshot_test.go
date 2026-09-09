@@ -10,8 +10,9 @@
 // `rtdd_${VERSION_NUM}_${OS}_${ARCH}.tar.gz`, its single-member `tar -xzf … rtdd`, or its
 // `grep " ${ARCHIVE}$" checksums.txt` and the fixture tests would stay green.
 //
-// So this file builds the real archives - `goreleaser release --snapshot --clean` into
-// build/dist - serves those exact files plus GoReleaser's own checksums.txt and a
+// So this file builds the real archives - scripts/release-snapshot.sh, which is
+// `goreleaser release --snapshot --clean` at a pinned version, into build/dist - serves
+// those exact files plus GoReleaser's own checksums.txt and a
 // GitHub-shaped `releases/latest` body from the same local fixture-server technique
 // install_test.go uses, and installs from them into a temp dir.
 //
@@ -77,16 +78,14 @@ var (
 )
 
 // requireSnapshotRelease builds the real release archives once per test binary and returns
-// them. It skips - with a reason - when goreleaser is not installed, exactly as
-// release_snapshot_test.go's gate does: the archives cannot be produced, so there is
-// nothing here to install from.
+// them, through scripts/release-snapshot.sh - the same command release_snapshot_test.go's
+// gate runs, and the only place this repo invokes GoReleaser. It used to look a
+// `goreleaser` binary up on PATH and skip when it found none, which meant this file's
+// end-to-end install proof never ran anywhere (issue #385). The script fetches a pinned
+// GoReleaser with `go run`, so the only thing left that can stop it is a cold module cache
+// with no network.
 func requireSnapshotRelease(t *testing.T) *snapshotRelease {
 	t.Helper()
-	goreleaser, err := exec.LookPath("goreleaser")
-	if err != nil {
-		t.Skip("SKIP: goreleaser is not on PATH, so the real release archives cannot be built and install.sh " +
-			"cannot be exercised against them here. Install it (https://goreleaser.com/install/) and re-run.")
-	}
 	root := findRepoRootForTest(t)
 
 	// The tracked dist/ front-end tree lives next to GoReleaser's build/dist, and
@@ -95,9 +94,12 @@ func requireSnapshotRelease(t *testing.T) *snapshotRelease {
 	frontEndBefore := trackedTreeDigest(t, filepath.Join(root, "dist"))
 
 	snapshotOnce.Do(func() {
-		snapshotResult, snapshotErr = buildSnapshotRelease(goreleaser, root)
+		snapshotResult, snapshotErr = buildSnapshotRelease(root)
 	})
 	if snapshotErr != nil {
+		if moduleFetchFailure(snapshotErr.Error()) {
+			t.Skipf("SKIP: %s could not fetch the pinned GoReleaser module - a cold module cache with no network is the one thing this repo cannot provide for itself: %v", snapshotScript, snapshotErr)
+		}
 		t.Fatalf("building the snapshot release: %v", snapshotErr)
 	}
 
@@ -110,11 +112,11 @@ func requireSnapshotRelease(t *testing.T) *snapshotRelease {
 	return snapshotResult
 }
 
-func buildSnapshotRelease(goreleaser, root string) (*snapshotRelease, error) {
-	cmd := exec.Command(goreleaser, "release", "--snapshot", "--clean", "--skip=before")
+func buildSnapshotRelease(root string) (*snapshotRelease, error) {
+	cmd := exec.Command(filepath.Join(root, snapshotScript), "--skip=before")
 	cmd.Dir = root
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("goreleaser release --snapshot --clean --skip=before: %w\n%s", err, out)
+		return nil, fmt.Errorf("%s --skip=before: %w\n%s", snapshotScript, err, out)
 	}
 	distDir := filepath.Join(root, snapshotDistDir)
 	raw, err := os.ReadFile(filepath.Join(distDir, "metadata.json"))
