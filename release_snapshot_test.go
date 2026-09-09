@@ -4,8 +4,9 @@
 // nothing has ever looked inside an archive GoReleaser actually produced. A config can
 // name five files and still ship four: a `before` hook can wipe a path, a
 // `format_overrides` typo can hand Windows a tarball, an `ignore` entry can quietly drop a
-// platform. This file runs the real thing - `goreleaser release --snapshot --clean` - and
-// asserts on what lands in build/dist.
+// platform. This file runs the real thing - scripts/release-snapshot.sh, which is
+// `goreleaser release --snapshot --clean` at a pinned version - and asserts on what lands
+// in build/dist.
 //
 // Why --skip=before: .goreleaser.yaml's before hooks end with `go test ./...`, and this
 // test IS one of those tests. Running the hooks from here would re-enter this file inside
@@ -17,6 +18,13 @@
 //
 // --snapshot is what makes this safe to run from a unit test: GoReleaser refuses to
 // publish in snapshot mode, so no tag is pushed, no release and no draft is created.
+//
+// Why the script rather than a `goreleaser` binary: #372 shipped this file guarding AC7
+// with `exec.LookPath("goreleaser")` in front of it. Nothing installs GoReleaser on this
+// host or on any CI runner, so the gate skipped everywhere and the package still said
+// `ok`. scripts/release-snapshot.sh fetches a pinned GoReleaser with `go run`, which the
+// repo can always do for itself, so the gate has no reason left to skip except a cold
+// module cache with no network.
 package installtest
 
 import (
@@ -230,15 +238,154 @@ func trackedTreeDigest(t *testing.T, dir string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// moduleFetchFailure reports whether a failed snapshot run failed because the pinned
+// GoReleaser module could not be fetched. That is the one capability this repo cannot
+// provide for itself - a cold module cache on a host with no network - and so the only
+// thing left that may legitimately skip this gate. Everything else, the goreleaser binary
+// very much included, the repo fetches on demand.
+func moduleFetchFailure(out string) bool {
+	for _, marker := range []string{
+		"dial tcp",
+		"no such host",
+		"i/o timeout",
+		"connection refused",
+		"network is unreachable",
+		"TLS handshake timeout",
+		"module lookup disabled",
+		"proxy.golang.org",
+		"unrecognized import path",
+	} {
+		if strings.Contains(out, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// runSnapshotBuild builds the release archives into build/dist by running the repo's own
+// script, so the gate exercises the same command a human and CI run rather than a copy of
+// it that could drift.
+//
+// --skip=before is passed on top of the script's own flags: .goreleaser.yaml's before
+// hooks end with `go test ./...`, and this test IS one of those tests, so running them
+// from here would re-enter this file inside the hook without bound. The hooks are the
+// repo's own CI steps and scripts/ci-local.sh runs every one of them already.
+func runSnapshotBuild(t *testing.T, root string) {
+	t.Helper()
+	cmd := exec.Command(filepath.Join(root, snapshotScript), "--skip=before")
+	cmd.Dir = root
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return
+	}
+	if moduleFetchFailure(string(out)) {
+		t.Skipf("SKIP: %s could not fetch the pinned GoReleaser module - a cold module cache with no network is the one thing this repo cannot provide for itself.\n%s", snapshotScript, out)
+	}
+	t.Fatalf("%s --skip=before: %v\n%s", snapshotScript, err, out)
+}
+
+// goreleaserBinaryName is the binary this repo deliberately does NOT depend on. It is a
+// constant rather than a literal so that the source scan in release_snapshot_script_test.go
+// can forbid `LookPath("goreleaser")` outright, with no exemption for the one place that
+// legitimately asks - the check below, which asserts the sanitised PATH resolves nothing.
+const goreleaserBinaryName = "goreleaser"
+
+// pathWithoutGoreleaser returns a PATH that resolves `go` but not `goreleaser`: every
+// directory holding a goreleaser executable is dropped, and a shim directory carrying a
+// symlink to the real `go` is prepended so dropping one cannot take the toolchain with it.
+func pathWithoutGoreleaser(t *testing.T) string {
+	t.Helper()
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatalf("go is not on PATH: %v", err)
+	}
+	shim := t.TempDir()
+	if err := os.Symlink(goBin, filepath.Join(shim, "go")); err != nil {
+		t.Fatalf("link go into the shim dir: %v", err)
+	}
+	kept := []string{shim}
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir == "" {
+			continue
+		}
+		if info, err := os.Stat(filepath.Join(dir, goreleaserBinaryName)); err == nil && !info.IsDir() {
+			continue
+		}
+		kept = append(kept, dir)
+	}
+	return strings.Join(kept, string(os.PathListSeparator))
+}
+
+// TestTheArchiveGateRunsWithNoGoreleaserBinaryOnPATH is the assertion that the gate above
+// is not silently skipping. It runs that one test in a child `go test` with a PATH that
+// resolves no goreleaser binary - the exact condition under which #372's gate reported
+// `ok` without executing - and insists on a PASS. A SKIP here is a failure, not a pass.
+func TestTheArchiveGateRunsWithNoGoreleaserBinaryOnPATH(t *testing.T) {
+	root := findRepoRootForTest(t)
+	t.Setenv("PATH", pathWithoutGoreleaser(t))
+	if p, err := exec.LookPath(goreleaserBinaryName); err == nil {
+		t.Fatalf("the sanitised PATH still resolves goreleaser at %s", p)
+	}
+
+	cmd := exec.Command("go", "test", "-count=1", "-v",
+		"-run", "^"+snapshotGateName+"$", ".")
+	cmd.Dir = root
+	out, err := cmd.CombinedOutput()
+	got := string(out)
+	if err != nil {
+		if moduleFetchFailure(got) {
+			t.Skipf("SKIP: the child run could not fetch the pinned GoReleaser module - a cold module cache with no network is the one thing this repo cannot provide for itself.\n%s", got)
+		}
+		t.Fatalf("go test -run %s with no goreleaser on PATH: %v\n%s", snapshotGateName, err, got)
+	}
+	if strings.Contains(got, "--- SKIP") {
+		t.Errorf("%s skipped with no goreleaser binary on PATH; the gate must build the archives itself:\n%s", snapshotGateName, got)
+	}
+	if !strings.Contains(got, "--- PASS: "+snapshotGateName) {
+		t.Errorf("%s did not report a PASS with no goreleaser binary on PATH:\n%s", snapshotGateName, got)
+	}
+}
+
+// snapshotGateName is the gate below, named once so the child run above and the -run
+// pattern that selects it cannot drift apart.
+const snapshotGateName = "TestGoreleaserSnapshotShipsFiveArchivesWithEveryShippedPath"
+
+// trackedDirs are the directories a snapshot run must leave exactly as it found them.
+// dist/ is the one actually at risk - GoReleaser cleans its output dir, and pointing it at
+// ./dist would delete the generated front-ends - but the release also runs `go mod tidy`
+// and builds from source, so the rest are covered too rather than assumed safe.
+var trackedDirs = []string{"dist", "scripts", "docs", "protocol", "adapters", "cmd", "internal"}
+
+// trackedTreeState fingerprints every tracked directory plus the repo's root files, so the
+// snapshot run can be shown to have written nothing outside build/dist. It reads the tree
+// rather than asking git: internal/contract's TestOnlyGitctxShellsOutToGit forbids any
+// package but internal/gitctx from invoking git.
+func trackedTreeState(t *testing.T, root string) string {
+	t.Helper()
+	h := sha256.New()
+	for _, d := range trackedDirs {
+		fmt.Fprintf(h, "%s=%s\n", d, trackedTreeDigest(t, filepath.Join(root, d)))
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("read %s: %v", root, err)
+	}
+	for _, e := range entries {
+		if e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(root, e.Name()))
+		if err != nil {
+			t.Fatalf("read %s: %v", e.Name(), err)
+		}
+		fmt.Fprintf(h, "%s=%x\n", e.Name(), sha256.Sum256(b))
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
 // TestGoreleaserSnapshotShipsFiveArchivesWithEveryShippedPath is the gate: it runs the
 // release for real in snapshot mode and asserts on the archives that come out.
 func TestGoreleaserSnapshotShipsFiveArchivesWithEveryShippedPath(t *testing.T) {
-	goreleaser, err := exec.LookPath("goreleaser")
-	if err != nil {
-		t.Skip("SKIP: goreleaser is not on PATH, so the release archives cannot be produced or inspected here. " +
-			"Install it (https://goreleaser.com/install/) and re-run to exercise this gate.")
-	}
-
 	root := findRepoRootForTest(t)
 	cfg := loadGoreleaserConfig(t)
 	shipped := archiveShippedFiles(t, cfg)
@@ -250,17 +397,13 @@ func TestGoreleaserSnapshotShipsFiveArchivesWithEveryShippedPath(t *testing.T) {
 	if !buildDistIsGitIgnored(t, root) {
 		t.Errorf("%s is GoReleaser's output dir but .gitignore does not ignore it: a snapshot run would dirty the working tree", snapshotDistDir)
 	}
-	frontEndBefore := trackedTreeDigest(t, filepath.Join(root, "dist"))
+	treeBefore := trackedTreeState(t, root)
 
 	// --clean wipes build/dist first, so the assertions below see this run's output only.
-	cmd := exec.Command(goreleaser, "release", "--snapshot", "--clean", "--skip=before")
-	cmd.Dir = root
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("goreleaser release --snapshot --clean --skip=before: %v\n%s", err, out)
-	}
+	runSnapshotBuild(t, root)
 
-	if got := trackedTreeDigest(t, filepath.Join(root, "dist")); got != frontEndBefore {
-		t.Errorf("the snapshot run modified the tracked dist/ front-end tree; digest %s -> %s", frontEndBefore, got)
+	if got := trackedTreeState(t, root); got != treeBefore {
+		t.Errorf("the snapshot run modified the tracked tree; digest %s -> %s. Build output belongs in %s, which .gitignore ignores", treeBefore, got, snapshotDistDir)
 	}
 
 	distDir := filepath.Join(root, snapshotDistDir)
