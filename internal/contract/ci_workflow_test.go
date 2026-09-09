@@ -7,6 +7,9 @@ package contract
 
 import (
 	"encoding/json"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -145,4 +148,90 @@ func TestCIWorkflowPrimesNoBenchCache(t *testing.T) {
 			t.Errorf(".github/workflows/ci.yml mentions %q; AC5 wants the bench steps green on a cold runner", banned)
 		}
 	}
+}
+
+// snapshotGateGates are the two tests that read `build/dist`, which is gitignored. On a
+// clean checkout nothing builds it, so both are meaningless unless a gate runs
+// scripts/release-snapshot.sh first — #380, the plan's Task 9, PRD #368 AC11. The names
+// are the real ones in the tree, not the provisional ones the plan quoted; the test below
+// checks each against a `func Test…` that actually exists, because a gate step naming a
+// test that is gone passes silently: `go test -run` on a pattern matching nothing exits 0.
+var snapshotGateGates = []struct{ what, name string }{
+	{"the archive-contents gate", "TestGoreleaserSnapshotShipsFiveArchivesWithEveryShippedPath"},
+	{"the end-to-end install gate", "TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion"},
+}
+
+// ciGates are the two gates that must stay in step. ci-local.sh is the authoritative one;
+// a check that lives in only one of them is a check the other merges without.
+var ciGates = []string{"scripts/ci-local.sh", ".github/workflows/ci.yml"}
+
+// TestBothGatesRunTheReleaseSnapshotAndItsTests is PRD #368 AC11. Both gates must build
+// the release snapshot and then name each of the two tests that read its output as its own
+// step, guarded by this repo's `-list` idiom — not swept up by a bare `go test ./...`,
+// because a red build must name the thing that broke.
+func TestBothGatesRunTheReleaseSnapshotAndItsTests(t *testing.T) {
+	// A name wired into a gate that no longer exists in the tree is the exact failure the
+	// `-list` guard catches at run time; catching it here catches it at author time.
+	for _, gate := range snapshotGateGates {
+		if !repoDeclaresTestFunc(t, gate.name) {
+			t.Errorf("no `func %s(` exists in the tree, so wiring it into a gate would pass silently", gate.name)
+		}
+	}
+
+	for _, gate := range ciGates {
+		src := readRepoFile(t, gate)
+
+		if !strings.Contains(src, snapshotBuildScript) {
+			t.Errorf("%s does not run the snapshot build (no %q); build/dist is gitignored, so both gates below read nothing", gate, snapshotBuildScript)
+		}
+		for _, g := range snapshotGateGates {
+			if !strings.Contains(src, g.name) {
+				t.Errorf("%s does not run %s (no %q)", gate, g.what, g.name)
+			}
+			listGuard := "go test -list '^" + g.name + "$'"
+			if !strings.Contains(src, listGuard) {
+				t.Errorf("%s does not guard %s with %s; `go test -run` on a pattern matching nothing exits 0, so a renamed or deleted test would pass silently", gate, g.what, listGuard)
+			}
+		}
+	}
+}
+
+// snapshotBuildScript is the only place this repo invokes GoReleaser, and the only thing
+// that fills the gitignored build/dist the two gates above read.
+const snapshotBuildScript = "scripts/release-snapshot.sh"
+
+// repoDeclaresTestFunc reports whether the tree declares `func <name>(` in some _test.go
+// file. It scans rather than trusting the plan: the plan's Task 9 quoted provisional test
+// names and the implementations chose different ones.
+func repoDeclaresTestFunc(t *testing.T, name string) bool {
+	t.Helper()
+	root := repoRoot(t)
+	want := "func " + name + "("
+	found := false
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == ".git" || d.Name() == "build" {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if found || !strings.HasSuffix(d.Name(), "_test.go") {
+			return nil
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(b), want) {
+			found = true
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk %s looking for %s: %v", root, want, err)
+	}
+	return found
 }
