@@ -213,3 +213,12 @@ scripts/release-preflight.sh
 It **never mutates repository state** — no `gh repo edit`, no `git tag`, no `git push`, no
 `gh release`. Going public and pushing a release tag are irreversible and stay a human call
 (plan Task 24); this script only informs it.
+
+`Test suite:` covers `go test ./...` and `bench/swebench`'s pytest suite. `preflight.py` is
+reported separately, on the `M4 launch gate:` line, because it is not a test: it is the gate
+that decides whether an arm may spend a token, and it refuses with exit 3 for as long as
+`bench/PREREGISTRATION.md` is unsigned. `scripts/ci-prereg.sh` treats that same refusal as a
+PASS. A `refused (pre-registration unsigned …)` launch gate, `Pre-registration tag: missing`
+and an `unknown` kill criterion are the correct verdicts until a human writes the kill
+criterion, signs, and tags — the script still exits non-zero, because the release is not
+ready, but none of the four automated verdicts is failing.
