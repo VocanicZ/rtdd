@@ -222,3 +222,8 @@ PASS. A `refused (pre-registration unsigned …)` launch gate, `Pre-registration
 and an `unknown` kill criterion are the correct verdicts until a human writes the kill
 criterion, signs, and tags — the script still exits non-zero, because the release is not
 ready, but none of the four automated verdicts is failing.
+
+What to do after it stops is written down in [`docs/RELEASING.md`](docs/RELEASING.md): the
+three human steps in order — visibility (#10), the `v*` tag, then publishing the GoReleaser
+draft — and the draft-release trap that makes `releases/latest` return 404 until the third
+one is taken.
