@@ -96,9 +96,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          check-latest: true
+
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+
+      # #377: `bench replay suite` drives the SHIPPED binary through replay/rtddio.py,
+      # which shells out to `rtdd` on PATH. A developer box has one installed and a bare
+      # runner does not, so this step is what stopped the suite failing for want of a
+      # tool rather than for a defect. The binary is built from this very checkout, so
+      # the tool under test is the tree under test.
+      - name: rtdd on PATH
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          go build -o "$RUNNER_TEMP/bin/rtdd" ./cmd/rtdd
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: prereg gate
         run: scripts/ci-prereg.sh
