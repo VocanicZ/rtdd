@@ -606,6 +606,11 @@ def test_the_cache_can_outlive_the_checkout(monkeypatch, tmp_path):
         monkeypatch.delenv("RTDD_BENCH_CACHE")
         assert importlib.reload(cli).CACHE == reloaded.BENCH / "cache"
     finally:
+        # Undo BEFORE the restoring reload, not after it. `monkeypatch` unwinds when the
+        # test returns, so a reload inside this block would otherwise rebind `cli.CACHE`
+        # while the variable was still deleted and leave every later test in the session
+        # reading `bench/cache` whatever the environment says.
+        monkeypatch.undo()
         importlib.reload(cli)
 
 
