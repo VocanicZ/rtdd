@@ -25,7 +25,16 @@ func newProtoRepo(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(dir, "protocol", "PROTOCOL.md"), src, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".git"), []byte("gitdir: nowhere\n"), 0o644); err != nil {
+	// A real marker, not just an entry named `.git`: since #369 findRepoRoot resolves
+	// the `gitdir:` pointer and requires HEAD behind it.
+	gitDir := filepath.Join(dir, "gitdir")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git"), []byte("gitdir: gitdir\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return dir
@@ -414,5 +423,72 @@ a sentence no generated file has seen yet
 	}
 	if code, stdout, _ := rtddgen(t, dir, "check"); code != 0 {
 		t.Fatalf("check after re-render: code = %d, stdout = %s", code, stdout)
+	}
+}
+
+// Issue #369: rtdd-gen carries its own copy of findRepoRoot and had the same defect —
+// any entry named `.git` was accepted as a repository root. These pin the same rule
+// here so the two copies cannot drift apart again.
+func TestFindRepoRootRejectsAnEmptyGitDirectory(t *testing.T) {
+	outer := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outer, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	inner := filepath.Join(outer, "a", "b")
+	if err := os.MkdirAll(inner, 0o755); err != nil {
+		t.Fatalf("mkdir inner: %v", err)
+	}
+	if got, err := findRepoRoot(inner); err == nil {
+		t.Fatalf("findRepoRoot under an empty .git ancestor = %q, want an error", got)
+	}
+}
+
+func TestFindRepoRootRejectsAGitDirectoryWithoutHEAD(t *testing.T) {
+	outer := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outer, ".git", "info"), 0o755); err != nil {
+		t.Fatalf("mkdir .git/info: %v", err)
+	}
+	if got, err := findRepoRoot(outer); err == nil {
+		t.Fatalf("findRepoRoot under a HEAD-less .git ancestor = %q, want an error", got)
+	}
+}
+
+func TestFindRepoRootRejectsAWorktreeFileWithADeadGitdir(t *testing.T) {
+	outer := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outer, ".git"), []byte("gitdir: /nonexistent-rtdd-369\n"), 0o644); err != nil {
+		t.Fatalf("write .git file: %v", err)
+	}
+	if got, err := findRepoRoot(outer); err == nil {
+		t.Fatalf("findRepoRoot with a dead gitdir pointer = %q, want an error", got)
+	}
+}
+
+// The live shape: `.harness/` runs the fleet out of git worktrees, where `.git` is a
+// FILE pointing at the real git directory. It must still resolve.
+func TestFindRepoRootAcceptsAWorktreeFile(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "gitdirs", "wt")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatalf("mkdir target: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatalf("write HEAD: %v", err)
+	}
+	wt := filepath.Join(root, "wt")
+	if err := os.MkdirAll(wt, 0o755); err != nil {
+		t.Fatalf("mkdir wt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(wt, ".git"), []byte("gitdir: "+target+"\n"), 0o644); err != nil {
+		t.Fatalf("write .git file: %v", err)
+	}
+
+	got, err := findRepoRoot(wt)
+	if err != nil {
+		t.Fatalf("findRepoRoot in a worktree: %v", err)
+	}
+	gotEval, _ := filepath.EvalSymlinks(got)
+	wantEval, _ := filepath.EvalSymlinks(wt)
+	if gotEval != wantEval {
+		t.Fatalf("findRepoRoot = %q, want %q", gotEval, wantEval)
 	}
 }
