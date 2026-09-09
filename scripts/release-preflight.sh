@@ -64,37 +64,51 @@ else
 fi
 
 # --- 4. bench/swebench: pytest, then the pre-registration launch gate ------
+# These are two different kinds of thing and are reported as two different lines.
+# `pytest -q` is a test suite. `preflight.py` is the M4 *launch gate*: it decides
+# whether an arm may spend a token, and it refuses with exit 3 for as long as
+# bench/PREREGISTRATION.md is unsigned. scripts/ci-prereg.sh treats exactly that
+# refusal as a PASS, because an unsigned pre-registration is the correct state until
+# a human writes the kill criterion and signs. Folding it into "Test suite" reported
+# a decision nobody has taken yet as a broken test suite.
 pytest_status=pass
-preflight_status=pass
+launch_gate_status=pass
 if ! command -v uv >/dev/null 2>&1; then
   banner "bench/swebench pytest + preflight"
   echo "uv not found on PATH — see DEVELOPMENT.md" >&2
   pytest_status=missing
-  preflight_status=missing
+  launch_gate_status="unknown (uv missing — preflight.py not run)"
   fail=1
 else
   banner "cd bench/swebench && uv run pytest -q"
   if ! (cd bench/swebench && uv run pytest -q); then
     echo "FAIL: bench/swebench pytest -q" >&2
     pytest_status=fail
-    preflight_status=skipped
+    launch_gate_status="skipped (bench/swebench pytest failed)"
     fail=1
   else
     banner "cd bench/swebench && uv run python preflight.py"
     preflight_out="$(cd bench/swebench && uv run python preflight.py 2>&1)"
     preflight_code=$?
     printf '%s\n' "$preflight_out"
-    if [ "$preflight_code" -ne 0 ]; then
+    if [ "$preflight_code" -eq 0 ]; then
+      launch_gate_status="pass (pre-registration signed; the M4 run may launch)"
+    elif [ "$preflight_code" -eq 3 ] && ! grep -q '^status: SIGNED' bench/PREREGISTRATION.md; then
+      # The gate did its job. Nothing here is broken and nothing here is for an agent
+      # to fix: signing is the human's call, like the two actions below.
+      launch_gate_status="refused (pre-registration unsigned — correct; a human signs it)"
+      fail=1
+    else
       echo "FAIL: bench/swebench preflight.py (exit $preflight_code)" >&2
-      preflight_status=fail
+      launch_gate_status=fail
       fail=1
     fi
   fi
 fi
 
 if [ "$pytest_status" = missing ]; then
-  test_suite_status="unknown (uv missing — bench/swebench pytest and preflight.py not run)"
-elif [ "$gotest_status" = fail ] || [ "$pytest_status" = fail ] || [ "$preflight_status" = fail ]; then
+  test_suite_status="unknown (uv missing — bench/swebench pytest not run)"
+elif [ "$gotest_status" = fail ] || [ "$pytest_status" = fail ]; then
   test_suite_status=fail
 else
   test_suite_status=pass
@@ -163,6 +177,7 @@ Test suite:            $test_suite_status
 Release binaries:      $linkage_status
 Placeholders:          ${placeholder_hits:-none}
 Pre-registration tag:  $prereg_tag_status
+M4 launch gate:        $launch_gate_status
 Current visibility:    $visibility_status
 
 Two irreversible actions need your explicit go-ahead, separately:
