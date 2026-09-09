@@ -83,6 +83,37 @@ PATH alongside `go`:
 cd bench/swebench && uv sync && uv run pytest -q
 ```
 
+### The cold-cache gate
+
+`.github/workflows/ci.yml` runs the bench gates on a hosted runner: no `RTDD_BENCH_CACHE`,
+no `~/.cache/rtdd-bench`. Every local run has had that ~201 MB store of collected suites,
+full-suite outcomes and repo mirrors behind it, so "the bench gates pass" locally is a
+weaker claim than it looks. `scripts/ci-cold-cache.sh` reproduces the bare-runner state
+and runs the same commands under it:
+
+```bash
+scripts/ci-cold-cache.sh
+```
+
+It is NOT part of `scripts/ci-local.sh` — it runs the bench suites twice over and takes
+about ten minutes — so run it when anything under `bench/` learns to read a cache, a path
+under `$HOME`, or the network.
+
+Getting that state right is the whole difficulty, because getting it wrong is silent.
+`RTDD_BENCH_CACHE` moves the replay store (`replay/cli.py`'s `CACHE`) and moves nothing
+else; `bench/swebench/run_arm.py` finds its own store through `Path.home()`. Point the
+variable at an empty directory and leave `HOME` alone and you get a green run that read
+the warm store the entire time. So the script moves `HOME` as well, and
+`python -m replay.coldcache` counts **both** stores before a single gate runs and refuses
+when either holds an entry. `uv`'s own package cache and managed interpreters stay pointed
+at the real home — the runner caches those too, and a cold `HOME` should not turn the gate
+into a download test.
+
+Nothing here deletes, re-keys or invalidates `~/.cache/rtdd-bench`: the script fingerprints
+it before and after and fails if the file count or byte total moved. Whether that store
+should be keyed by hardware is #218, an open human decision, and `cache.key()` carries no
+hardware fingerprint until it is made.
+
 `bench/PREREGISTRATION.md` gates every M4 arm. It ships `status: UNSIGNED` with
 `stratified_recall_floor:` deliberately empty — that number is a human decision, and
 `bench/swebench/preflight.py` refuses to launch (exit 3) until a human writes it, signs the
