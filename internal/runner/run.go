@@ -73,27 +73,6 @@ func RunPlain(a *adapter.Adapter, repoRoot string, tests []string, failFast bool
 	return execute(a, repoRoot, a.SubsetPlain, Chunk(selectors, MaxArgvBytes), failFast, false)
 }
 
-// RunPlain executes the same selection as Run, without recording coverage.
-//
-// The map therefore learns nothing from this cycle, which is the whole trade: the
-// caller has decided there is nothing for it to learn. It is never chosen for an
-// adapter that declares no `subset_plain`, and the caller is responsible for reporting
-// that no fresh coverage backs this run — an uncovered report derived from the previous
-// cycle's coverage would be a claim about lines this run never watched.
-func RunPlain(a *adapter.Adapter, repoRoot string, tests []string, failFast bool) (*RunResult, error) {
-	if len(tests) == 0 {
-		return &RunResult{Coverage: &coverage.Result{ImportTime: map[string][]int{}}}, nil
-	}
-	if !a.CanRunPlain() {
-		return nil, fmt.Errorf("runner: adapter %q declares no subset_plain", a.Name)
-	}
-	selectors, err := a.Selectors(tests)
-	if err != nil {
-		return nil, err
-	}
-	return execute(a, repoRoot, a.SubsetPlain, Chunk(selectors, MaxArgvBytes), failFast)
-}
-
 // execute runs one command template. chunks == nil means a single invocation with
 // no {tests} placeholder (the seed and list path).
 func execute(a *adapter.Adapter, repoRoot, tmpl string, chunks [][]string, failFast, readCoverage bool) (*RunResult, error) {
