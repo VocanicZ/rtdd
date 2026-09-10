@@ -1,0 +1,624 @@
+"""The figures: the committed numbers, drawn, with the same rules the tables follow.
+
+RTDD's claim is a trade: run a fraction of the suite, keep the safety of running all of
+it. That is two numbers per strategy — how much was skipped, and what was still caught —
+and a reader holding four tables in their head to compare them is a reader who will take
+the cheapest row for the best one. These figures put the trade on two axes so the shape
+of it is visible at a glance.
+
+A picture is a claim with its arithmetic hidden, so three rules from `report.py` carry
+over unchanged and each is enforced by a test in `tests/test_chart.py`.
+
+**Nothing is drawn that was not measured.** Every mark carries
+`data-strategy`/`data-metric`/`data-value` read straight out of `summary.json`, and its
+geometry is that value's position on the axis — there is no path by which a figure
+carries a number the records do not.
+
+**A missing measurement is never drawn as zero.** `change_level_recall` is `null`
+wherever a population detected nothing, and a scatter point on the floor would read as
+"caught none of them" when what happened is that there was nothing to catch. Those
+strategies are named under the plot instead. The same rule keeps `static` — a derived
+arm that executed nothing — out of the wall-clock figure rather than in it at 0 ms.
+
+**The verdict travels with the figure.** The safety chart renders
+`report.secondary_verdict_lines` for the population it plots, so a reader who looks only
+at the picture still learns that the pre-registered criterion was not met.
+
+Figures are emitted as a light/dark pair per name and committed under
+`docs/results/figures/`; `tests/test_chart.py` re-renders them from the committed
+summaries and fails if the bytes differ, which is to the pictures what
+`outcomes_test.go` is to the README.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import html
+import pathlib
+from collections.abc import Sequence
+
+from replay import report
+
+# --- geometry ---------------------------------------------------------------------
+
+WIDTH = 900
+LABEL_WIDTH = 118
+PLOT_WIDTH = 560
+VALUE_GUTTER = 150
+MARGIN = 28
+ROW_HEIGHT = 30
+BAR_HEIGHT = 9
+
+NOT_COMPUTABLE = "not computable — the population detected nothing, so recall has no denominator"
+NOT_MEASURED = report.NOT_MEASURED
+
+#: Order is fixed so a re-render cannot churn the diff.
+FIGURES: tuple[str, ...] = ("axis2-savings", "axis2-safety", "axis2-wallclock")
+
+#: The one population in the corpus with any ground truth at all (flask, 3 detecting
+#: commits). It is an upper bound and the figure says so on its face.
+SAFETY_REPO = "flask"
+SAFETY_VARIANT = "probe"
+
+
+@dataclasses.dataclass(frozen=True)
+class Palette:
+    """Colour only. The data marks are identical across palettes, and tested to be."""
+
+    name: str
+    bg: str
+    ink: str
+    muted: str
+    grid: str
+    rtdd: str
+    other: str
+    full: str
+    warn: str
+
+
+LIGHT = Palette(
+    name="light",
+    bg="#ffffff",
+    ink="#1f2328",
+    muted="#656d76",
+    grid="#d8dee4",
+    rtdd="#0969da",
+    other="#8250df",
+    full="#6e7781",
+    warn="#bc4c00",
+)
+
+DARK = Palette(
+    name="dark",
+    bg="#0d1117",
+    ink="#e6edf3",
+    muted="#9198a1",
+    grid="#30363d",
+    rtdd="#4493f8",
+    other="#c297ff",
+    full="#8b949e",
+    warn="#f0883e",
+)
+
+PALETTES: tuple[Palette, ...] = (LIGHT, DARK)
+
+FONT = "ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif"
+MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+
+
+class ChartError(ValueError):
+    """A figure was asked for something the committed records do not contain."""
+
+
+# --- small helpers ----------------------------------------------------------------
+
+
+def _esc(text: str) -> str:
+    return html.escape(str(text), quote=True)
+
+
+def _frac(value: float) -> str:
+    return f"{value:.3f}"
+
+
+def _data(strategy: str, metric: str, value: str) -> str:
+    """The attribute triple every plotted mark carries, always in this order."""
+    return f'data-strategy="{_esc(strategy)}" data-metric="{_esc(metric)}" data-value="{_esc(value)}"'
+
+
+def _text(x: float, y: float, body: str, *, fill: str, size: float = 12, anchor: str = "start", mono: bool = False, weight: str = "normal") -> str:
+    family = MONO if mono else FONT
+    return (
+        f'<text x="{x:.1f}" y="{y:.1f}" font-family="{family}" font-size="{size}" '
+        f'font-weight="{weight}" fill="{fill}" text-anchor="{anchor}">{_esc(body)}</text>'
+    )
+
+
+def _colour(strategy: str, palette: Palette) -> str:
+    if strategy == "rtdd":
+        return palette.rtdd
+    if strategy in ("full", "xdist"):
+        return palette.full
+    return palette.other
+
+
+def _wrap(body: str, limit: int) -> list[str]:
+    words = body.split()
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if len(candidate) > limit and current:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    return lines
+
+
+def _svg(width: int, height: int, body: Sequence[str], palette: Palette) -> str:
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+        f'viewBox="0 0 {width} {height}" role="img">',
+        f'<rect x="0" y="0" width="{width}" height="{height}" fill="{palette.bg}"/>',
+        *body,
+        "</svg>",
+    ]
+    return "\n".join(parts) + "\n"
+
+
+def _source_note(y: float, palette: Palette, body: str) -> str:
+    return _text(MARGIN, y, body, fill=palette.muted, size=10.5, mono=True)
+
+
+def _ordered(rows: dict, key: str) -> list[str]:
+    """Cheapest first, ties broken by name so a re-render is byte-stable."""
+
+    def sort_key(name: str) -> tuple[float, str]:
+        value = rows[name].get(key, {}).get("value")
+        return (1.0 if value is None else value, name)
+
+    return sorted(rows, key=sort_key)
+
+
+# --- figure 1: how much of the suite each strategy runs ----------------------------
+
+
+def savings_svg(summaries: Sequence[dict], palette: Palette) -> str:
+    """Tests selected and duration selected, per strategy, per repo.
+
+    Both metrics are drawn because they come apart: a strategy can select few tests and
+    still spend most of the suite's time if the tests it picks are the slow ones. The
+    `full` row is the 1.000 reference at the plot's full width, so every other bar is
+    read as the fraction of a whole run it replaces.
+    """
+    panels = []
+    y = MARGIN + 46
+    for summary in summaries:
+        rows = summary["strategies"]
+        repo = summary["repo_id"]
+        panels.append(
+            _text(MARGIN, y, f"{repo} — {rows['full']['cycles']} cycles, natural population", fill=palette.ink, size=13, weight="600")
+        )
+        y += 12
+        panels.append(
+            _text(
+                MARGIN,
+                y,
+                f"{rows['full']['selection_ratio']['den']} tests, "
+                f"{rows['full']['selected_duration_fraction']['den']} ms of recorded test time",
+                fill=palette.muted,
+                size=10.5,
+            )
+        )
+        y += 20
+
+        x0 = MARGIN + LABEL_WIDTH
+        for gridline in (0.25, 0.5, 0.75, 1.0):
+            gx = x0 + PLOT_WIDTH * gridline
+            panels.append(
+                f'<line x1="{gx:.1f}" y1="{y:.1f}" x2="{gx:.1f}" y2="{y + ROW_HEIGHT * len(rows):.1f}" '
+                f'stroke="{palette.grid}" stroke-width="1"/>'
+            )
+            panels.append(
+                _text(gx, y - 5, f"{int(gridline * 100)}%", fill=palette.muted, size=9.5, anchor="middle")
+            )
+
+        for name in _ordered(rows, "selected_duration_fraction"):
+            row = rows[name]
+            tests = row["selection_ratio"]["value"]
+            time = row["selected_duration_fraction"]["value"]
+            colour = _colour(name, palette)
+            weight = "700" if name == "rtdd" else "normal"
+            panels.append(_text(MARGIN, y + 12, name, fill=palette.ink, size=11.5, mono=True, weight=weight))
+
+            for offset, value, metric, opacity in (
+                (2, tests, "selection_ratio", "0.45"),
+                (2 + BAR_HEIGHT + 2, time, "selected_duration_fraction", "1"),
+            ):
+                width = PLOT_WIDTH * value
+                panels.append(
+                    f'<rect x="{x0:.1f}" y="{y + offset:.1f}" width="{width:.1f}" height="{BAR_HEIGHT}" '
+                    f'rx="2" fill="{colour}" opacity="{opacity}" '
+                    f"{_data(name, f'{repo}/{metric}', _frac(value))}/>"
+                )
+
+            panels.append(
+                _text(
+                    x0 + PLOT_WIDTH + 12,
+                    y + 15,
+                    f"{_frac(tests)} tests   {_frac(time)} time",
+                    fill=palette.muted,
+                    size=10.5,
+                    mono=True,
+                )
+            )
+            y += ROW_HEIGHT
+        y += 26
+
+    header = [
+        _text(MARGIN, MARGIN + 4, "How much of the suite each strategy runs", fill=palette.ink, size=17, weight="700"),
+        _text(
+            MARGIN,
+            MARGIN + 24,
+            "Lower is cheaper. Pale bar = share of tests selected; solid bar = share of the suite's test time.",
+            fill=palette.muted,
+            size=11.5,
+        ),
+    ]
+    footer_y = y + 4
+    footer = [
+        _source_note(footer_y, palette, "source: bench/results/<repo>/summary.json · strategies.<name> · natural population"),
+        _text(
+            MARGIN,
+            footer_y + 16,
+            "Cost alone does not rank these — a strategy that selects nothing is cheapest and catches nothing. See the safety figure.",
+            fill=palette.muted,
+            size=10.5,
+        ),
+    ]
+    return _svg(WIDTH, int(footer_y + 30), header + panels + footer, palette)
+
+
+# --- figure 2: what the saving costs in safety -------------------------------------
+
+
+def safety_svg(summary: dict, variant: str, palette: Palette) -> str:
+    """Change-level recall against selected-duration fraction, for one population.
+
+    This is the figure that answers the actual question: a strategy is only worth
+    running if the time it saves does not cost the catches a full suite would have made.
+    `full` sits at (1.000, 1.000) by definition — the whole suite, every catch — and the
+    useful corner is the top-left.
+    """
+    rows = summary["by_variant"][variant]
+    repo = summary["repo_id"]
+
+    plot_x = MARGIN + 54
+    plot_y = MARGIN + 62
+    plot_w = 520
+    plot_h = 320
+
+    body = [
+        _text(MARGIN, MARGIN + 4, "What the saving costs in safety", fill=palette.ink, size=17, weight="700"),
+        _text(
+            MARGIN,
+            MARGIN + 24,
+            f"{repo} · {variant} population — change-level recall against the share of the suite's time spent",
+            fill=palette.muted,
+            size=11.5,
+        ),
+        _text(
+            MARGIN,
+            MARGIN + 40,
+            "Top-left is the goal: catches everything a full run catches, on a fraction of the time.",
+            fill=palette.muted,
+            size=11.5,
+        ),
+    ]
+
+    for i in range(5):
+        gy = plot_y + plot_h * i / 4
+        body.append(
+            f'<line x1="{plot_x:.1f}" y1="{gy:.1f}" x2="{plot_x + plot_w:.1f}" y2="{gy:.1f}" '
+            f'stroke="{palette.grid}" stroke-width="1"/>'
+        )
+        body.append(
+            _text(plot_x - 10, gy + 4, _frac(1 - i / 4), fill=palette.muted, size=9.5, anchor="end", mono=True)
+        )
+        gx = plot_x + plot_w * i / 4
+        body.append(
+            f'<line x1="{gx:.1f}" y1="{plot_y:.1f}" x2="{gx:.1f}" y2="{plot_y + plot_h:.1f}" '
+            f'stroke="{palette.grid}" stroke-width="1"/>'
+        )
+        body.append(
+            _text(gx, plot_y + plot_h + 16, _frac(i / 4), fill=palette.muted, size=9.5, anchor="middle", mono=True)
+        )
+
+    body.append(
+        _text(plot_x + plot_w / 2, plot_y + plot_h + 34, "share of the suite's test time spent  →  more expensive", fill=palette.muted, size=11, anchor="middle")
+    )
+    body.append(
+        f'<g transform="translate({MARGIN - 6},{plot_y + plot_h / 2}) rotate(-90)">'
+        + _text(0, 0, "change-level recall  →  safer", fill=palette.muted, size=11, anchor="middle")
+        + "</g>"
+    )
+
+    computable = [name for name in sorted(rows) if rows[name]["change_level_recall"]["value"] is not None]
+    missing = [name for name in sorted(rows) if name not in computable]
+
+    # Strategies land on top of each other — `full` and `xdist` both run everything, and
+    # `static` selects exactly what `path` does on this corpus. Every one of them still
+    # gets its own mark, because a reader counting points must find them all, but the
+    # labels are merged: two labels drawn at one coordinate are unreadable, and moving a
+    # point apart to make room would be drawing a number the records do not contain.
+    points: list[tuple[float, float, list[str]]] = []
+    for name in computable:
+        row = rows[name]
+        recall = row["change_level_recall"]["value"]
+        cost = row["selected_duration_fraction"]["value"]
+        cx = round(plot_x + plot_w * cost, 1)
+        cy = round(plot_y + plot_h * (1 - recall), 1)
+        colour = _colour(name, palette)
+        radius = 7 if name == "rtdd" else 5
+        body.append(
+            f'<g {_data(name, "selected_duration_fraction", _frac(cost))}>'
+            f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{radius}" fill="{colour}" '
+            f'stroke="{palette.bg}" stroke-width="1.5" '
+            f"{_data(name, 'change_level_recall', _frac(recall))}/></g>"
+        )
+        for px_, py_, names in points:
+            if (px_, py_) == (cx, cy):
+                names.append(name)
+                break
+        else:
+            points.append((cx, cy, [name]))
+
+    for cx, cy, names in _placed(points, plot_y, plot_h):
+        row = rows[names[0]]
+        recall = row["change_level_recall"]
+        cost = row["selected_duration_fraction"]["value"]
+        label = f"{'/'.join(names)}  {recall['num']}/{recall['den']} caught @ {_frac(cost)}"
+        anchor = "end" if cx > plot_x + plot_w * 0.62 else "start"
+        dx = -12 if anchor == "end" else 12
+        body.append(
+            _text(
+                cx + dx,
+                cy + 4,
+                label,
+                fill=palette.ink,
+                size=10.5,
+                anchor=anchor,
+                mono=True,
+                weight="700" if "rtdd" in names else "normal",
+            )
+        )
+
+    y = plot_y + plot_h + 52
+    if missing:
+        body.append(
+            _text(MARGIN, y, f"{NOT_COMPUTABLE}: {', '.join(missing)}", fill=palette.warn, size=10.5)
+        )
+        y += 16
+    if variant != summary["primary_variant"]:
+        body.append(
+            _text(
+                MARGIN,
+                y,
+                "upper bound — every map-based strategy is seeded at the child commit in this population, and it is never pooled with natural.",
+                fill=palette.warn,
+                size=10.5,
+            )
+        )
+        y += 16
+
+    verdict = _verdict_for(summary, variant)
+    for line in _wrap(verdict, 118):
+        body.append(_text(MARGIN, y, line, fill=palette.ink, size=10.5, mono=True))
+        y += 14
+
+    y += 6
+    body.append(_source_note(y, palette, f"source: bench/results/{repo}/summary.json · by_variant.{variant} · verdict from replay/report.py"))
+    return _svg(WIDTH, int(y + 20), body, palette)
+
+
+def _placed(
+    points: list[tuple[float, float, list[str]]], plot_y: float, plot_h: float
+) -> list[tuple[float, float, list[str]]]:
+    """Nudge label baselines apart vertically until none overlaps another.
+
+    Only the label moves; the point it names stays exactly where its two numbers put
+    it. Four strategies share recall 1.000 on flask's probe, so without this the top of
+    the plot is one illegible smear.
+    """
+    placed: list[tuple[float, float, list[str]]] = []
+    taken: list[float] = []
+    for cx, cy, names in sorted(points, key=lambda p: (p[1], p[0])):
+        label_y = cy
+        step = 0
+        while any(abs(label_y - t) < 13 for t in taken):
+            step += 1
+            offset = 13 * ((step + 1) // 2) * (1 if step % 2 else -1)
+            label_y = cy + offset
+            label_y = min(max(label_y, plot_y + 6), plot_y + plot_h - 4)
+            if step > 12:
+                break
+        taken.append(label_y)
+        placed.append((cx, label_y, names))
+    return placed
+
+
+def _verdict_for(summary: dict, variant: str) -> str:
+    """The pre-registered comparison for this population, taken from `report.py`.
+
+    Never re-derived here: the figure and the table must not be able to disagree about
+    whether the criterion was met.
+    """
+    if variant == summary["primary_variant"]:
+        line = report.verdict_line(summary)
+    else:
+        wanted = f"verdict ({variant}"
+        matches = [l for l in report.secondary_verdict_lines(summary) if l.startswith(wanted)]
+        if not matches:
+            raise ChartError(f"no verdict line for variant {variant!r}")
+        line = matches[0]
+    return line.split("): ", 1)[-1].split(": ", 1)[-1] if "): " in line else line.split(": ", 1)[-1]
+
+
+# --- figure 3: what a cycle actually costs -----------------------------------------
+
+
+def wallclock_svg(summaries: Sequence[dict], palette: Palette) -> str:
+    """p50, p90 and worst against the full suite — the distribution, never a bare mean.
+
+    The population is bimodal: a cycle whose strategy selected nothing costs almost
+    nothing, a cycle that selected the hub costs nearly a full run. A mean sits between
+    the two modes and describes neither, so the mean is deliberately not plotted. The
+    dashed line is the same repo's full uninstrumented suite; a bar crossing it is a
+    strategy that cost more than running everything.
+    """
+    body = [
+        _text(MARGIN, MARGIN + 4, "What one cycle actually costs", fill=palette.ink, size=17, weight="700"),
+        _text(
+            MARGIN,
+            MARGIN + 24,
+            "Bar = median cycle. Tick = p90. Dot = worst cycle. Dashed = the full suite, uninstrumented.",
+            fill=palette.muted,
+            size=11.5,
+        ),
+    ]
+
+    y = MARGIN + 52
+    omitted: list[str] = []
+    for summary in summaries:
+        repo = summary["repo_id"]
+        rows = summary["wallclock"]["rows"]
+        omitted += [
+            f"{repo}/{name}"
+            for name in sorted(summary["strategies"])
+            if name not in rows
+        ]
+        reference = rows["full"]["mean_full_uninstrumented_ms"]
+        scale_max = max(max(r["worst_subset_uninstrumented_ms"] for r in rows.values()), reference)
+
+        body.append(_text(MARGIN, y, f"{repo} — full suite {reference} ms", fill=palette.ink, size=13, weight="600"))
+        body.append(
+            _text(
+                MARGIN + LABEL_WIDTH + PLOT_WIDTH + 12,
+                y,
+                "p50 · p90 · worst",
+                fill=palette.muted,
+                size=9.5,
+                mono=True,
+            )
+        )
+        y += 18
+
+        x0 = MARGIN + LABEL_WIDTH
+        ref_x = x0 + PLOT_WIDTH * reference / scale_max
+        panel_top = y
+        ordered = sorted(rows, key=lambda n: (rows[n]["p90_subset_uninstrumented_ms"], n))
+
+        for name in ordered:
+            row = rows[name]
+            p50 = row["p50_subset_uninstrumented_ms"]
+            p90 = row["p90_subset_uninstrumented_ms"]
+            worst = row["worst_subset_uninstrumented_ms"]
+            colour = _colour(name, palette)
+            weight = "700" if name == "rtdd" else "normal"
+            body.append(_text(MARGIN, y + 14, name, fill=palette.ink, size=11.5, mono=True, weight=weight))
+
+            def px(ms: int) -> float:
+                return x0 + PLOT_WIDTH * ms / scale_max
+
+            body.append(
+                f'<line x1="{x0:.1f}" y1="{y + 10:.1f}" x2="{px(worst):.1f}" y2="{y + 10:.1f}" '
+                f'stroke="{colour}" stroke-width="1" opacity="0.4"/>'
+            )
+            body.append(
+                f'<rect x="{x0:.1f}" y="{y + 5:.1f}" width="{max(px(p50) - x0, 1.0):.1f}" height="{BAR_HEIGHT}" '
+                f'rx="2" fill="{colour}" '
+                f"{_data(name, f'{repo}/p50_subset_uninstrumented_ms', str(p50))}/>"
+            )
+            body.append(
+                f'<rect x="{px(p90):.1f}" y="{y + 3:.1f}" width="2" height="{BAR_HEIGHT + 4}" '
+                f'rx="1" fill="{colour}" '
+                f"{_data(name, f'{repo}/p90_subset_uninstrumented_ms', str(p90))}/>"
+            )
+            body.append(
+                f'<circle cx="{px(worst):.1f}" cy="{y + 9.5:.1f}" r="3.5" fill="{palette.bg}" stroke="{colour}" stroke-width="1.5" '
+                f"{_data(name, f'{repo}/worst_subset_uninstrumented_ms', str(worst))}/>"
+            )
+            body.append(
+                _text(
+                    x0 + PLOT_WIDTH + 12,
+                    y + 14,
+                    f"{p50} · {p90} · {worst} ms",
+                    fill=palette.muted,
+                    size=10,
+                    mono=True,
+                )
+            )
+            y += 24
+
+        body.append(
+            f'<line x1="{ref_x:.1f}" y1="{panel_top - 4:.1f}" x2="{ref_x:.1f}" y2="{y:.1f}" '
+            f'stroke="{palette.warn}" stroke-width="1.5" stroke-dasharray="4 3" '
+            f"{_data('full', f'{repo}/reference_full_uninstrumented_ms', str(reference))}/>"
+        )
+        y += 22
+
+    if omitted:
+        body.append(
+            _text(
+                MARGIN,
+                y,
+                f"{NOT_MEASURED}: {', '.join(omitted)} — a derived arm executed nothing, and a blank would read as zero.",
+                fill=palette.warn,
+                size=10.5,
+            )
+        )
+        y += 16
+    body.append(_source_note(y, palette, "source: bench/results/<repo>/summary.json · wallclock.rows · subset uninstrumented"))
+    return _svg(WIDTH, int(y + 20), body, palette)
+
+
+# --- emission ----------------------------------------------------------------------
+
+
+def render_figure(figure: str, summaries: Sequence[dict], palette: Palette) -> str:
+    if figure == "axis2-savings":
+        return savings_svg(summaries, palette)
+    if figure == "axis2-wallclock":
+        return wallclock_svg(summaries, palette)
+    if figure == "axis2-safety":
+        chosen = [s for s in summaries if s["repo_id"] == SAFETY_REPO]
+        if not chosen:
+            raise ChartError(f"the safety figure needs {SAFETY_REPO}'s summary")
+        return safety_svg(chosen[0], SAFETY_VARIANT, palette)
+    raise ChartError(f"unknown figure {figure!r}")
+
+
+def figure_names() -> tuple[str, ...]:
+    return tuple(f"{figure}-{palette.name}.svg" for figure in FIGURES for palette in PALETTES)
+
+
+def render_all(summaries: Sequence[dict]) -> dict[str, str]:
+    """Every figure in both palettes, keyed `<figure>-<palette>.svg`."""
+    return {
+        f"{figure}-{palette.name}.svg": render_figure(figure, summaries, palette)
+        for figure in FIGURES
+        for palette in PALETTES
+    }
+
+
+def write_figures(summaries: Sequence[dict], out_dir: pathlib.Path) -> list[pathlib.Path]:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written = []
+    for name, svg in render_all(summaries).items():
+        path = out_dir / name
+        path.write_text(svg)
+        written.append(path)
+    return written

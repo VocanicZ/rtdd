@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="546" viewBox="0 0 900 546" role="img">
+<rect x="0" y="0" width="900" height="546" fill="#ffffff"/>
+<text x="28.0" y="32.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#1f2328" text-anchor="start">What the saving costs in safety</text>
+<text x="28.0" y="52.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#656d76" text-anchor="start">flask · probe population — change-level recall against the share of the suite&#x27;s time spent</text>
+<text x="28.0" y="68.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#656d76" text-anchor="start">Top-left is the goal: catches everything a full run catches, on a fraction of the time.</text>
+<line x1="82.0" y1="90.0" x2="602.0" y2="90.0" stroke="#d8dee4" stroke-width="1"/>
+<text x="72.0" y="94.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="end">1.000</text>
+<line x1="82.0" y1="90.0" x2="82.0" y2="410.0" stroke="#d8dee4" stroke-width="1"/>
+<text x="82.0" y="426.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="middle">0.000</text>
+<line x1="82.0" y1="170.0" x2="602.0" y2="170.0" stroke="#d8dee4" stroke-width="1"/>
+<text x="72.0" y="174.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="end">0.750</text>
+<line x1="212.0" y1="90.0" x2="212.0" y2="410.0" stroke="#d8dee4" stroke-width="1"/>
+<text x="212.0" y="426.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="middle">0.250</text>
+<line x1="82.0" y1="250.0" x2="602.0" y2="250.0" stroke="#d8dee4" stroke-width="1"/>
+<text x="72.0" y="254.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="end">0.500</text>
+<line x1="342.0" y1="90.0" x2="342.0" y2="410.0" stroke="#d8dee4" stroke-width="1"/>
+<text x="342.0" y="426.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="middle">0.500</text>
+<line x1="82.0" y1="330.0" x2="602.0" y2="330.0" stroke="#d8dee4" stroke-width="1"/>
+<text x="72.0" y="334.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="end">0.250</text>
+<line x1="472.0" y1="90.0" x2="472.0" y2="410.0" stroke="#d8dee4" stroke-width="1"/>
+<text x="472.0" y="426.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="middle">0.750</text>
+<line x1="82.0" y1="410.0" x2="602.0" y2="410.0" stroke="#d8dee4" stroke-width="1"/>
+<text x="72.0" y="414.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="end">0.000</text>
+<line x1="602.0" y1="90.0" x2="602.0" y2="410.0" stroke="#d8dee4" stroke-width="1"/>
+<text x="602.0" y="426.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="middle">1.000</text>
+<text x="342.0" y="444.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11" font-weight="normal" fill="#656d76" text-anchor="middle">share of the suite&#x27;s test time spent  →  more expensive</text>
+<g transform="translate(22,250.0) rotate(-90)"><text x="0.0" y="0.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11" font-weight="normal" fill="#656d76" text-anchor="middle">change-level recall  →  safer</text></g>
+<g data-strategy="full" data-metric="selected_duration_fraction" data-value="1.000"><circle cx="602.0" cy="90.0" r="5" fill="#6e7781" stroke="#ffffff" stroke-width="1.5" data-strategy="full" data-metric="change_level_recall" data-value="1.000"/></g>
+<g data-strategy="importgraph" data-metric="selected_duration_fraction" data-value="0.000"><circle cx="82.0" cy="410.0" r="5" fill="#8250df" stroke="#ffffff" stroke-width="1.5" data-strategy="importgraph" data-metric="change_level_recall" data-value="0.000"/></g>
+<g data-strategy="lf" data-metric="selected_duration_fraction" data-value="0.768"><circle cx="481.5" cy="90.0" r="5" fill="#8250df" stroke="#ffffff" stroke-width="1.5" data-strategy="lf" data-metric="change_level_recall" data-value="1.000"/></g>
+<g data-strategy="path" data-metric="selected_duration_fraction" data-value="0.010"><circle cx="87.3" cy="303.3" r="5" fill="#8250df" stroke="#ffffff" stroke-width="1.5" data-strategy="path" data-metric="change_level_recall" data-value="0.333"/></g>
+<g data-strategy="random" data-metric="selected_duration_fraction" data-value="0.220"><circle cx="196.2" cy="196.7" r="5" fill="#8250df" stroke="#ffffff" stroke-width="1.5" data-strategy="random" data-metric="change_level_recall" data-value="0.667"/></g>
+<g data-strategy="rtdd" data-metric="selected_duration_fraction" data-value="0.243"><circle cx="208.4" cy="90.0" r="7" fill="#0969da" stroke="#ffffff" stroke-width="1.5" data-strategy="rtdd" data-metric="change_level_recall" data-value="1.000"/></g>
+<g data-strategy="static" data-metric="selected_duration_fraction" data-value="0.010"><circle cx="87.3" cy="303.3" r="5" fill="#8250df" stroke="#ffffff" stroke-width="1.5" data-strategy="static" data-metric="change_level_recall" data-value="0.333"/></g>
+<g data-strategy="testmon" data-metric="selected_duration_fraction" data-value="0.131"><circle cx="149.9" cy="90.0" r="5" fill="#8250df" stroke="#ffffff" stroke-width="1.5" data-strategy="testmon" data-metric="change_level_recall" data-value="1.000"/></g>
+<g data-strategy="xdist" data-metric="selected_duration_fraction" data-value="1.000"><circle cx="602.0" cy="90.0" r="5" fill="#6e7781" stroke="#ffffff" stroke-width="1.5" data-strategy="xdist" data-metric="change_level_recall" data-value="1.000"/></g>
+<text x="161.9" y="94.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#1f2328" text-anchor="start">testmon  3/3 caught @ 0.131</text>
+<text x="220.4" y="107.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="700" fill="#1f2328" text-anchor="start">rtdd  3/3 caught @ 0.243</text>
+<text x="469.5" y="120.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#1f2328" text-anchor="end">lf  3/3 caught @ 0.768</text>
+<text x="590.0" y="133.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#1f2328" text-anchor="end">full/xdist  3/3 caught @ 1.000</text>
+<text x="208.2" y="200.7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#1f2328" text-anchor="start">random  2/3 caught @ 0.220</text>
+<text x="99.3" y="307.3" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#1f2328" text-anchor="start">path/static  1/3 caught @ 0.010</text>
+<text x="94.0" y="414.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#1f2328" text-anchor="start">importgraph  0/3 caught @ 0.000</text>
+<text x="28.0" y="462.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#bc4c00" text-anchor="start">upper bound — every map-based strategy is seeded at the child commit in this population, and it is never pooled with natural.</text>
+<text x="28.0" y="478.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#1f2328" text-anchor="start">change-level recall rtdd=1.000 vs path heuristic=0.333; selected-duration fraction rtdd=0.243 vs path=0.010 — rtdd</text>
+<text x="28.0" y="492.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#1f2328" text-anchor="start">does NOT clearly beat the naive path heuristic — per the pre-registered criterion in</text>
+<text x="28.0" y="506.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#1f2328" text-anchor="start">docs/plans/04-m3-replay-benchmark.md the map is not justified and this must be stated in the README</text>
+<text x="28.0" y="526.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">source: bench/results/flask/summary.json · by_variant.probe · verdict from replay/report.py</text>
+</svg>

@@ -34,6 +34,7 @@ from replay.records import (
     parse_jsonl_lines,
     to_jsonl_lines,
 )
+from replay import chart
 from replay.report import build_summary, render_aggregate, render_markdown, write_results
 from replay.session import run_drift
 from replay.strategies import base as sbase
@@ -60,6 +61,7 @@ The fleet reaps and recreates its worktree on every claim, which takes a
 ``RTDD_BENCH_CACHE`` can point the store somewhere durable. Entries stay keyed by the
 config digest either way, so a longer-lived cache is not a staler one."""
 RESULTS = BENCH / "results"
+FIGURES = BENCH.parent / "docs" / "results" / "figures"
 
 DEFAULT_STRATEGIES = ("rtdd", "testmon", "path", "lf", "importgraph", "xdist", "random", "full")
 
@@ -449,6 +451,30 @@ def cmd_report(args) -> int:
     return EXIT_OK
 
 
+def cmd_chart(args) -> int:
+    """Re-render the committed figures from the committed summaries.
+
+    The figures are what a README reader sees before they read a table, so they are
+    generated rather than drawn: `tests/test_chart.py` re-renders them here and fails if
+    the committed bytes differ, which makes a figure that disagrees with `summary.json`
+    a build failure rather than a thing a reviewer has to notice.
+    """
+    ids = set(_corpus(getattr(args, "corpus_version", None)).ids())
+    summaries = []
+    for d in sorted(RESULTS.iterdir()) if RESULTS.exists() else []:
+        f = d / "summary.json"
+        if d.name in ids and f.exists():
+            summaries.append(json.loads(f.read_text(encoding="utf-8")))
+    if not summaries:
+        print("no per-repo summaries found; run `replay` first", file=sys.stderr)
+        return EXIT_GUARD
+    written = chart.write_figures(summaries, FIGURES)
+    for path in written:
+        print(f"wrote {path}")
+    print(f"{len(written)} figures from {len(summaries)} repos")
+    return EXIT_OK
+
+
 def cmd_audit(args) -> int:
     """Check the corpus against its own admission criteria. Fails; never warns."""
     corpus = _corpus(getattr(args, "corpus_version", None))
@@ -539,6 +565,10 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     rep.set_defaults(func=cmd_report)
+
+    ch = sub.add_parser("chart", help="regenerate docs/results/figures/ from committed summaries")
+    ch.add_argument("--corpus-version", type=int, default=None, dest="corpus_version")
+    ch.set_defaults(func=cmd_chart)
     return p
 
 

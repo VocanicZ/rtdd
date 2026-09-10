@@ -170,6 +170,14 @@ Condensed from `bench/results/{flask,httpie,sqlfluff}/summary.md` and
 `bench/results/aggregate.md`. Full per-cycle detail, drift curves, and wall-clock rows are in
 [`docs/results/axis2-corpus-replay.md`](docs/results/axis2-corpus-replay.md).
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/results/figures/axis2-savings-dark.svg">
+  <img alt="How much of the suite each strategy runs, per repo. On flask rtdd selects 0.235 of the tests and 0.282 of the suite's test time; on httpie 0.186 and 0.188. The naive path heuristic runs 0.050 and 0.056 on flask, 0.032 and 0.032 on httpie. lf runs 0.783 of flask and 0.002 of httpie. full and xdist run all of it." src="docs/results/figures/axis2-savings-light.svg">
+</picture>
+
+Cheapest is not best: `lf` runs 0.2% of httpie and `importgraph` 4% of flask, and nothing
+in this figure says what either would have caught. That is the safety figure below.
+
 > **Superseded in part by #184.** `sqlfluff` breaches the corpus's own admission criterion
 > (~24 min uninstrumented suite against a 10-minute budget) and was removed at
 > `corpus_version: 2`; it is kept here for the record and stays reproducible with
@@ -202,6 +210,16 @@ twice:
 | flask | 1.000 (3/3) | 0.333 (1/3) | 0.243 | 0.010 |
 | httpie | n/a (0/0) | n/a (0/0) | — | — |
 | sqlfluff | n/a (0/0) | n/a (0/0) | — | — |
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/results/figures/axis2-safety-dark.svg">
+  <img alt="Change-level recall against selected-duration fraction on flask's probe population, an upper bound. rtdd catches 3 of 3 at 0.243 of the suite's time; testmon catches 3 of 3 at 0.131; lf 3 of 3 at 0.768; full and xdist 3 of 3 at 1.000; random 2 of 3 at 0.220; path and static 1 of 3 at 0.010; importgraph 0 of 3 at 0.000. The pre-registered criterion is not met." src="docs/results/figures/axis2-safety-light.svg">
+</picture>
+
+The trade RTDD exists to make is the vertical axis bought with the horizontal one: keep what
+a full run catches, on a fraction of a full run's time. Nine points, one repository and an
+upper-bound population decide everything visible here — the picture is the shape of the
+question, not an answer to it.
 
 On flask's probe population RTDD catches every detecting change but spends roughly 24× the
 path heuristic's selected-duration fraction doing it. The criterion asks for better recall
@@ -266,6 +284,14 @@ a cycle whose strategy selected nothing costs almost nothing, a cycle that selec
 costs nearly a full run — so the mean falls between the two modes and describes neither half.
 `p50`, `p90` and `worst` are nearest-rank over the committed per-cycle samples in
 `bench/results/<repo>/commits.jsonl`, so every figure below is a cycle that really ran.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/results/figures/axis2-wallclock-dark.svg">
+  <img alt="Median, p90 and worst cycle cost per strategy against the full uninstrumented suite. On flask rtdd's median cycle costs 0 ms, p90 3109 ms and worst 4045 ms against a 3127 ms full suite. On httpie rtdd's median is 0 ms, p90 96666 ms and worst 171039 ms against an 88694 ms full suite — the worst cycle costs nearly twice a full run." src="docs/results/figures/axis2-wallclock-light.svg">
+</picture>
+
+The distance between the bar and the dot is the finding. RTDD's median cycle is free on both
+repos; its worst crosses the dashed full-suite line on httpie and comes close on flask.
 
 **flask** — full suite, uninstrumented: mean 3127 ms · p50 3001 ms · p90 4294 ms · worst 4486 ms.
 

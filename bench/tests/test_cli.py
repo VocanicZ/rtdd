@@ -138,10 +138,10 @@ def stub_replay(monkeypatch):
     return seen
 
 
-# --- the six subcommands -------------------------------------------------
+# --- the seven subcommands -----------------------------------------------
 
 
-def test_the_parser_exposes_exactly_the_six_documented_subcommands():
+def test_the_parser_exposes_exactly_the_seven_documented_subcommands():
     parser = cli.build_parser()
     actions = [a for a in parser._actions if a.dest == "cmd"]
     assert actions, "the parser has no subcommand slot"
@@ -152,6 +152,7 @@ def test_the_parser_exposes_exactly_the_six_documented_subcommands():
         "doctor",
         "audit",
         "derive",
+        "chart",
     }
 
 

@@ -174,6 +174,7 @@ uv run python -m replay.cli session --repo flask --cycles 25   # drift.json
 uv run python -m replay.cli report                             # aggregate.md
 uv run python -m replay.cli report --rebuild                   # summary.{json,md} too
 uv run python -m replay.cli derive                             # the derived arms, offline
+uv run python -m replay.cli chart                              # docs/results/figures/*.svg
 ```
 
 `report --rebuild` re-derives each admitted repo's `summary.json` and `summary.md` from
@@ -198,6 +199,23 @@ cd bench
 uv run python -m replay.cli derive           # appends the static arm to commits.jsonl
 uv run python -m replay.cli report --rebuild # re-renders summary.{json,md}
 git diff --stat bench/results/               # the review
+```
+
+`chart` is the same idea applied to the README's pictures. The three Axis 2 figures are
+generated from the committed `summary.json` files and committed as a light/dark SVG pair
+under `docs/results/figures/`; `bench/tests/test_chart.py` re-renders them and fails if the
+bytes differ, so a figure that disagrees with the numbers beside it is a red build rather
+than something a reviewer has to notice. Every mark carries the `data-strategy`,
+`data-metric` and `data-value` it was drawn from, and the rules `report.py` follows carry
+over: a `null` recall is named under the plot rather than drawn at zero, an arm that
+executed nothing gets no wall-clock bar, and the safety figure renders the pre-registered
+verdict from `report.py` rather than restating it. Re-run it after anything that moves a
+published number:
+
+```bash
+cd bench
+uv run python -m replay.cli report --rebuild # the tables
+uv run python -m replay.cli chart            # the figures that must agree with them
 ```
 
 Both commands are offline: nothing is cloned, provisioned or executed, no test is run,
