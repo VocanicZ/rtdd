@@ -211,3 +211,89 @@ func derefOr(p *float64, fallback float64) float64 {
 	}
 	return *p
 }
+
+// --- the time axis is derived from the committed records, never hand-typed ---------
+//
+// The README's answer to "does it save the agent time?" is a table of medians read from
+// each repo's `wallclock.rows`. A regenerated summary that moved those numbers would
+// otherwise leave the README's table standing and stale — the same failure mode
+// TestREADMEStaticVerdictMatchesTheCommittedSummaries exists to prevent, applied to the
+// axis a reader decides on first.
+
+type wallClockRow struct {
+	P50SubsetInstrumented int `json:"p50_subset_instrumented_ms"`
+	P50FullUninstrumented int `json:"p50_full_uninstrumented_ms"`
+}
+
+type wallClockSummary struct {
+	WallClock struct {
+		Rows map[string]wallClockRow `json:"rows"`
+	} `json:"wallclock"`
+}
+
+func TestREADMETimeAxisMatchesTheCommittedWallClock(t *testing.T) {
+	b, err := os.ReadFile("README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(b)
+
+	for _, repo := range staticVerdictRepos {
+		path := filepath.Join("bench", "results", repo, "summary.json")
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		var summary wallClockSummary
+		if err := json.Unmarshal(raw, &summary); err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		rtdd, ok := summary.WallClock.Rows["rtdd"]
+		if !ok {
+			t.Fatalf("%s has no rtdd wall-clock row", path)
+		}
+		full, ok := summary.WallClock.Rows["full"]
+		if !ok {
+			t.Fatalf("%s has no full wall-clock row", path)
+		}
+
+		// The cost the agent actually pays is the INSTRUMENTED subset: `rtdd run`
+		// records coverage on every cycle. Quoting the uninstrumented column would
+		// describe a run the shipped adapter never performs.
+		for _, want := range []string{
+			fmt.Sprintf("%d ms", rtdd.P50SubsetInstrumented),
+			fmt.Sprintf("%d ms", full.P50FullUninstrumented),
+		} {
+			if !strings.Contains(text, want) {
+				t.Errorf("README.md does not carry %s's committed median %q", repo, want)
+			}
+		}
+	}
+}
+
+// The uncommitted-session curves were measured under the previous tier rule, where a
+// full-escalate edit re-escalated for as long as it sat in the diff. They describe a rule
+// the selector no longer implements, so the README must not summarise them as the tool's
+// behaviour — it may only point at the file and say what they are.
+func TestREADMEDoesNotPublishThePreFixSessionCurves(t *testing.T) {
+	for _, name := range []string{
+		"README.md",
+		filepath.Join("docs", "outcomes", "README.positive.md"),
+	} {
+		b, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(b)
+		for _, stale := range []string{
+			"24 of 25",
+			"16 of 16",
+			"24/25",
+			"16/16",
+		} {
+			if strings.Contains(text, stale) {
+				t.Errorf("%s quotes the pre-fix session curve %q as if it described the tool", name, stale)
+			}
+		}
+	}
+}
