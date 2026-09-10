@@ -81,6 +81,13 @@ type selectionContext struct {
 	Merge    bool
 	Distance func(sha string) int
 
+	// EscalateDigest names the state of the full-escalate files the diff touches;
+	// EscalateDigestAtLastFull is meta.json's record of the state the last completed
+	// full run covered. Equal means that run already paid for this config, and the
+	// tier rule stops re-escalating on an edit that is still in an uncommitted diff.
+	EscalateDigest           string
+	EscalateDigestAtLastFull string
+
 	// Enumerate lists an adapter's whole suite, for a T2 escalation only. A nil Enumerate
 	// means the suite is not enumerated — `rtdd which` deliberately does not pay a
 	// collection run — and a T2 selection is then a partial list, which whichNotes says
@@ -135,17 +142,19 @@ func selectFor(root string, ad *adapter.Adapter, ads []*adapter.Adapter, m *maps
 
 	choose := func(allTests []string) selector.Selection {
 		return selector.Select(selector.Inputs{
-			Map:            sub,
-			Changes:        ctx.Changes,
-			Adapter:        ad,
-			Cfg:            ctx.Cfg,
-			AllTests:       allTests,
-			Cycles:         ctx.Cycles,
-			Merge:          ctx.Merge,
-			Distance:       ctx.Distance,
-			ImportOnly:     fb.testsImporting,
-			Exists:         exists,
-			ImportDistance: importDistance,
+			Map:                      sub,
+			Changes:                  ctx.Changes,
+			Adapter:                  ad,
+			Cfg:                      ctx.Cfg,
+			AllTests:                 allTests,
+			Cycles:                   ctx.Cycles,
+			Merge:                    ctx.Merge,
+			EscalateDigest:           ctx.EscalateDigest,
+			EscalateDigestAtLastFull: ctx.EscalateDigestAtLastFull,
+			Distance:                 ctx.Distance,
+			ImportOnly:               fb.testsImporting,
+			Exists:                   exists,
+			ImportDistance:           importDistance,
 		})
 	}
 	blk.Selection = choose(nil)

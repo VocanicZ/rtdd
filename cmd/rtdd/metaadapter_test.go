@@ -6,6 +6,7 @@ import (
 	"github.com/VocanicZ/rtdd/internal/adapter"
 	"github.com/VocanicZ/rtdd/internal/gitctx"
 	"github.com/VocanicZ/rtdd/internal/mapstore"
+	"github.com/VocanicZ/rtdd/internal/selector"
 )
 
 // legacyRepoAdapters is the polyglot repository of issue #336: a Java module that records
@@ -31,7 +32,7 @@ func legacyRepoAdapters() []*adapter.Adapter {
 // the COVERAGE adapter that produced the map. `run` used to write whichever adapter sorted
 // first, which in this repository is a static one that produced no map at all.
 func TestRunNamesTheCoverageAdapterInMetaNotWhicheverSortsFirst(t *testing.T) {
-	got := metaAfterRun(meta{V: 1, Adapters: []string{"maven", "python"}}, legacyRepoAdapters())
+	got := metaAfterRun(meta{V: 1, Adapters: []string{"maven", "python"}}, legacyRepoAdapters(), selector.TierT0, "")
 	if got.Adapter != "python" {
 		t.Errorf("meta.adapter after run = %q, want %q — the singular field names the coverage adapter, "+
 			"never whichever name sorts first", got.Adapter, "python")
@@ -46,7 +47,7 @@ func TestMetaAdapterStaysEmptyWhenEveryAdapterIsStatic(t *testing.T) {
 		{Name: "maven", Selection: adapter.SelectionStatic, Coverage: adapter.CoverageNone},
 		{Name: "vitest", Selection: adapter.SelectionStatic, Coverage: adapter.CoverageNone},
 	}
-	if got := metaAfterRun(meta{V: 1}, ads).Adapter; got != "" {
+	if got := metaAfterRun(meta{V: 1}, ads, selector.TierT0, "").Adapter; got != "" {
 		t.Errorf("meta.adapter after run = %q, want \"\" — no adapter here records coverage", got)
 	}
 }
@@ -59,7 +60,7 @@ func TestRunAndSeedAgreeOnTheMapsAdapter(t *testing.T) {
 	if len(plan) == 0 {
 		t.Fatal("seedPlan produced nothing; the comparison below would be vacuous")
 	}
-	if got, want := metaAfterRun(meta{V: 1}, detected).Adapter, plan[0].Name; got != want {
+	if got, want := metaAfterRun(meta{V: 1}, detected, selector.TierT0, "").Adapter, plan[0].Name; got != want {
 		t.Errorf("run writes adapter %q, seed writes %q; the two must agree", got, want)
 	}
 	if got := coverageAdapterName(detected); got != plan[0].Name {
@@ -71,7 +72,7 @@ func TestRunAndSeedAgreeOnTheMapsAdapter(t *testing.T) {
 // of an existing map are, and a repository that gains a second toolchain must not have
 // that answer changed underneath it.
 func TestRunLeavesAnAlreadyNamedAdapterAlone(t *testing.T) {
-	got := metaAfterRun(meta{V: 1, Adapter: "python"}, legacyRepoAdapters())
+	got := metaAfterRun(meta{V: 1, Adapter: "python"}, legacyRepoAdapters(), selector.TierT0, "")
 	if got.Adapter != "python" {
 		t.Errorf("meta.adapter = %q, want the name already recorded", got.Adapter)
 	}
@@ -80,7 +81,7 @@ func TestRunLeavesAnAlreadyNamedAdapterAlone(t *testing.T) {
 // A meta written before `v` existed still gets one; the run must not write a versionless
 // document back.
 func TestRunStampsTheSchemaVersionOnAVersionlessMeta(t *testing.T) {
-	if got := metaAfterRun(meta{}, legacyRepoAdapters()).V; got != 1 {
+	if got := metaAfterRun(meta{}, legacyRepoAdapters(), selector.TierT0, "").V; got != 1 {
 		t.Errorf("meta.v after run = %d, want 1", got)
 	}
 }
@@ -95,7 +96,7 @@ func TestUntaggedLegacyRowsAreNotServedToAStaticAdapterAfterARun(t *testing.T) {
 	m.Replace(mapstore.Row{T: "tests/test_calc.py::test_add", F: []string{"src/calc.py"}, S: "pass"})
 
 	// Exactly what `rtdd run` persists: a meta that named no adapter, plus this run's fix-up.
-	mt := metaAfterRun(meta{V: 1, Adapters: []string{"maven", "python"}}, ads)
+	mt := metaAfterRun(meta{V: 1, Adapters: []string{"maven", "python"}}, ads, selector.TierT0, "")
 
 	if got := rowsVisibleTo(ads[0], ads, m, mt); got.Len() != 0 {
 		t.Errorf("maven is served %d untagged row(s); a static adapter recorded none of them", got.Len())

@@ -86,11 +86,14 @@ func cmdRun(args []string) int {
 	// the whole suite, so paying it on every T0 run would put a collection on the critical
 	// path of the loop this tool exists to make fast. What that run produced is carried on
 	// the block and reused below rather than paid for twice.
+	escalateNow := escalateDigest(root, ads, changes)
 	blocks, err := selectPerAdapter(root, ads, m, mt, selectionContext{
-		Changes: changes,
-		Cfg:     selector.DefaultConfig(),
-		Cycles:  mt.Cycles,
-		Merge:   merge,
+		Changes:                  changes,
+		Cfg:                      selector.DefaultConfig(),
+		Cycles:                   mt.Cycles,
+		Merge:                    merge,
+		EscalateDigest:           escalateNow,
+		EscalateDigestAtLastFull: mt.EscalateDigest,
 		Distance: func(sha string) int {
 			d, derr := gitctx.CommitDistance(root, sha)
 			if derr != nil {
@@ -342,7 +345,7 @@ func cmdRun(args []string) int {
 	// The detected set, NOT the blocks: blocks are ordered by adapter name, and the
 	// singular `adapter` names the coverage adapter that produced the map rather than
 	// whichever name sorts first. See coverageAdapterName.
-	mt = metaAfterRun(mt, ads)
+	mt = metaAfterRun(mt, ads, sel.Tier, escalateNow)
 
 	if *asJSON {
 		out := BuildOutput(OutputInput{

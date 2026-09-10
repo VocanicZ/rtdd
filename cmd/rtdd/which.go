@@ -74,11 +74,13 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 	// does not pay a collection run, so a T2 selection is a partial list and the note
 	// below says so in as many words.
 	blocks, err := selectPerAdapter(e.root, e.ads, e.m, e.meta, selectionContext{
-		Changes:  changes,
-		Cfg:      selector.DefaultConfig(),
-		Cycles:   e.meta.Cycles,
-		Merge:    merge,
-		Distance: distance,
+		Changes:                  changes,
+		Cfg:                      selector.DefaultConfig(),
+		Cycles:                   e.meta.Cycles,
+		Merge:                    merge,
+		Distance:                 distance,
+		EscalateDigest:           escalateDigest(e.root, e.ads, changes),
+		EscalateDigestAtLastFull: e.meta.EscalateDigest,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "rtdd which: %v\n", err)
