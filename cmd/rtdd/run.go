@@ -96,13 +96,7 @@ func cmdRun(args []string) int {
 		Merge:                    merge,
 		EscalateDigest:           escalateNow,
 		EscalateDigestAtLastFull: mt.EscalateDigest,
-		Distance: func(sha string) int {
-			d, derr := gitctx.CommitDistance(root, sha)
-			if derr != nil {
-				return -1 // unknown, never "fresh"
-			}
-			return d
-		},
+		Distance:                 memoDistance(root),
 		Enumerate: func(ad *adapter.Adapter) (suiteRun, error) {
 			res, tests, err := runner.ListRun(ad, root)
 			return suiteRun{Tests: tests, Result: res}, err

@@ -49,7 +49,28 @@ func Run(a *adapter.Adapter, repoRoot string, tests []string, failFast bool) (*R
 	if err != nil {
 		return nil, err
 	}
-	return execute(a, repoRoot, a.Subset, Chunk(selectors, MaxArgvBytes), failFast)
+	return execute(a, repoRoot, a.Subset, Chunk(selectors, MaxArgvBytes), failFast, true)
+}
+
+// RunPlain executes the same selection as Run, without recording coverage.
+//
+// The map therefore learns nothing from this cycle, which is the whole trade: the
+// caller has decided there is nothing for it to learn. It is never chosen for an
+// adapter that declares no `subset_plain`, and the caller is responsible for reporting
+// that no fresh coverage backs this run — an uncovered report derived from the previous
+// cycle's coverage would be a claim about lines this run never watched.
+func RunPlain(a *adapter.Adapter, repoRoot string, tests []string, failFast bool) (*RunResult, error) {
+	if len(tests) == 0 {
+		return &RunResult{Coverage: &coverage.Result{ImportTime: map[string][]int{}}}, nil
+	}
+	if !a.CanRunPlain() {
+		return nil, fmt.Errorf("runner: adapter %q declares no subset_plain", a.Name)
+	}
+	selectors, err := a.Selectors(tests)
+	if err != nil {
+		return nil, err
+	}
+	return execute(a, repoRoot, a.SubsetPlain, Chunk(selectors, MaxArgvBytes), failFast, false)
 }
 
 // RunPlain executes the same selection as Run, without recording coverage.
@@ -75,7 +96,7 @@ func RunPlain(a *adapter.Adapter, repoRoot string, tests []string, failFast bool
 
 // execute runs one command template. chunks == nil means a single invocation with
 // no {tests} placeholder (the seed and list path).
-func execute(a *adapter.Adapter, repoRoot, tmpl string, chunks [][]string, failFast bool) (*RunResult, error) {
+func execute(a *adapter.Adapter, repoRoot, tmpl string, chunks [][]string, failFast, readCoverage bool) (*RunResult, error) {
 	tmpDir, err := os.MkdirTemp("", "rtdd-run-")
 	if err != nil {
 		return nil, fmt.Errorf("runner: %w", err)
@@ -224,7 +245,13 @@ func execute(a *adapter.Adapter, repoRoot, tmpl string, chunks [][]string, failF
 		// coverage: none has no .coverage to read at all, and ReadSQLite against a file
 		// that does not exist is an error rather than an empty result — so the read is
 		// skipped, not attempted and forgiven.
-		if a.Coverage != adapter.CoverageNone {
+		//
+		// An uninstrumented run is the same case reached a different way: `subset_plain`
+		// carries no --cov, so the command writes no store however capable the adapter
+		// is. Reading one anyway fails the whole cycle with `.coverage is unreadable` —
+		// measured, before this guard existed — which turns the fast path into a path
+		// that runs nothing at all and reports exit 3.
+		if readCoverage && a.Coverage != adapter.CoverageNone {
 			cov, err := coverage.ReadSQLite(covPath, repoRoot)
 			if err != nil {
 				return nil, fmt.Errorf("runner: chunk %d: %w", i, err)
@@ -349,7 +376,7 @@ func tail(b []byte, n int) string {
 // seed template that names {tests} fails in Expand rather than running the suite
 // with the ids dropped.
 func Seed(a *adapter.Adapter, repoRoot string) (*RunResult, error) {
-	return execute(a, repoRoot, a.Seed, nil, false)
+	return execute(a, repoRoot, a.Seed, nil, false, true)
 }
 
 // emptySuiteLabel is the exit_codes label whose meaning differs between List and
@@ -404,7 +431,7 @@ func ListRun(a *adapter.Adapter, repoRoot string) (*RunResult, []string, error) 
 		return nil, nil, fmt.Errorf("runner: adapter %s has no list command", a.Name)
 	}
 	if a.Report == reportJUnitXML {
-		res, err := execute(a, repoRoot, a.List, nil, false)
+		res, err := execute(a, repoRoot, a.List, nil, false, true)
 		if err != nil {
 			return nil, nil, err
 		}

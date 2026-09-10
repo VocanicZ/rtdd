@@ -75,7 +75,7 @@ func writeStubXML(t *testing.T, dir, name, body string) string {
 // runWithBudget is Run with an explicit argv budget, so the chunking path is exercised
 // without a 100,000-byte argv.
 func runWithBudget(a *adapter.Adapter, repoRoot string, tests []string, budget int) (*RunResult, error) {
-	return execute(a, repoRoot, a.Subset, Chunk(tests, budget), false)
+	return execute(a, repoRoot, a.Subset, Chunk(tests, budget), false, true)
 }
 
 // The junit path end to end: {report} expands, the stub writes there, the parser reads it,
