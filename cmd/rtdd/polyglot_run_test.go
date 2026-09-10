@@ -136,7 +136,7 @@ func TestAT2SuiteEnumerationIsNotRunASecondTimeAsASubset(t *testing.T) {
 	}
 	defer func() { runSubset = restore }()
 
-	res, err := runSelection(blocks[0], root, false)
+	res, err := runSelection(blocks[0], root, false, true)
 	if err != nil {
 		t.Fatalf("runSelection: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestACollectOnlyEnumerationStillRunsTheSubset(t *testing.T) {
 	}
 	defer func() { runSubset = restore }()
 
-	if _, err := runSelection(blk, t.TempDir(), false); err != nil {
+	if _, err := runSelection(blk, t.TempDir(), false, true); err != nil {
 		t.Fatalf("runSelection: %v", err)
 	}
 	if subsets != 1 {
@@ -343,7 +343,7 @@ func TestAnAdapterWhoseEnumerationFailedIsReportedRatherThanRunPartially(t *test
 	}
 	defer func() { runSubset = restore }()
 
-	res, err := runSelection(blk, t.TempDir(), false)
+	res, err := runSelection(blk, t.TempDir(), false, true)
 	if err == nil {
 		t.Fatal("runSelection = nil error, want the enumeration's own failure")
 	}

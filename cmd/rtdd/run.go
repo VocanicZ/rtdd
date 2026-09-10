@@ -36,6 +36,8 @@ func cmdRun(args []string) int {
 	base := fs.String("base", "HEAD", "diff base ref for the changed set")
 	failFast := fs.Bool("fail-fast", false, "stop at the first failure (opt-in only)")
 	asJSON := fs.Bool("json", false, "machine-readable output (schema v1)")
+	record := fs.String("record", recordAlways, "when to record coverage: "+
+		recordAlways+" (every cycle) or "+recordAuto+" (only when the map has something to learn)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -239,8 +241,13 @@ func cmdRun(args []string) int {
 	// back an uncovered report at all.
 	var (
 		noCoverage  []string
+		notRecorded []string
 		coverageRan bool
 	)
+	recordThisCycle, recordWhy := shouldRecord(*record, sel, pre.UnmappedFiles, ads)
+	if !recordThisCycle {
+		warnings = append(warnings, recordWhy)
+	}
 	for _, blk := range blocks {
 		// An adapter whose enumeration failed is reported even with nothing to run: the
 		// empty selection is a CONSEQUENCE of the failure, and skipping it silently would
@@ -248,7 +255,7 @@ func cmdRun(args []string) int {
 		if blk.EnumErr == nil && selectionIsEmpty(blk.Selection) {
 			continue
 		}
-		res, err := runSelection(blk, root, *failFast)
+		res, err := runSelection(blk, root, *failFast, recordThisCycle)
 		if err != nil {
 			code, hints := runErrClass(err)
 			runs = append(runs, AdapterRun{Adapter: blk.Adapter, Err: err, Code: code, Hints: hints})
@@ -266,7 +273,7 @@ func cmdRun(args []string) int {
 		// count the summary line printed was not miscounted — it was of rows that should
 		// never have existed, and writing them left map.jsonl claiming a coverage
 		// relation the adapter had already declared it cannot produce.
-		if recordsCoverage(blk.Ad) {
+		if recordThisCycle && recordsCoverage(blk.Ad) {
 			for _, row := range rowsFrom(res, sha, blk.Adapter) {
 				// UNION, NEVER REPLACE. See the doc comment on cmdRun. UnionFor rather
 				// than Union because an untagged row IS this adapter's row when meta.json
@@ -290,11 +297,17 @@ func cmdRun(args []string) int {
 		// run instrumented nothing, so Classify sees an empty coverage result and reports
 		// EVERY changed line Uncovered. Dropping it here is what keeps the claim off both
 		// output paths — the text report below and the --json document's `uncovered`.
-		if recordsCoverage(blk.Ad) {
+		switch {
+		case !recordsCoverage(blk.Ad):
+			noCoverage = append(noCoverage, blk.Adapter)
+		case !recordThisCycle:
+			// The adapter records coverage and simply was not asked to this cycle. It
+			// gets its own reason, because reporting it as `coverage: none` would state
+			// a permanent incapacity for a per-cycle choice.
+			notRecorded = append(notRecorded, blk.Adapter)
+		default:
 			reports = append(reports, blkSig.Reports...)
 			coverageRan = true
-		} else {
-			noCoverage = append(noCoverage, blk.Adapter)
 		}
 		for p, ok := range blkSig.Instrumentable {
 			sig.Instrumentable[p] = sig.Instrumentable[p] || ok
@@ -363,7 +376,7 @@ func cmdRun(args []string) int {
 			// fresh coverage backs; an empty `files` list would read as "nothing
 			// uncovered", which is the fabrication AC9a is about.
 			UncoveredOK:     coverageRan,
-			UncoveredReason: uncoveredAbsentReason(noCoverage),
+			UncoveredReason: uncoveredAbsentReason(noCoverage, notRecorded),
 			UnmappedFiles:   sig.UnmappedFiles,
 			ImportFallback:  importFallback,
 			SuiteEnumerated: suiteEnumerated,
@@ -381,7 +394,7 @@ func cmdRun(args []string) int {
 	for _, id := range failed {
 		fmt.Printf("FAILED %s\n", id)
 	}
-	if s := RenderUncoveredFor(reports, noCoverage); s != "" {
+	if s := RenderUncoveredFor(reports, noCoverage, notRecorded); s != "" {
 		fmt.Fprint(os.Stdout, "\n"+s)
 	}
 	return finishCycle(root, mt, code)
@@ -428,13 +441,16 @@ func renderRunSummary(ran, failed, rows int, mapApplies bool) string {
 // adapters record no coverage: the same sentences the text surface prints, so a consumer
 // reading the document and a human reading the terminal are told the same thing. It
 // returns "" when no adapter was suppressed, which leaves buildUncovered's own default.
-func uncoveredAbsentReason(noCoverage []string) string {
-	if len(noCoverage) == 0 {
+func uncoveredAbsentReason(noCoverage, notRecorded []string) string {
+	if len(noCoverage) == 0 && len(notRecorded) == 0 {
 		return ""
 	}
-	reasons := make([]string, 0, len(noCoverage))
+	reasons := make([]string, 0, len(noCoverage)+len(notRecorded))
 	for _, name := range noCoverage {
 		reasons = append(reasons, noCoverageReason(name))
+	}
+	for _, name := range notRecorded {
+		reasons = append(reasons, notRecordedReason(name))
 	}
 	return strings.Join(reasons, "; ")
 }
