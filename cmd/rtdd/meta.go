@@ -5,6 +5,7 @@ import (
 
 	"github.com/VocanicZ/rtdd/internal/adapter"
 	"github.com/VocanicZ/rtdd/internal/mapstore"
+	"github.com/VocanicZ/rtdd/internal/selector"
 )
 
 // meta is .rtdd/meta.json. It is kept OUT of map.jsonl because the JSONL is
@@ -55,12 +56,19 @@ func coverageAdapterName(detected []*adapter.Adapter) string {
 // rows of an existing map are, so a repository that gains a second toolchain must not have
 // that answer rewritten underneath it — and a repository that never had one gets the
 // coverage adapter, not whichever name detection happened to return first.
-func metaAfterRun(mt meta, detected []*adapter.Adapter) meta {
+func metaAfterRun(mt meta, detected []*adapter.Adapter, tier selector.Tier, escalateNow string) meta {
 	if mt.Adapter == "" {
 		mt.Adapter = coverageAdapterName(detected)
 	}
 	if mt.V == 0 {
 		mt.V = 1
+	}
+	// Only a T2 run covers the whole suite, so only a T2 run can retire the config
+	// change that forced it. Stamping the state here — after the suite really ran and
+	// before the cycle is finished — is what stops the next cycle escalating again on
+	// an edit that is still sitting in an uncommitted diff.
+	if tier == selector.TierT2 {
+		mt.EscalateDigest = escalateNow
 	}
 	return mt
 }

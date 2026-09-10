@@ -160,9 +160,11 @@ func emptyReason(in Inputs) string {
 // escalation, it is the coverage relation being unable to answer at all, and what to do
 // about that depends on what the adapter can declare instead.
 func escalateFull(in Inputs, m *mapstore.Map, cfg Config) (string, bool) {
-	for _, c := range in.Changes {
-		if in.Adapter.IsFullEscalate(c.Path) {
-			return "full-escalate file changed: " + c.Path, true
+	if !in.fullRunCoversCurrentConfig() {
+		for _, c := range in.Changes {
+			if in.Adapter.IsFullEscalate(c.Path) {
+				return "full-escalate file changed: " + c.Path, true
+			}
 		}
 	}
 	if cfg.DriftGuard > 0 && in.Cycles >= cfg.DriftGuard {
@@ -170,6 +172,18 @@ func escalateFull(in Inputs, m *mapstore.Map, cfg Config) (string, bool) {
 			in.Cycles, cfg.DriftGuard), true
 	}
 	return "", false
+}
+
+// fullRunCoversCurrentConfig reports whether a completed full run already saw the
+// `full_escalate` files in the state they are in now.
+//
+// It is the difference between "the config changed" and "the config changed and
+// nothing has run everything since". Only the second is a reason to run everything:
+// once the full suite has been through this config, a diff that still mentions
+// conftest.py is describing an edit that has already been paid for. An unknown
+// last-full state is never treated as covered.
+func (in Inputs) fullRunCoversCurrentConfig() bool {
+	return in.EscalateDigestAtLastFull != "" && in.EscalateDigestAtLastFull == in.EscalateDigest
 }
 
 // escalateT1 returns the tests T1 adds to T0, and the reason for the escalation.

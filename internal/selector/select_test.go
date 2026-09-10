@@ -652,3 +652,153 @@ func TestSelectAnUnseededCoverageRepoIsUnchanged(t *testing.T) {
 		t.Errorf("Reason = %q, want %q", got.Reason, want)
 	}
 }
+
+// --- T2 escalation must not stick for a whole session (the drift finding) --------
+//
+// `full_escalate` was evaluated against the working diff alone, and in an agent's
+// inner loop that diff only ever grows: one `conftest.py` edit entered it and every
+// later cycle re-escalated to T2 on the same edit. Measured on the replay corpus,
+// that was 24 of 25 flask cycles and 16 of 16 httpie cycles pinned to the full
+// suite — RTDD telling the agent to run everything, which is the behaviour it
+// exists to replace.
+//
+// The escalation is about whether a full run has happened SINCE the config reached
+// its current state, not about whether the diff mentions it. `EscalateDigest` is
+// that state now; `EscalateDigestAtLastFull` is what meta.json recorded when the
+// last full run completed. Equal means the full run already covered this config.
+
+func TestAFullEscalateFileEscalatesWhenNoFullRunHasCoveredIt(t *testing.T) {
+	in := baseInputs()
+	in.Changes = []gitctx.Change{mod("src/auth.py"), mod("tests/conftest.py")}
+	in.EscalateDigest = "sha256:cfg-after-the-edit"
+	in.EscalateDigestAtLastFull = "sha256:cfg-before-the-edit"
+	in.AllTests = []string{"tests/test_auth.py::test_login", "tests/test_db.py::test_query"}
+
+	got := Select(in)
+	if got.Tier != TierT2 {
+		t.Fatalf("Tier = %v, want T2: the config changed since the last full run", got.Tier)
+	}
+	if !strings.Contains(got.Reason, "conftest.py") {
+		t.Errorf("Reason = %q, want it to name the file that forced the full run", got.Reason)
+	}
+}
+
+func TestTheSameFullEscalateEditDoesNotEscalateTwice(t *testing.T) {
+	// The full run has happened; the conftest edit is still in the working diff,
+	// because nothing has been committed. A second full suite buys nothing.
+	in := baseInputs()
+	in.Changes = []gitctx.Change{mod("src/auth.py"), mod("tests/conftest.py")}
+	in.EscalateDigest = "sha256:cfg-after-the-edit"
+	in.EscalateDigestAtLastFull = "sha256:cfg-after-the-edit"
+	in.AllTests = []string{"tests/test_auth.py::test_login", "tests/test_db.py::test_query"}
+
+	got := Select(in)
+	if got.Tier == TierT2 {
+		t.Fatalf("Tier = T2 (%s); a full run already covered this config state", got.Reason)
+	}
+	if len(got.Tests) == 0 {
+		t.Fatal("selection is empty; the map should still answer for src/auth.py")
+	}
+}
+
+func TestASecondFullEscalateEditEscalatesAgain(t *testing.T) {
+	in := baseInputs()
+	in.Changes = []gitctx.Change{mod("tests/conftest.py")}
+	in.EscalateDigest = "sha256:cfg-edited-again"
+	in.EscalateDigestAtLastFull = "sha256:cfg-after-the-first-edit"
+	in.AllTests = []string{"tests/test_auth.py::test_login"}
+
+	if got := Select(in); got.Tier != TierT2 {
+		t.Fatalf("Tier = %v, want T2: the config moved again since the last full run", got.Tier)
+	}
+}
+
+func TestAMapSeededBeforeDigestsWereRecordedStillEscalates(t *testing.T) {
+	// Back-compat: meta.json written by an older rtdd carries no digest. Treating
+	// "unknown" as "already covered" would silently stop escalating on every
+	// repository that upgraded, so an absent record escalates exactly as before.
+	in := baseInputs()
+	in.Changes = []gitctx.Change{mod("pyproject.toml")}
+	in.EscalateDigest = "sha256:cfg-now"
+	in.EscalateDigestAtLastFull = ""
+	in.AllTests = []string{"tests/test_auth.py::test_login"}
+
+	if got := Select(in); got.Tier != TierT2 {
+		t.Fatalf("Tier = %v, want T2: no full run is on record for this config", got.Tier)
+	}
+}
+
+func TestTheDriftGuardStillEscalatesWhateverTheDigestSays(t *testing.T) {
+	in := baseInputs()
+	in.Changes = []gitctx.Change{mod("src/auth.py")}
+	in.Cycles = in.Cfg.DriftGuard
+	in.EscalateDigest = "sha256:cfg"
+	in.EscalateDigestAtLastFull = "sha256:cfg"
+	in.AllTests = []string{"tests/test_auth.py::test_login"}
+
+	got := Select(in)
+	if got.Tier != TierT2 {
+		t.Fatalf("Tier = %v, want T2: the drift guard is a separate rule", got.Tier)
+	}
+	if !strings.Contains(got.Reason, "drift guard") {
+		t.Errorf("Reason = %q, want the drift-guard wording", got.Reason)
+	}
+}
+
+// TestAnUncommittedSessionStopsPinningTheFullSuite replays the shape of the drift
+// session that exposed this: cycles accumulate, nothing is committed, so the changed
+// set only grows and the conftest.py edit from cycle 2 is still in it at cycle 25.
+//
+// Before the fix this asserted-on loop produced T2 on every cycle from 2 onward,
+// matching the measured curve (flask 24/25, httpie 16/16). The rule is not "never
+// escalate" — cycle 2 still runs the full suite, because the config really did change
+// and nothing had covered it. It is "escalate once".
+func TestAnUncommittedSessionStopsPinningTheFullSuite(t *testing.T) {
+	const cycles = 25
+	changes := []gitctx.Change{mod("src/auth.py")}
+	lastFull := "" // meta.json: no full run on record yet
+
+	var tiers []Tier
+	for cycle := 1; cycle <= cycles; cycle++ {
+		if cycle == 2 {
+			// The agent edits conftest.py once. It stays in the diff forever after,
+			// because nothing in this session is ever committed.
+			changes = append(changes, mod("tests/conftest.py"))
+		}
+		if cycle >= 5 {
+			// And keeps touching ordinary source, as an agent does.
+			changes = append(changes, mod("src/db.py"))
+		}
+
+		in := baseInputs()
+		in.Changes = changes
+		in.AllTests = []string{"tests/test_auth.py::test_login", "tests/test_db.py::test_query"}
+		in.EscalateDigest = "sha256:conftest-v2" // unchanged: one edit, never re-edited
+		if cycle == 1 {
+			in.EscalateDigest = "" // nothing full-escalate is changed yet
+		}
+		in.EscalateDigestAtLastFull = lastFull
+
+		got := Select(in)
+		tiers = append(tiers, got.Tier)
+		if got.Tier == TierT2 {
+			lastFull = in.EscalateDigest // the full run covered this config
+		}
+	}
+
+	full := 0
+	for _, tr := range tiers {
+		if tr == TierT2 {
+			full++
+		}
+	}
+	if full != 1 {
+		t.Fatalf("ran the full suite on %d of %d cycles, want exactly 1; tiers = %v", full, cycles, tiers)
+	}
+	if tiers[1] != TierT2 {
+		t.Errorf("cycle 2 tier = %v, want T2: the config changed and nothing had covered it", tiers[1])
+	}
+	if tiers[len(tiers)-1] == TierT2 {
+		t.Error("the last cycle is still T2; the escalation is still sticky")
+	}
+}

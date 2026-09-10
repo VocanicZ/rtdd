@@ -72,15 +72,28 @@ type Selection struct {
 }
 
 type Inputs struct {
-	Map        *mapstore.Map
-	Changes    []gitctx.Change
-	Adapter    *adapter.Adapter
-	Cfg        Config
-	AllTests   []string                  // from adapter.List; needed for T2 and for direct-tier discovery
-	Distance   func(sha string) int      // wraps gitctx.CommitDistance; -1 means unknown
-	Cycles     int                       // from meta.json, for DriftGuard
-	Merge      bool                      // HEAD is a merge commit; escalates to T1
-	ImportOnly func(rel string) []string // static-import fallback; see M2
+	Map      *mapstore.Map
+	Changes  []gitctx.Change
+	Adapter  *adapter.Adapter
+	Cfg      Config
+	AllTests []string             // from adapter.List; needed for T2 and for direct-tier discovery
+	Distance func(sha string) int // wraps gitctx.CommitDistance; -1 means unknown
+	Cycles   int                  // from meta.json, for DriftGuard
+
+	// EscalateDigest is the state of the adapter's `full_escalate` files right now;
+	// EscalateDigestAtLastFull is what meta.json recorded when the last full run
+	// finished. T2 asks whether a full run has happened SINCE the config reached its
+	// current state — not whether the diff mentions a config file. Evaluating the diff
+	// alone made the escalation sticky: in an uncommitted session the diff only grows,
+	// so one conftest.py edit pinned every later cycle to the full suite (measured at
+	// 24 of 25 flask cycles, 16 of 16 httpie cycles). An EMPTY
+	// EscalateDigestAtLastFull means no full run is on record — a map seeded by an
+	// older rtdd — and escalates exactly as before, so upgrading cannot silently stop
+	// a repository escalating.
+	EscalateDigest           string
+	EscalateDigestAtLastFull string
+	Merge                    bool                      // HEAD is a merge commit; escalates to T1
+	ImportOnly               func(rel string) []string // static-import fallback; see M2
 
 	// Exists reports whether the repository has this repo-relative path. It resolves
 	// test_for templates (spec §4.2) without the selector touching a filesystem.
