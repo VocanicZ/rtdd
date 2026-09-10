@@ -60,15 +60,15 @@ func TestUncoveredSurfaceForAnExecutionDerivedAdapterIsByteIdentical(t *testing.
 	if got := RenderUncovered(reports); got != want {
 		t.Fatalf("RenderUncovered()\n got:\n%s\nwant:\n%s", got, want)
 	}
-	if got := RenderUncoveredFor(reports, nil); got != want {
-		t.Fatalf("RenderUncoveredFor() changed the execution-derived surface\n got:\n%s\nwant:\n%s", got, want)
+	if got := RenderUncoveredFor(reports, nil, nil); got != want {
+		t.Fatalf("RenderUncoveredFor(, nil) changed the execution-derived surface\n got:\n%s\nwant:\n%s", got, want)
 	}
 }
 
 // The suppression states its reason, once, and names the adapter that owns it — the same
 // suppression-with-a-reason shape unmappedNoticeApplies uses on the `which` surface.
 func TestUncoveredSurfaceForACoverageNoneAdapterIsOneStatedReason(t *testing.T) {
-	got := RenderUncoveredFor(nil, []string{"vitest"})
+	got := RenderUncoveredFor(nil, []string{"vitest"}, nil)
 	if strings.Contains(got, "UNCOVERED") {
 		t.Fatalf("the suppression line still claims uncovered lines:\n%s", got)
 	}
@@ -85,7 +85,7 @@ func TestUncoveredSurfaceForACoverageNoneAdapterIsOneStatedReason(t *testing.T) 
 // A polyglot repository gets both halves: the coverage adapter's real report, and one
 // stated reason for the adapter that has none. Neither may swallow the other.
 func TestUncoveredSurfaceCarriesBothHalvesInAPolyglotRun(t *testing.T) {
-	got := RenderUncoveredFor(specExampleReports(), []string{"vitest"})
+	got := RenderUncoveredFor(specExampleReports(), []string{"vitest"}, nil)
 	if !strings.Contains(got, "UNCOVERED: src/auth.py:52-58") {
 		t.Errorf("the coverage adapter's report is gone:\n%s", got)
 	}
@@ -97,7 +97,7 @@ func TestUncoveredSurfaceCarriesBothHalvesInAPolyglotRun(t *testing.T) {
 // The document and the terminal explain the same absence with the same sentence.
 func TestTheJSONReasonAndTheTextLineShareOneWording(t *testing.T) {
 	reason := noCoverageReason("vitest")
-	line := RenderUncoveredFor(nil, []string{"vitest"})
+	line := RenderUncoveredFor(nil, []string{"vitest"}, nil)
 	if !strings.Contains(line, reason) {
 		t.Fatalf("the text line %q does not carry the document's reason %q", line, reason)
 	}

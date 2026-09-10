@@ -62,6 +62,16 @@ func noCoverageReason(name string) string {
 		"instrumented and no changed line can be known to be uncovered", name)
 }
 
+// notRecordedReason is the reason for an adapter that DOES record coverage but was not
+// asked to this cycle (`--record=auto`). It is deliberately not noCoverageReason: that
+// one says the adapter can never answer, and saying it here would report a capability
+// the adapter has as a capability it lacks.
+func notRecordedReason(name string) string {
+	return fmt.Sprintf("the %s adapter recorded no coverage this cycle (--record=auto "+
+		"ran the selection without instrumentation), so no changed line can be known to "+
+		"be uncovered; the previous cycle's coverage describes lines this run never watched", name)
+}
+
 // RenderUncoveredFor is the whole post-run uncovered surface: the classified report for
 // the adapters that recorded coverage, and one stated reason for each adapter that
 // declares it records none.
@@ -76,11 +86,14 @@ func noCoverageReason(name string) string {
 //
 // With no suppressed adapter the output is BYTE-IDENTICAL to RenderUncovered: the gate
 // may only remove a claim that was never true, never reword the one that is.
-func RenderUncoveredFor(reports []uncovered.FileReport, noCoverage []string) string {
+func RenderUncoveredFor(reports []uncovered.FileReport, noCoverage, notRecorded []string) string {
 	var b strings.Builder
 	b.WriteString(RenderUncovered(reports))
 	for _, name := range noCoverage {
 		fmt.Fprintf(&b, "  no uncovered report: %s\n", noCoverageReason(name))
+	}
+	for _, name := range notRecorded {
+		fmt.Fprintf(&b, "  no uncovered report: %s\n", notRecordedReason(name))
 	}
 	return b.String()
 }

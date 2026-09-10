@@ -436,6 +436,9 @@ func renderAdapterRuns(runs []AdapterRun) string {
 // suite is actually invoked. It is runner.Run and nothing else.
 var runSubset = runner.Run
 
+// runSubsetPlain is the same seam for the uninstrumented invocation.
+var runSubsetPlain = runner.RunPlain
+
 // runSelection executes one adapter's selection, or returns the outcomes an enumeration
 // of the same suite already produced.
 //
@@ -444,12 +447,15 @@ var runSubset = runner.Run
 // the time the selection exists, the suite has already run, and running it again as a
 // subset buys the identical answer at twice the cost on the loop this tool exists to make
 // fast. A collection produced no outcomes (SuiteResult is nil) and is still run.
-func runSelection(blk AdapterSelection, root string, failFast bool) (*runner.RunResult, error) {
+func runSelection(blk AdapterSelection, root string, failFast bool, record bool) (*runner.RunResult, error) {
 	if blk.EnumErr != nil {
 		return nil, blk.EnumErr
 	}
 	if blk.SuiteEnumerated && blk.SuiteResult != nil {
 		return blk.SuiteResult, nil
+	}
+	if !record && blk.Ad.CanRunPlain() {
+		return runSubsetPlain(blk.Ad, root, blk.Selection.Tests, failFast)
 	}
 	return runSubset(blk.Ad, root, blk.Selection.Tests, failFast)
 }

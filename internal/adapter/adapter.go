@@ -54,20 +54,30 @@ type Requirement struct {
 }
 
 type Adapter struct {
-	Name         string            `yaml:"name"`
-	Detect       []string          `yaml:"detect"`
-	Env          map[string]string `yaml:"env"`
-	Seed         string            `yaml:"seed"`
-	Subset       string            `yaml:"subset"`
-	List         string            `yaml:"list"`
-	Coverage     string            `yaml:"coverage"` // "sqlite"
-	Report       string            `yaml:"report"`   // "pytest-reportlog"
-	FailFastFlag string            `yaml:"failfast_flag"`
-	TestGlobs    []string          `yaml:"test_globs"`
-	SourceGlobs  []string          `yaml:"source_globs"`
-	ExitCodes    map[int]string    `yaml:"exit_codes"`
-	Opaque       []string          `yaml:"opaque"`
-	FullEscalate []string          `yaml:"full_escalate"`
+	Name   string            `yaml:"name"`
+	Detect []string          `yaml:"detect"`
+	Env    map[string]string `yaml:"env"`
+	Seed   string            `yaml:"seed"`
+	Subset string            `yaml:"subset"`
+	// SubsetPlain runs the same selection WITHOUT recording coverage. It is optional,
+	// and an adapter that omits it simply records on every cycle — which is what every
+	// adapter did before the key existed, so a v1 adapter is unaffected.
+	//
+	// It exists because recording is the expensive half. Per-test coverage contexts cost
+	// roughly an order of magnitude on the corpus repos, so executing a 23% selection
+	// with `subset` costs MORE than running the whole suite plain: a median flask cycle
+	// is 14675 ms against the suite's 3001 ms. `subset_plain` is the same tests without
+	// that cost, for the cycles where the map has nothing to learn.
+	SubsetPlain  string         `yaml:"subset_plain"`
+	List         string         `yaml:"list"`
+	Coverage     string         `yaml:"coverage"` // "sqlite"
+	Report       string         `yaml:"report"`   // "pytest-reportlog"
+	FailFastFlag string         `yaml:"failfast_flag"`
+	TestGlobs    []string       `yaml:"test_globs"`
+	SourceGlobs  []string       `yaml:"source_globs"`
+	ExitCodes    map[int]string `yaml:"exit_codes"`
+	Opaque       []string       `yaml:"opaque"`
+	FullEscalate []string       `yaml:"full_escalate"`
 
 	// Selection is contract v2 (spec §4.2). It is optional: an omitted key defaults to
 	// SelectionCoverage, which is what every v1 adapter already means.
@@ -290,6 +300,10 @@ func (a *Adapter) validate() error {
 		// Without the placeholder the subset command runs the whole suite, so every
 		// selection would silently become a full run.
 		return fmt.Errorf("subset %q has no {tests} placeholder", a.Subset)
+	// The same trap, and worse for being the fast path: a subset_plain that ran the
+	// whole suite would make --record=auto quietly slower than recording.
+	case a.SubsetPlain != "" && !strings.Contains(a.SubsetPlain, "{tests}"):
+		return fmt.Errorf("subset_plain %q has no {tests} placeholder", a.SubsetPlain)
 	// test_flag and test_join are two answers to one question — how ids reach the
 	// runner — so declaring both is a configuration error (exit 2) rather than a
 	// precedence puzzle nobody could predict from the file. The message names both keys

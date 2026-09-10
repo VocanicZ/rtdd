@@ -21,6 +21,10 @@ func (a *Adapter) IsOpaque(rel string) bool {
 	return a != nil && matchAny(a.Opaque, rel)
 }
 
+// CanRunPlain reports whether this adapter can execute a selection without recording
+// coverage. An adapter that cannot is never asked to: it records every cycle, as before.
+func (a *Adapter) CanRunPlain() bool { return a != nil && a.SubsetPlain != "" }
+
 // IsFullEscalate reports whether changing rel forces a full-suite run (T2).
 func (a *Adapter) IsFullEscalate(rel string) bool {
 	return a != nil && matchAny(a.FullEscalate, rel)
