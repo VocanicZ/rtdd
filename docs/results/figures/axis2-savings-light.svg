@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="764" viewBox="0 0 900 764" role="img">
+<rect x="0" y="0" width="900" height="764" fill="#ffffff"/>
+<text x="28.0" y="32.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#1f2328" text-anchor="start">How much of the suite each strategy runs</text>
+<text x="28.0" y="52.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#656d76" text-anchor="start">Lower is cheaper. Pale bar = share of tests selected; solid bar = share of the suite&#x27;s test time.</text>
+<text x="28.0" y="74.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#1f2328" text-anchor="start">flask — 23 cycles, natural population</text>
+<text x="28.0" y="86.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">11274 tests, 36469 ms of recorded test time</text>
+<line x1="286.0" y1="106.0" x2="286.0" y2="376.0" stroke="#d8dee4" stroke-width="1"/>
+<text x="286.0" y="101.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="middle">25%</text>
+<line x1="426.0" y1="106.0" x2="426.0" y2="376.0" stroke="#d8dee4" stroke-width="1"/>
+<text x="426.0" y="101.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="middle">50%</text>
+<line x1="566.0" y1="106.0" x2="566.0" y2="376.0" stroke="#d8dee4" stroke-width="1"/>
+<text x="566.0" y="101.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="middle">75%</text>
+<line x1="706.0" y1="106.0" x2="706.0" y2="376.0" stroke="#d8dee4" stroke-width="1"/>
+<text x="706.0" y="101.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="middle">100%</text>
+<text x="28.0" y="118.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">importgraph</text>
+<rect x="146.0" y="108.0" width="22.8" height="9" rx="2" fill="#8250df" opacity="0.45" data-strategy="importgraph" data-metric="flask/selection_ratio" data-value="0.041"/>
+<rect x="146.0" y="119.0" width="26.3" height="9" rx="2" fill="#8250df" opacity="1" data-strategy="importgraph" data-metric="flask/selected_duration_fraction" data-value="0.047"/>
+<text x="718.0" y="121.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">0.041 tests   0.047 time</text>
+<text x="28.0" y="148.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">path</text>
+<rect x="146.0" y="138.0" width="28.2" height="9" rx="2" fill="#8250df" opacity="0.45" data-strategy="path" data-metric="flask/selection_ratio" data-value="0.050"/>
+<rect x="146.0" y="149.0" width="31.3" height="9" rx="2" fill="#8250df" opacity="1" data-strategy="path" data-metric="flask/selected_duration_fraction" data-value="0.056"/>
+<text x="718.0" y="151.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">0.050 tests   0.056 time</text>
+<text x="28.0" y="178.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">static</text>
+<rect x="146.0" y="168.0" width="28.2" height="9" rx="2" fill="#8250df" opacity="0.45" data-strategy="static" data-metric="flask/selection_ratio" data-value="0.050"/>
+<rect x="146.0" y="179.0" width="31.3" height="9" rx="2" fill="#8250df" opacity="1" data-strategy="static" data-metric="flask/selected_duration_fraction" data-value="0.056"/>
+<text x="718.0" y="181.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">0.050 tests   0.056 time</text>
+<text x="28.0" y="208.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">testmon</text>
+<rect x="146.0" y="198.0" width="88.7" height="9" rx="2" fill="#8250df" opacity="0.45" data-strategy="testmon" data-metric="flask/selection_ratio" data-value="0.158"/>
+<rect x="146.0" y="209.0" width="106.6" height="9" rx="2" fill="#8250df" opacity="1" data-strategy="testmon" data-metric="flask/selected_duration_fraction" data-value="0.190"/>
+<text x="718.0" y="211.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">0.158 tests   0.190 time</text>
+<text x="28.0" y="238.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">random</text>
+<rect x="146.0" y="228.0" width="131.6" height="9" rx="2" fill="#8250df" opacity="0.45" data-strategy="random" data-metric="flask/selection_ratio" data-value="0.235"/>
+<rect x="146.0" y="239.0" width="144.5" height="9" rx="2" fill="#8250df" opacity="1" data-strategy="random" data-metric="flask/selected_duration_fraction" data-value="0.258"/>
+<text x="718.0" y="241.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">0.235 tests   0.258 time</text>
+<text x="28.0" y="268.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="700" fill="#1f2328" text-anchor="start">rtdd</text>
+<rect x="146.0" y="258.0" width="131.6" height="9" rx="2" fill="#0969da" opacity="0.45" data-strategy="rtdd" data-metric="flask/selection_ratio" data-value="0.235"/>
+<rect x="146.0" y="269.0" width="158.0" height="9" rx="2" fill="#0969da" opacity="1" data-strategy="rtdd" data-metric="flask/selected_duration_fraction" data-value="0.282"/>
+<text x="718.0" y="271.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">0.235 tests   0.282 time</text>
+<text x="28.0" y="298.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">lf</text>
+<rect x="146.0" y="288.0" width="438.4" height="9" rx="2" fill="#8250df" opacity="0.45" data-strategy="lf" data-metric="flask/selection_ratio" data-value="0.783"/>
+<rect x="146.0" y="299.0" width="442.4" height="9" rx="2" fill="#8250df" opacity="1" data-strategy="lf" data-metric="flask/selected_duration_fraction" data-value="0.790"/>
+<text x="718.0" y="301.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">0.783 tests   0.790 time</text>
+<text x="28.0" y="328.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">full</text>
+<rect x="146.0" y="318.0" width="560.0" height="9" rx="2" fill="#6e7781" opacity="0.45" data-strategy="full" data-metric="flask/selection_ratio" data-value="1.000"/>
+<rect x="146.0" y="329.0" width="560.0" height="9" rx="2" fill="#6e7781" opacity="1" data-strategy="full" data-metric="flask/selected_duration_fraction" data-value="1.000"/>
+<text x="718.0" y="331.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">1.000 tests   1.000 time</text>
+<text x="28.0" y="358.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">xdist</text>
+<rect x="146.0" y="348.0" width="560.0" height="9" rx="2" fill="#6e7781" opacity="0.45" data-strategy="xdist" data-metric="flask/selection_ratio" data-value="1.000"/>
+<rect x="146.0" y="359.0" width="560.0" height="9" rx="2" fill="#6e7781" opacity="1" data-strategy="xdist" data-metric="flask/selected_duration_fraction" data-value="1.000"/>
+<text x="718.0" y="361.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">1.000 tests   1.000 time</text>
+<text x="28.0" y="402.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#1f2328" text-anchor="start">httpie — 17 cycles, natural population</text>
+<text x="28.0" y="414.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">17476 tests, 1495009 ms of recorded test time</text>
+<line x1="286.0" y1="434.0" x2="286.0" y2="704.0" stroke="#d8dee4" stroke-width="1"/>
+<text x="286.0" y="429.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="middle">25%</text>
+<line x1="426.0" y1="434.0" x2="426.0" y2="704.0" stroke="#d8dee4" stroke-width="1"/>
+<text x="426.0" y="429.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="middle">50%</text>
+<line x1="566.0" y1="434.0" x2="566.0" y2="704.0" stroke="#d8dee4" stroke-width="1"/>
+<text x="566.0" y="429.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="middle">75%</text>
+<line x1="706.0" y1="434.0" x2="706.0" y2="704.0" stroke="#d8dee4" stroke-width="1"/>
+<text x="706.0" y="429.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="middle">100%</text>
+<text x="28.0" y="446.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">lf</text>
+<rect x="146.0" y="436.0" width="1.1" height="9" rx="2" fill="#8250df" opacity="0.45" data-strategy="lf" data-metric="httpie/selection_ratio" data-value="0.002"/>
+<rect x="146.0" y="447.0" width="0.3" height="9" rx="2" fill="#8250df" opacity="1" data-strategy="lf" data-metric="httpie/selected_duration_fraction" data-value="0.000"/>
+<text x="718.0" y="449.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">0.002 tests   0.000 time</text>
+<text x="28.0" y="476.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">path</text>
+<rect x="146.0" y="466.0" width="18.2" height="9" rx="2" fill="#8250df" opacity="0.45" data-strategy="path" data-metric="httpie/selection_ratio" data-value="0.032"/>
+<rect x="146.0" y="477.0" width="18.1" height="9" rx="2" fill="#8250df" opacity="1" data-strategy="path" data-metric="httpie/selected_duration_fraction" data-value="0.032"/>
+<text x="718.0" y="479.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">0.032 tests   0.032 time</text>
+<text x="28.0" y="506.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="700" fill="#1f2328" text-anchor="start">rtdd</text>
+<rect x="146.0" y="496.0" width="104.1" height="9" rx="2" fill="#0969da" opacity="0.45" data-strategy="rtdd" data-metric="httpie/selection_ratio" data-value="0.186"/>
+<rect x="146.0" y="507.0" width="105.2" height="9" rx="2" fill="#0969da" opacity="1" data-strategy="rtdd" data-metric="httpie/selected_duration_fraction" data-value="0.188"/>
+<text x="718.0" y="509.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">0.186 tests   0.188 time</text>
+<text x="28.0" y="536.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">random</text>
+<rect x="146.0" y="526.0" width="104.1" height="9" rx="2" fill="#8250df" opacity="0.45" data-strategy="random" data-metric="httpie/selection_ratio" data-value="0.186"/>
+<rect x="146.0" y="537.0" width="110.6" height="9" rx="2" fill="#8250df" opacity="1" data-strategy="random" data-metric="httpie/selected_duration_fraction" data-value="0.197"/>
+<text x="718.0" y="539.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">0.186 tests   0.197 time</text>
+<text x="28.0" y="566.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">testmon</text>
+<rect x="146.0" y="556.0" width="144.0" height="9" rx="2" fill="#8250df" opacity="0.45" data-strategy="testmon" data-metric="httpie/selection_ratio" data-value="0.257"/>
+<rect x="146.0" y="567.0" width="134.1" height="9" rx="2" fill="#8250df" opacity="1" data-strategy="testmon" data-metric="httpie/selected_duration_fraction" data-value="0.239"/>
+<text x="718.0" y="569.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">0.257 tests   0.239 time</text>
+<text x="28.0" y="596.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">importgraph</text>
+<rect x="146.0" y="586.0" width="233.1" height="9" rx="2" fill="#8250df" opacity="0.45" data-strategy="importgraph" data-metric="httpie/selection_ratio" data-value="0.416"/>
+<rect x="146.0" y="597.0" width="238.6" height="9" rx="2" fill="#8250df" opacity="1" data-strategy="importgraph" data-metric="httpie/selected_duration_fraction" data-value="0.426"/>
+<text x="718.0" y="599.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">0.416 tests   0.426 time</text>
+<text x="28.0" y="626.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">static</text>
+<rect x="146.0" y="616.0" width="233.1" height="9" rx="2" fill="#8250df" opacity="0.45" data-strategy="static" data-metric="httpie/selection_ratio" data-value="0.416"/>
+<rect x="146.0" y="627.0" width="238.6" height="9" rx="2" fill="#8250df" opacity="1" data-strategy="static" data-metric="httpie/selected_duration_fraction" data-value="0.426"/>
+<text x="718.0" y="629.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">0.416 tests   0.426 time</text>
+<text x="28.0" y="656.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">full</text>
+<rect x="146.0" y="646.0" width="560.0" height="9" rx="2" fill="#6e7781" opacity="0.45" data-strategy="full" data-metric="httpie/selection_ratio" data-value="1.000"/>
+<rect x="146.0" y="657.0" width="560.0" height="9" rx="2" fill="#6e7781" opacity="1" data-strategy="full" data-metric="httpie/selected_duration_fraction" data-value="1.000"/>
+<text x="718.0" y="659.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">1.000 tests   1.000 time</text>
+<text x="28.0" y="686.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">xdist</text>
+<rect x="146.0" y="676.0" width="560.0" height="9" rx="2" fill="#6e7781" opacity="0.45" data-strategy="xdist" data-metric="httpie/selection_ratio" data-value="1.000"/>
+<rect x="146.0" y="687.0" width="560.0" height="9" rx="2" fill="#6e7781" opacity="1" data-strategy="xdist" data-metric="httpie/selected_duration_fraction" data-value="1.000"/>
+<text x="718.0" y="689.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">1.000 tests   1.000 time</text>
+<text x="28.0" y="734.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">source: bench/results/&lt;repo&gt;/summary.json · strategies.&lt;name&gt; · natural population</text>
+<text x="28.0" y="750.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">Cost alone does not rank these — a strategy that selects nothing is cheapest and catches nothing. See the safety figure.</text>
+</svg>

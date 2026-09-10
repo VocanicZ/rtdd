@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="580" viewBox="0 0 900 580" role="img">
+<rect x="0" y="0" width="900" height="580" fill="#ffffff"/>
+<text x="28.0" y="32.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#1f2328" text-anchor="start">What one cycle actually costs</text>
+<text x="28.0" y="52.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#656d76" text-anchor="start">Bar = median cycle. Tick = p90. Dot = worst cycle. Dashed = the full suite, uninstrumented.</text>
+<text x="28.0" y="80.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#1f2328" text-anchor="start">flask — full suite 3127 ms</text>
+<text x="718.0" y="80.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="start">p50 · p90 · worst</text>
+<text x="28.0" y="112.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">importgraph</text>
+<line x1="146.0" y1="108.0" x2="233.5" y2="108.0" stroke="#8250df" stroke-width="1" opacity="0.4"/>
+<rect x="146.0" y="103.0" width="1.0" height="9" rx="2" fill="#8250df" data-strategy="importgraph" data-metric="flask/p50_subset_uninstrumented_ms" data-value="0"/>
+<rect x="226.9" y="101.0" width="2" height="13" rx="1" fill="#8250df" data-strategy="importgraph" data-metric="flask/p90_subset_uninstrumented_ms" data-value="1063"/>
+<circle cx="233.5" cy="107.5" r="3.5" fill="#ffffff" stroke="#8250df" stroke-width="1.5" data-strategy="importgraph" data-metric="flask/worst_subset_uninstrumented_ms" data-value="1150"/>
+<text x="718.0" y="112.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="start">0 · 1063 · 1150 ms</text>
+<text x="28.0" y="136.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">path</text>
+<line x1="146.0" y1="132.0" x2="273.9" y2="132.0" stroke="#8250df" stroke-width="1" opacity="0.4"/>
+<rect x="146.0" y="127.0" width="1.0" height="9" rx="2" fill="#8250df" data-strategy="path" data-metric="flask/p50_subset_uninstrumented_ms" data-value="0"/>
+<rect x="227.0" y="125.0" width="2" height="13" rx="1" fill="#8250df" data-strategy="path" data-metric="flask/p90_subset_uninstrumented_ms" data-value="1064"/>
+<circle cx="273.9" cy="131.5" r="3.5" fill="#ffffff" stroke="#8250df" stroke-width="1.5" data-strategy="path" data-metric="flask/worst_subset_uninstrumented_ms" data-value="1680"/>
+<text x="718.0" y="136.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="start">0 · 1064 · 1680 ms</text>
+<text x="28.0" y="160.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">random</text>
+<line x1="146.0" y1="156.0" x2="372.0" y2="156.0" stroke="#8250df" stroke-width="1" opacity="0.4"/>
+<rect x="146.0" y="151.0" width="1.0" height="9" rx="2" fill="#8250df" data-strategy="random" data-metric="flask/p50_subset_uninstrumented_ms" data-value="0"/>
+<rect x="363.5" y="149.0" width="2" height="13" rx="1" fill="#8250df" data-strategy="random" data-metric="flask/p90_subset_uninstrumented_ms" data-value="2857"/>
+<circle cx="372.0" cy="155.5" r="3.5" fill="#ffffff" stroke="#8250df" stroke-width="1.5" data-strategy="random" data-metric="flask/worst_subset_uninstrumented_ms" data-value="2969"/>
+<text x="718.0" y="160.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="start">0 · 2857 · 2969 ms</text>
+<text x="28.0" y="184.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">testmon</text>
+<line x1="146.0" y1="180.0" x2="372.1" y2="180.0" stroke="#8250df" stroke-width="1" opacity="0.4"/>
+<rect x="146.0" y="175.0" width="73.0" height="9" rx="2" fill="#8250df" data-strategy="testmon" data-metric="flask/p50_subset_uninstrumented_ms" data-value="959"/>
+<rect x="367.1" y="173.0" width="2" height="13" rx="1" fill="#8250df" data-strategy="testmon" data-metric="flask/p90_subset_uninstrumented_ms" data-value="2905"/>
+<circle cx="372.1" cy="179.5" r="3.5" fill="#ffffff" stroke="#8250df" stroke-width="1.5" data-strategy="testmon" data-metric="flask/worst_subset_uninstrumented_ms" data-value="2970"/>
+<text x="718.0" y="184.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="start">959 · 2905 · 2970 ms</text>
+<text x="28.0" y="208.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="700" fill="#1f2328" text-anchor="start">rtdd</text>
+<line x1="146.0" y1="204.0" x2="453.9" y2="204.0" stroke="#0969da" stroke-width="1" opacity="0.4"/>
+<rect x="146.0" y="199.0" width="1.0" height="9" rx="2" fill="#0969da" data-strategy="rtdd" data-metric="flask/p50_subset_uninstrumented_ms" data-value="0"/>
+<rect x="382.7" y="197.0" width="2" height="13" rx="1" fill="#0969da" data-strategy="rtdd" data-metric="flask/p90_subset_uninstrumented_ms" data-value="3109"/>
+<circle cx="453.9" cy="203.5" r="3.5" fill="#ffffff" stroke="#0969da" stroke-width="1.5" data-strategy="rtdd" data-metric="flask/worst_subset_uninstrumented_ms" data-value="4045"/>
+<text x="718.0" y="208.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="start">0 · 3109 · 4045 ms</text>
+<text x="28.0" y="232.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">lf</text>
+<line x1="146.0" y1="228.0" x2="526.1" y2="228.0" stroke="#8250df" stroke-width="1" opacity="0.4"/>
+<rect x="146.0" y="223.0" width="212.4" height="9" rx="2" fill="#8250df" data-strategy="lf" data-metric="flask/p50_subset_uninstrumented_ms" data-value="2790"/>
+<rect x="414.2" y="221.0" width="2" height="13" rx="1" fill="#8250df" data-strategy="lf" data-metric="flask/p90_subset_uninstrumented_ms" data-value="3523"/>
+<circle cx="526.1" cy="227.5" r="3.5" fill="#ffffff" stroke="#8250df" stroke-width="1.5" data-strategy="lf" data-metric="flask/worst_subset_uninstrumented_ms" data-value="4994"/>
+<text x="718.0" y="232.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="start">2790 · 3523 · 4994 ms</text>
+<text x="28.0" y="256.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">full</text>
+<line x1="146.0" y1="252.0" x2="508.4" y2="252.0" stroke="#6e7781" stroke-width="1" opacity="0.4"/>
+<rect x="146.0" y="247.0" width="234.5" height="9" rx="2" fill="#6e7781" data-strategy="full" data-metric="flask/p50_subset_uninstrumented_ms" data-value="3081"/>
+<rect x="416.8" y="245.0" width="2" height="13" rx="1" fill="#6e7781" data-strategy="full" data-metric="flask/p90_subset_uninstrumented_ms" data-value="3558"/>
+<circle cx="508.4" cy="251.5" r="3.5" fill="#ffffff" stroke="#6e7781" stroke-width="1.5" data-strategy="full" data-metric="flask/worst_subset_uninstrumented_ms" data-value="4761"/>
+<text x="718.0" y="256.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="start">3081 · 3558 · 4761 ms</text>
+<text x="28.0" y="280.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">xdist</text>
+<line x1="146.0" y1="276.0" x2="706.0" y2="276.0" stroke="#6e7781" stroke-width="1" opacity="0.4"/>
+<rect x="146.0" y="271.0" width="506.6" height="9" rx="2" fill="#6e7781" data-strategy="xdist" data-metric="flask/p50_subset_uninstrumented_ms" data-value="6655"/>
+<rect x="685.8" y="269.0" width="2" height="13" rx="1" fill="#6e7781" data-strategy="xdist" data-metric="flask/p90_subset_uninstrumented_ms" data-value="7091"/>
+<circle cx="706.0" cy="275.5" r="3.5" fill="#ffffff" stroke="#6e7781" stroke-width="1.5" data-strategy="xdist" data-metric="flask/worst_subset_uninstrumented_ms" data-value="7357"/>
+<text x="718.0" y="280.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="start">6655 · 7091 · 7357 ms</text>
+<line x1="384.0" y1="94.0" x2="384.0" y2="290.0" stroke="#bc4c00" stroke-width="1.5" stroke-dasharray="4 3" data-strategy="full" data-metric="flask/reference_full_uninstrumented_ms" data-value="3127"/>
+<text x="28.0" y="312.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#1f2328" text-anchor="start">httpie — full suite 88694 ms</text>
+<text x="718.0" y="312.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="start">p50 · p90 · worst</text>
+<text x="28.0" y="344.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">path</text>
+<line x1="146.0" y1="340.0" x2="168.4" y2="340.0" stroke="#8250df" stroke-width="1" opacity="0.4"/>
+<rect x="146.0" y="335.0" width="1.0" height="9" rx="2" fill="#8250df" data-strategy="path" data-metric="httpie/p50_subset_uninstrumented_ms" data-value="0"/>
+<rect x="146.0" y="333.0" width="2" height="13" rx="1" fill="#8250df" data-strategy="path" data-metric="httpie/p90_subset_uninstrumented_ms" data-value="0"/>
+<circle cx="168.4" cy="339.5" r="3.5" fill="#ffffff" stroke="#8250df" stroke-width="1.5" data-strategy="path" data-metric="httpie/worst_subset_uninstrumented_ms" data-value="7971"/>
+<text x="718.0" y="344.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="start">0 · 0 · 7971 ms</text>
+<text x="28.0" y="368.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">lf</text>
+<line x1="146.0" y1="364.0" x2="149.4" y2="364.0" stroke="#8250df" stroke-width="1" opacity="0.4"/>
+<rect x="146.0" y="359.0" width="2.5" height="9" rx="2" fill="#8250df" data-strategy="lf" data-metric="httpie/p50_subset_uninstrumented_ms" data-value="895"/>
+<rect x="148.9" y="357.0" width="2" height="13" rx="1" fill="#8250df" data-strategy="lf" data-metric="httpie/p90_subset_uninstrumented_ms" data-value="1042"/>
+<circle cx="149.4" cy="363.5" r="3.5" fill="#ffffff" stroke="#8250df" stroke-width="1.5" data-strategy="lf" data-metric="httpie/worst_subset_uninstrumented_ms" data-value="1210"/>
+<text x="718.0" y="368.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="start">895 · 1042 · 1210 ms</text>
+<text x="28.0" y="392.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">xdist</text>
+<line x1="146.0" y1="388.0" x2="237.8" y2="388.0" stroke="#6e7781" stroke-width="1" opacity="0.4"/>
+<rect x="146.0" y="383.0" width="55.6" height="9" rx="2" fill="#6e7781" data-strategy="xdist" data-metric="httpie/p50_subset_uninstrumented_ms" data-value="19748"/>
+<rect x="216.7" y="381.0" width="2" height="13" rx="1" fill="#6e7781" data-strategy="xdist" data-metric="httpie/p90_subset_uninstrumented_ms" data-value="25135"/>
+<circle cx="237.8" cy="387.5" r="3.5" fill="#ffffff" stroke="#6e7781" stroke-width="1.5" data-strategy="xdist" data-metric="httpie/worst_subset_uninstrumented_ms" data-value="32619"/>
+<text x="718.0" y="392.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="start">19748 · 25135 · 32619 ms</text>
+<text x="28.0" y="416.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">testmon</text>
+<line x1="146.0" y1="412.0" x2="706.0" y2="412.0" stroke="#8250df" stroke-width="1" opacity="0.4"/>
+<rect x="146.0" y="407.0" width="2.7" height="9" rx="2" fill="#8250df" data-strategy="testmon" data-metric="httpie/p50_subset_uninstrumented_ms" data-value="946"/>
+<rect x="389.5" y="405.0" width="2" height="13" rx="1" fill="#8250df" data-strategy="testmon" data-metric="httpie/p90_subset_uninstrumented_ms" data-value="86517"/>
+<circle cx="706.0" cy="411.5" r="3.5" fill="#ffffff" stroke="#8250df" stroke-width="1.5" data-strategy="testmon" data-metric="httpie/worst_subset_uninstrumented_ms" data-value="198967"/>
+<text x="718.0" y="416.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="start">946 · 86517 · 198967 ms</text>
+<text x="28.0" y="440.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="700" fill="#1f2328" text-anchor="start">rtdd</text>
+<line x1="146.0" y1="436.0" x2="627.4" y2="436.0" stroke="#0969da" stroke-width="1" opacity="0.4"/>
+<rect x="146.0" y="431.0" width="1.0" height="9" rx="2" fill="#0969da" data-strategy="rtdd" data-metric="httpie/p50_subset_uninstrumented_ms" data-value="0"/>
+<rect x="418.1" y="429.0" width="2" height="13" rx="1" fill="#0969da" data-strategy="rtdd" data-metric="httpie/p90_subset_uninstrumented_ms" data-value="96666"/>
+<circle cx="627.4" cy="435.5" r="3.5" fill="#ffffff" stroke="#0969da" stroke-width="1.5" data-strategy="rtdd" data-metric="httpie/worst_subset_uninstrumented_ms" data-value="171039"/>
+<text x="718.0" y="440.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="start">0 · 96666 · 171039 ms</text>
+<text x="28.0" y="464.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">random</text>
+<line x1="146.0" y1="460.0" x2="452.9" y2="460.0" stroke="#8250df" stroke-width="1" opacity="0.4"/>
+<rect x="146.0" y="455.0" width="1.0" height="9" rx="2" fill="#8250df" data-strategy="random" data-metric="httpie/p50_subset_uninstrumented_ms" data-value="0"/>
+<rect x="419.8" y="453.0" width="2" height="13" rx="1" fill="#8250df" data-strategy="random" data-metric="httpie/p90_subset_uninstrumented_ms" data-value="97273"/>
+<circle cx="452.9" cy="459.5" r="3.5" fill="#ffffff" stroke="#8250df" stroke-width="1.5" data-strategy="random" data-metric="httpie/worst_subset_uninstrumented_ms" data-value="109040"/>
+<text x="718.0" y="464.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="start">0 · 97273 · 109040 ms</text>
+<text x="28.0" y="488.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">importgraph</text>
+<line x1="146.0" y1="484.0" x2="633.1" y2="484.0" stroke="#8250df" stroke-width="1" opacity="0.4"/>
+<rect x="146.0" y="479.0" width="22.4" height="9" rx="2" fill="#8250df" data-strategy="importgraph" data-metric="httpie/p50_subset_uninstrumented_ms" data-value="7962"/>
+<rect x="420.5" y="477.0" width="2" height="13" rx="1" fill="#8250df" data-strategy="importgraph" data-metric="httpie/p90_subset_uninstrumented_ms" data-value="97522"/>
+<circle cx="633.1" cy="483.5" r="3.5" fill="#ffffff" stroke="#8250df" stroke-width="1.5" data-strategy="importgraph" data-metric="httpie/worst_subset_uninstrumented_ms" data-value="173053"/>
+<text x="718.0" y="488.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="start">7962 · 97522 · 173053 ms</text>
+<text x="28.0" y="512.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="start">full</text>
+<line x1="146.0" y1="508.0" x2="468.4" y2="508.0" stroke="#6e7781" stroke-width="1" opacity="0.4"/>
+<rect x="146.0" y="503.0" width="236.4" height="9" rx="2" fill="#6e7781" data-strategy="full" data-metric="httpie/p50_subset_uninstrumented_ms" data-value="83994"/>
+<rect x="446.6" y="501.0" width="2" height="13" rx="1" fill="#6e7781" data-strategy="full" data-metric="httpie/p90_subset_uninstrumented_ms" data-value="106813"/>
+<circle cx="468.4" cy="507.5" r="3.5" fill="#ffffff" stroke="#6e7781" stroke-width="1.5" data-strategy="full" data-metric="httpie/worst_subset_uninstrumented_ms" data-value="114537"/>
+<text x="718.0" y="512.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="start">83994 · 106813 · 114537 ms</text>
+<line x1="395.6" y1="326.0" x2="395.6" y2="522.0" stroke="#bc4c00" stroke-width="1.5" stroke-dasharray="4 3" data-strategy="full" data-metric="httpie/reference_full_uninstrumented_ms" data-value="88694"/>
+<text x="28.0" y="544.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#bc4c00" text-anchor="start">not measured: flask/static, httpie/static — a derived arm executed nothing, and a blank would read as zero.</text>
+<text x="28.0" y="560.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">source: bench/results/&lt;repo&gt;/summary.json · wallclock.rows · subset uninstrumented</text>
+</svg>
