@@ -134,6 +134,77 @@ The answer is below, whichever way it fell.
 
 ## Results
 
+RTDD exists for one loop: an autonomous agent edits, runs tests, edits again — dozens of
+times per task. The baseline is what that agent does without it, and what the TDD skill
+prescribes: **run the whole suite after every change.** RTDD is worth using only if it
+costs the agent less time than that, while keeping the same safety and leaving test
+quality alone.
+
+Three axes, in the order that decides whether to use it. Each states what is measured,
+what is not, and the committed record every figure is read from.
+
+### Does it save the agent time? — not today
+
+**What is measured:** executing a selection currently costs *more* than the full suite it
+replaces, because `rtdd run` records coverage on every cycle (`adapters/python.yaml`,
+`subset:`) and per-test coverage contexts are expensive. Median cycle, against the same
+repo's plain full suite:
+
+| repo | agent runs the full suite | agent runs `rtdd run` | |
+|---|---|---|---|
+| flask | 3001 ms | 14675 ms | **4.9× slower** |
+| httpie | 84531 ms | 91177 ms | **1.08× slower** |
+
+Read from `wallclock.rows` in each repo's `summary.json` — `subset_instrumented` against
+`full_uninstrumented`. Selecting 23% of the tests does not win when recording the map
+costs an order of magnitude more than running them. This is the standing blocker on this
+axis, and nothing in the tier rules changes it.
+
+**What is not measured:** how much of the suite RTDD selects across an agent's
+*uncommitted* session — the shape of the loop above. The only measurement of that
+predates the tier-rule fix in this repo's history, where a single `conftest.py` edit
+pinned every later cycle to the full suite because the escalation was evaluated against a
+diff that only grows. Those curves describe a rule that no longer exists, so **they are
+not reproduced here as a description of the tool.** The re-run is pending; until it lands
+this axis has one honest answer, which is the table above.
+
+### Is it as safe as running everything? — not established
+
+A full suite catches what it catches by definition, so RTDD can at best **match** it,
+never beat it. The corpus decides this once and is silent twice:
+
+- **flask, `probe`** — 3 detecting commits, an explicit upper bound (every map-based
+  strategy is seeded at the child commit): `rtdd` catches 3/3 at 0.243 of the suite's
+  test time; the naive `tests/test_<module>.py` path heuristic catches 1/3 at 0.010.
+- **Every `natural` population, all three repos** — 0 detecting commits, so recall has no
+  denominator at all. Real projects are pushed green; replaying a commit over its parent
+  almost never reproduces a failure the parent already had.
+
+Three bugs on one repository, on a population labelled an upper bound, is not parity with
+a full run and is not published as if it were. The pre-registered verdict and the full
+per-strategy tables are below.
+
+**One safety-adjacent thing is measured, and it is clean.** The uncovered report — which
+of the lines you just changed no test executes — fired on 12 cycles across flask and
+httpie and was wrong **zero** times: 0/12 at change level, 0/52 at line level. Running
+the whole suite does not tell you this; no selection tool in the comparison below does
+either.
+
+### Does it change test quality? — no, structurally
+
+RTDD never writes, edits, ranks or deletes a test. Quality is whatever the suite already
+had, however it was written. The only way RTDD can change an outcome is by not running
+something, which is the safety axis above, not this one. There is nothing to measure here
+and nothing is claimed.
+
+### So: does it replace running everything?
+
+**Not yet.** Quality is safe. Safety is unproven. Time is not met, and its agent-session
+measurement is pending. What follows is every number those three answers are read from,
+win or lose.
+
+## The measurements
+
 ### Axis 1 — agent regression rate on SWE-bench Verified
 
 **Pending.** The pre-registered SWE-bench Verified run (git tag `prereg-m4`, 100-instance
@@ -167,8 +238,14 @@ reviewer will ask for: pytest-testmon, a naive `tests/test_<module>.py` path heu
 selection ratio. Never pooled across repos.
 
 Condensed from `bench/results/{flask,httpie,sqlfluff}/summary.md` and
-`bench/results/aggregate.md`. Full per-cycle detail, drift curves, and wall-clock rows are in
+`bench/results/aggregate.md`. Full per-cycle detail and wall-clock rows are in
 [`docs/results/axis2-corpus-replay.md`](docs/results/axis2-corpus-replay.md).
+
+Everything in this section replays **committed** commits, one per fresh checkout with the
+map seeded — so it is unaffected by the tier-rule fix, which only changes what happens
+once a full run has already covered a config change within one session. The `drift.json`
+curves that page also carries are the uncommitted-session measurement, they were taken
+under the previous rule, and they are not summarised here or on the time axis above.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/results/figures/axis2-savings-dark.svg">
