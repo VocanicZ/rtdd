@@ -179,8 +179,23 @@ agent runs without committing. §10 measures this as its own axis.
 | **direct** | Changed and newly-added test files, run as-is | Always, ahead of everything else |
 | **T0** | Tests whose `f` intersects the changed set | Default |
 | **T1** | T0 ∪ tests whose test module transitively imports an import-time-only changed file (§6) ∪ tests covering files in a changed opaque file's directory | Import-time-only change; opaque file changed; row staler than `stale_commits`; merge commit |
-| **T2** | Full suite | Map unseeded or schema-mismatched; dependency manifest changed; test-harness config changed; `drift_guard` reached; `rtdd verify` |
+| **T2** | Full suite | Map unseeded or schema-mismatched; dependency manifest or test-harness config changed **and no full run has covered that state yet**; `drift_guard` reached; `rtdd verify` |
 | **empty** | Nothing selected — reported explicitly, distinct from "all passed" | Every under-selection path terminates here, so it is never silently green |
+
+A `full_escalate` change escalates **once**, not for as long as it sits in the diff.
+The rule reads the config state rather than the diff: `meta.json`'s `escalate_digest`
+names the state the last completed full run covered, and T2 fires only while the working
+tree's state differs from it. Editing the file again moves the state and escalates again;
+reverting the edit takes the path out of the diff and restores the covered state.
+
+Evaluating the diff alone made the escalation sticky, which mattered most in exactly the
+loop this tool exists to serve. An agent accumulates edits without committing, so the
+diff only grows: one `conftest.py` edit entered it and every later cycle re-escalated on
+the same edit. Measured on the replay corpus before the fix — 24 of 25 flask cycles and
+16 of 16 httpie cycles pinned to the full suite, which is RTDD instructing the agent to
+do the thing RTDD exists to replace. An absent `escalate_digest` — a map seeded before
+the field existed — escalates as it always did, so upgrading cannot silently stop a
+repository escalating.
 
 The **direct** tier exists because in v1 a newly written test had no map row and was
 therefore in no tier — meaning step 3 of v1's own agent loop never executed the test the

@@ -23,6 +23,14 @@ type Meta struct {
 	Adapters []string `json:"adapters,omitempty"`
 	SeededAt string   `json:"seeded_at"`
 	Cycles   int      `json:"cycles"`
+	// EscalateDigest names the state of the adapter's `full_escalate` files that the
+	// last COMPLETED full run covered. The selector compares it with the working
+	// tree's current state to tell "the config changed" from "the config changed and
+	// nothing has run everything since"; only the second is a reason to run
+	// everything. `omitempty` for the reason Adapters carries it: a repository that
+	// seeded before the field existed must not get a meta.json diff it never asked
+	// for, and an absent record escalates exactly as it did before.
+	EscalateDigest string `json:"escalate_digest,omitempty"`
 }
 
 // DetectedAdapters is the set this Meta names, newest key first: `adapters` when present,
