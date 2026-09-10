@@ -134,6 +134,90 @@ The answer is below, whichever way it fell.
 
 ## Results
 
+RTDD exists for one loop: an autonomous agent edits, runs tests, edits again — dozens of
+times per task. The baseline is what that agent does without it, and what the TDD skill
+prescribes: **run the whole suite after every change.** RTDD is worth using only if it
+costs the agent less time than that, while keeping the same safety and leaving test
+quality alone.
+
+Three axes, in the order that decides whether to use it. Each states what is measured,
+what is not, and the committed record every figure is read from.
+
+### Does it save the agent time? — yes, measured
+
+Ten edits to one module in a real `flask` clone, no commits between them — the loop
+above — against the same clone running its whole suite after every change. Same machine,
+same edits, three copies of the same seeded repository:
+
+| the agent's loop | 10 cycles | |
+|---|---|---|
+| runs the whole suite after every change | 28390 ms | baseline |
+| `rtdd run` | 19962 ms | **1.42× faster** |
+| `rtdd run --record=auto` | 10127 ms | **2.80× faster** |
+
+Reproduce with [`scripts/agent-session-bench.sh`](scripts/agent-session-bench.sh) against
+a seeded clone. `--record=auto` is the opt-in mode that runs the selection without
+re-recording coverage on the cycles where the map has nothing to learn; it trades away
+that cycle's uncovered report, and it says so on every cycle it takes.
+
+**Nothing here was true a commit ago, and the reason is worth stating.** RTDD's own
+selection step cost more than the suite it was avoiding: `rtdd which` took **9774 ms** on
+this clone, against 2932 ms to run all 486 tests and 751 ms to run the 437 it selected.
+The staleness scan (spec §4.1, T1) asks the age of the commit recorded on every selected
+row, at three git subprocesses each, and a freshly seeded map records the same sha on
+every row — so a 437-row selection asked one question 437 times and paid roughly thirteen
+hundred process spawns for it. Memoised, the same command answers in **167 ms**.
+
+That overhead never appeared in any published table because `bench/` measures selection
+quality by running `pytest` itself: it never drives `rtdd run`, so RTDD's own cost was
+outside every column it publishes. It took driving the shipped binary against a real
+clone to see it, which is what `scripts/agent-session-bench.sh` now does on demand.
+
+**What this table is not.** It is a cost measurement and only a cost measurement. The
+edits are additive no-ops, so nothing fails in any arm and nothing here says the
+selection would have caught what a full run catches. That is the next axis, and it is
+still open.
+
+### Is it as safe as running everything? — not established
+
+A full suite catches what it catches by definition, so RTDD can at best **match** it,
+never beat it. The corpus decides this once and is silent twice:
+
+- **flask, `probe`** — 3 detecting commits, an explicit upper bound (every map-based
+  strategy is seeded at the child commit): `rtdd` catches 3/3 at 0.243 of the suite's
+  test time; the naive `tests/test_<module>.py` path heuristic catches 1/3 at 0.010.
+- **Every `natural` population, all three repos** — 0 detecting commits, so recall has no
+  denominator at all. Real projects are pushed green; replaying a commit over its parent
+  almost never reproduces a failure the parent already had.
+
+Three bugs on one repository, on a population labelled an upper bound, is not parity with
+a full run and is not published as if it were. The pre-registered verdict and the full
+per-strategy tables are below.
+
+**One safety-adjacent thing is measured, and it is clean.** The uncovered report — which
+of the lines you just changed no test executes — fired on 12 cycles across flask and
+httpie and was wrong **zero** times: 0/12 at change level, 0/52 at line level. Running
+the whole suite does not tell you this; no selection tool in the comparison below does
+either.
+
+### Does it change test quality? — no, structurally
+
+RTDD never writes, edits, ranks or deletes a test. Quality is whatever the suite already
+had, however it was written. The only way RTDD can change an outcome is by not running
+something, which is the safety axis above, not this one. There is nothing to measure here
+and nothing is claimed.
+
+### So: does it replace running everything?
+
+**Not on this evidence — but one of the three is now met.** Time is measured and RTDD
+wins it: 1.42× at the shipped default, 2.80× with `--record=auto`. Quality is safe by
+construction. **Safety is the open one**, and it is the one that decides the question:
+until a corpus with real detecting commits says RTDD catches what a full run catches,
+"faster" is not "ready to replace". What follows is every number those answers are read
+from, win or lose.
+
+## The measurements
+
 ### Axis 1 — agent regression rate on SWE-bench Verified
 
 **Pending.** The pre-registered SWE-bench Verified run (git tag `prereg-m4`, 100-instance
@@ -167,8 +251,14 @@ reviewer will ask for: pytest-testmon, a naive `tests/test_<module>.py` path heu
 selection ratio. Never pooled across repos.
 
 Condensed from `bench/results/{flask,httpie,sqlfluff}/summary.md` and
-`bench/results/aggregate.md`. Full per-cycle detail, drift curves, and wall-clock rows are in
+`bench/results/aggregate.md`. Full per-cycle detail and wall-clock rows are in
 [`docs/results/axis2-corpus-replay.md`](docs/results/axis2-corpus-replay.md).
+
+Everything in this section replays **committed** commits, one per fresh checkout with the
+map seeded — so it is unaffected by the tier-rule fix, which only changes what happens
+once a full run has already covered a config change within one session. The `drift.json`
+curves that page also carries are the uncommitted-session measurement, they were taken
+under the previous rule, and they are not summarised here or on the time axis above.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/results/figures/axis2-savings-dark.svg">

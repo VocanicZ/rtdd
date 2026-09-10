@@ -61,13 +61,7 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 	}
 
 	merge, _ := gitctx.IsMergeCommit(e.root, "HEAD")
-	distance := func(sha string) int {
-		d, derr := gitctx.CommitDistance(e.root, sha)
-		if derr != nil {
-			return -1 // unknown, never fresh
-		}
-		return d
-	}
+	distance := memoDistance(e.root)
 
 	// One block per detected adapter (spec §4.4): each adapter selects over its own rows,
 	// so no adapter can ever be handed another's test ids. Enumerate stays nil — `which`

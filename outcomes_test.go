@@ -211,3 +211,92 @@ func derefOr(p *float64, fallback float64) float64 {
 	}
 	return *p
 }
+
+// --- the time axis is derived from the committed record, never hand-typed ---------
+//
+// The README's answer to "does it save the agent time?" is the agent-session measurement
+// in bench/results/agent-session/flask.json. It does not come from bench/'s wall-clock
+// columns and must not: bench/ drives pytest itself and never invokes `rtdd run`, so
+// RTDD's own cost — the 9774 ms selection step this fixed — was outside every column it
+// publishes. A re-measurement that moved these numbers would otherwise leave the README's
+// table standing and stale, which is the failure mode #351 exists to prevent.
+
+type agentSession struct {
+	SessionMs struct {
+		Full   int `json:"full"`
+		Always int `json:"always"`
+		Auto   int `json:"auto"`
+	} `json:"session_ms"`
+	SingleCommandMs struct {
+		WhichBefore int `json:"rtdd_which_before_memoisation"`
+		WhichAfter  int `json:"rtdd_which_after_memoisation"`
+	} `json:"single_command_ms"`
+}
+
+func TestREADMETimeAxisMatchesTheCommittedAgentSession(t *testing.T) {
+	path := filepath.Join("bench", "results", "agent-session", "flask.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	var s agentSession
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+
+	b, err := os.ReadFile("README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(b)
+
+	for what, want := range map[string]int{
+		"full-suite baseline":    s.SessionMs.Full,
+		"shipped default":        s.SessionMs.Always,
+		"--record=auto":          s.SessionMs.Auto,
+		"which before memoising": s.SingleCommandMs.WhichBefore,
+		"which after memoising":  s.SingleCommandMs.WhichAfter,
+	} {
+		if !strings.Contains(text, fmt.Sprintf("%d ms", want)) {
+			t.Errorf("README.md does not carry the committed %s (%d ms)", what, want)
+		}
+	}
+
+	// A speedup claim that does not follow from the two numbers beside it is the one
+	// thing a reader cannot check for themselves.
+	if s.SessionMs.Always >= s.SessionMs.Full {
+		t.Errorf("the record: shipped default %d ms is not faster than the baseline %d ms, "+
+			"but the README claims a speedup", s.SessionMs.Always, s.SessionMs.Full)
+	}
+	if s.SessionMs.Auto >= s.SessionMs.Always {
+		t.Errorf("the record: --record=auto %d ms is not faster than the default %d ms",
+			s.SessionMs.Auto, s.SessionMs.Always)
+	}
+}
+
+// The uncommitted-session curves were measured under the previous tier rule, where a
+// full-escalate edit re-escalated for as long as it sat in the diff. They describe a rule
+// the selector no longer implements, so the README must not summarise them as the tool's
+// behaviour — it may only point at the file and say what they are.
+func TestREADMEDoesNotPublishThePreFixSessionCurves(t *testing.T) {
+	for _, name := range []string{
+		"README.md",
+		filepath.Join("docs", "outcomes", "README.positive.md"),
+	} {
+		b, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(b)
+		for _, stale := range []string{
+			"24 of 25",
+			"16 of 16",
+			"24/25",
+			"16/16",
+		} {
+			if strings.Contains(text, stale) {
+				t.Errorf("%s quotes the pre-fix session curve %q as if it described the tool", name, stale)
+			}
+		}
+	}
+}

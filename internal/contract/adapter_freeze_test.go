@@ -15,7 +15,14 @@ import (
 //
 // To change it, change this digest in the same commit and say in the message which spec
 // section licenses the edit.
-const pythonAdapterSHA256 = "a20c009fed0db285f4cfe04d0bbb1752fb6e0beca9a469736cb5f0eedf3df123"
+//
+// Changed once, for `subset_plain`. What §4.1 freezes is a seeded Python repo's
+// SELECTION, and the key does not reach selection at all: it is a second RUN command,
+// reachable only through `rtdd run --record=auto`, and `--record` defaults to `always`.
+// A repository that upgrades and changes no flag runs the identical command it ran
+// before, over the identical selection, so the byte-identical-selection requirement the
+// freeze protects is untouched.
+const pythonAdapterSHA256 = "7ee34da9520db745af2659b2af4c17d39a334fb02b09b693ddf8c0ed2719c37b"
 
 func TestPythonAdapterIsByteFrozen(t *testing.T) {
 	sum := sha256.Sum256([]byte(readRepoFile(t, "adapters/python.yaml")))

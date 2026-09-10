@@ -18,6 +18,12 @@ env:
   COVERAGE_FILE: .coverage
 seed: "pytest --cov --cov-context=test --cov-report= --report-log={log}"
 subset: "pytest {tests} --cov --cov-context=test --cov-report= --report-log={log}"
+# The same selection with the coverage flags dropped, for the cycles where the map has
+# nothing to learn (`rtdd run --record=auto`). --report-log stays: outcomes are how a run
+# reports pass/fail, and a plain cycle that could not say what happened would be worse
+# than a slow one. No --cov means no .coverage write, so a plain cycle cannot corrupt the
+# map -- it leaves it exactly as the last recording cycle wrote it.
+subset_plain: "pytest {tests} --report-log={log}"
 list: "pytest --collect-only -q"
 coverage: sqlite
 report: pytest-reportlog

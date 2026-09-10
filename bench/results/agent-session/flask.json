@@ -1,0 +1,33 @@
+{
+  "what": "The agent loop: N edits to one module with no commits between them, against running the whole suite after every change. bench/ replays committed commits and drives pytest itself, so it measures selection quality and never RTDD's own cost; this measures the loop RTDD exists for, through the shipped binary.",
+  "reproduce": "scripts/agent-session-bench.sh <seeded-flask-clone> 10",
+  "repo": "pallets/flask",
+  "repo_commit": "d73fa1c",
+  "target_file": "src/flask/views.py",
+  "suite_tests": 486,
+  "selected_tests": 16,
+  "cycles": 10,
+  "edits": "additive no-op functions; nothing fails in any arm, so this is a COST measurement only and says nothing about recall",
+  "hardware": {
+    "cpu": "Intel(R) Xeon(R) CPU E5-2697A v4 @ 2.60GHz",
+    "cores": 32,
+    "platform": "Linux 7.0.0-3-pve"
+  },
+  "tools": {
+    "python": "3.12.13",
+    "pytest": "9.1.1",
+    "coverage": "7.16.0"
+  },
+  "session_ms": {
+    "full": 28390,
+    "always": 19962,
+    "auto": 10127
+  },
+  "single_command_ms": {
+    "note": "one invocation on the same clone, 437 tests selected after editing five core modules",
+    "rtdd_which_before_memoisation": 9774,
+    "rtdd_which_after_memoisation": 167,
+    "pytest_whole_suite": 2932,
+    "pytest_selected_tests_only": 751
+  }
+}
