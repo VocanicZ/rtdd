@@ -300,3 +300,84 @@ func TestREADMEDoesNotPublishThePreFixSessionCurves(t *testing.T) {
 		}
 	}
 }
+
+// --- the safety axis is derived from the paired run, never hand-typed -------------
+//
+// bench/results/paired/flask/ is a DIFFERENT population from the published corpus: only
+// commits touching both a test file and a non-test file. It is kept apart from
+// bench/results/flask/ for exactly that reason, and the README's safety table must read
+// from it rather than restate it, so a re-run that moved a recall figure cannot leave the
+// claim standing and stale.
+
+type pairedArm struct {
+	ChangeLevelRecall struct {
+		Num   int      `json:"num"`
+		Den   int      `json:"den"`
+		Value *float64 `json:"value"`
+	} `json:"change_level_recall"`
+	DetectingCommits int `json:"detecting_commits"`
+}
+
+type pairedSummary struct {
+	Strategies map[string]pairedArm `json:"strategies"`
+}
+
+func TestREADMESafetyAxisMatchesThePairedRun(t *testing.T) {
+	path := filepath.Join("bench", "results", "paired", "flask", "summary.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	var s pairedSummary
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+
+	b, err := os.ReadFile("README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(b)
+
+	rtdd, ok := s.Strategies["rtdd"]
+	if !ok {
+		t.Fatalf("%s carries no rtdd arm", path)
+	}
+
+	// The claim the README makes is parity with the full suite. Deriving it means
+	// reading BOTH arms rather than trusting the sentence.
+	full, ok := s.Strategies["full"]
+	if !ok {
+		t.Fatalf("%s carries no full arm to compare against", path)
+	}
+	if rtdd.ChangeLevelRecall.Value == nil || full.ChangeLevelRecall.Value == nil {
+		t.Fatal("recall is not computable in the paired run; the README must not claim parity")
+	}
+	if *rtdd.ChangeLevelRecall.Value < *full.ChangeLevelRecall.Value {
+		t.Errorf("the record: rtdd recall %.3f is below the full suite's %.3f, "+
+			"but the README claims it loses nothing a full run would have caught",
+			*rtdd.ChangeLevelRecall.Value, *full.ChangeLevelRecall.Value)
+	}
+
+	// The rtdd ROW, not merely the digits: `1.000 (5/5)` also appears in testmon's row,
+	// so a substring search passes against a README that has quietly halved rtdd's own
+	// number. Confirmed: the loose form did exactly that before this line replaced it.
+	want := fmt.Sprintf("%d.000 (%d/%d)", int(*rtdd.ChangeLevelRecall.Value),
+		rtdd.ChangeLevelRecall.Num, rtdd.ChangeLevelRecall.Den)
+	var row string
+	for _, line := range strings.Split(text, "\n") {
+		if strings.Contains(line, "**rtdd**") && strings.Contains(line, "|") {
+			row = line
+			break
+		}
+	}
+	if row == "" {
+		t.Fatal("README.md has no rtdd row in the safety table")
+	}
+	if !strings.Contains(row, want) {
+		t.Errorf("README.md's rtdd row is %q, which does not carry the committed paired recall %q", row, want)
+	}
+	if !strings.Contains(text, fmt.Sprintf("| **%d** |", rtdd.DetectingCommits)) {
+		t.Errorf("README.md does not carry the paired run's detecting count (%d)", rtdd.DetectingCommits)
+	}
+}

@@ -113,6 +113,62 @@ def replay_points(repo: pathlib.Path, ref: str, n: int) -> list[ReplayPoint]:
     return points
 
 
+def paired_points(
+    repo: pathlib.Path, ref: str, n: int, test_globs: Sequence[str], scan: int = 500
+) -> list[ReplayPoint]:
+    """The last `n` commits ending at `ref` that touch BOTH a test file and a non-test
+    file, oldest first, paired with parents.
+
+    This exists because the published corpus can measure cost and cannot measure
+    recall. `natural` writes the child's whole diff over the parent, which reproduces
+    the child commit — and real projects push green, so `natural` detects nothing in
+    any repo, ever. `probe` is the population that can detect: the child's TESTS
+    against the parent's SOURCE, so a test the commit's code change fixed fails, and
+    that failure is what recall is scored against.
+
+    A commit can only do that if it changed both halves. Replaying the most recent N
+    commits spends most of them on docs, chores and refactors — flask yielded 3
+    detecting commits out of 23, httpie and sqlfluff none at all — which is why every
+    published recall figure reads `n/a (0/0)`.
+
+    This is corpus SELECTION, not fault injection. Every commit returned is a real
+    commit whose real tests really failed against its parent's real source; nothing is
+    synthesised, mutated or injected. Audit finding A8 rejected a mutation harness for
+    reasons that all still hold, and none of them apply here: there is no mutant, the
+    failure modes are whatever the project's own history contains, and the cost is one
+    `git log` rather than 455 CPU-hours.
+
+    Selecting for the property does bias the population, and the bias must be
+    published with the number: these are commits that changed code and tests together,
+    which is not the average commit. What it does NOT do is bias toward RTDD — the
+    filter reads the diff's paths and never asks what any strategy would select.
+
+    `scan` bounds the history walk; merges and the root commit are skipped for the
+    same reasons :func:`replay_points` skips them.
+    """
+    out = git(repo, "log", "--no-merges", f"--max-count={scan}", "--format=%x00%H", "--name-only", ref)
+    points: list[ReplayPoint] = []
+    for block in out.split("\0"):
+        lines = [ln for ln in block.splitlines() if ln.strip()]
+        if not lines:
+            continue
+        sha, paths = lines[0], lines[1:]
+        if not paths:
+            continue
+        has_test = any(is_test_path(p, test_globs) for p in paths)
+        has_source = any(not is_test_path(p, test_globs) for p in paths)
+        if not (has_test and has_source):
+            continue
+        fields = git(repo, "rev-list", "--parents", "-n", "1", sha).split()
+        if len(fields) < 2:
+            continue  # root commit
+        points.append(ReplayPoint(commit=sha, parent=fields[1]))
+        if len(points) >= n:
+            break
+    points.reverse()  # oldest first, as replay_points returns
+    return points
+
+
 def diff_changes(repo: pathlib.Path, base: str, head: str) -> list[Change]:
     """`git diff --no-renames --name-status base head`, parsed.
 

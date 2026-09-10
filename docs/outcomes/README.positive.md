@@ -178,27 +178,59 @@ edits are additive no-ops, so nothing fails in any arm and nothing here says the
 selection would have caught what a full run catches. That is the next axis, and it is
 still open.
 
-### Is it as safe as running everything? — not established
+### Is it as safe as running everything? — measurable at last, and it reaches parity
 
 A full suite catches what it catches by definition, so RTDD can at best **match** it,
-never beat it. The corpus decides this once and is silent twice:
+never beat it. Until now nothing could even ask: `natural` writes the child's whole diff
+over the parent, which reproduces the green child commit and so detects nothing in any
+repo, ever, and under the shipped `recent` commit rule `probe` found 3 detecting commits
+in flask and none at all in httpie or sqlfluff. Every published recall figure reads
+`n/a (0/0)` for that reason and no other.
 
-- **flask, `probe`** — 3 detecting commits, an explicit upper bound (every map-based
-  strategy is seeded at the child commit): `rtdd` catches 3/3 at 0.243 of the suite's
-  test time; the naive `tests/test_<module>.py` path heuristic catches 1/3 at 0.010.
-- **Every `natural` population, all three repos** — 0 detecting commits, so recall has no
-  denominator at all. Real projects are pushed green; replaying a commit over its parent
-  almost never reproduces a failure the parent already had.
+`--commit-selection=paired` replays only commits that touch **both** a test file and a
+non-test file — the one shape `probe` can detect anything from. It is corpus selection,
+not fault injection: every commit is a real commit whose real tests really failed against
+its parent's real source, which is why audit finding A8's rejection of a mutation harness
+does not reach it.
 
-Three bugs on one repository, on a population labelled an upper bound, is not parity with
-a full run and is not published as if it were. The pre-registered verdict and the full
-per-strategy tables are below.
+| commit selection | replayed | detecting |
+|---|---|---|
+| `recent` (the published corpus) | 23 | 3 |
+| `paired` | 6 | **5** |
 
-**One safety-adjacent thing is measured, and it is clean.** The uncovered report — which
-of the lines you just changed no test executes — fired on 12 cycles across flask and
-httpie and was wrong **zero** times: 0/12 at change level, 0/52 at line level. Running
-the whole suite does not tell you this; no selection tool in the comparison below does
-either.
+On that population, from
+[`bench/results/paired/flask/summary.md`](bench/results/paired/flask/summary.md):
+
+| strategy | change recall | recall where exactly one test fails | share of suite time |
+|---|---|---|---|
+| **rtdd** | **1.000 (5/5)** | **1.000 (4/4)** | 0.757 |
+| testmon | 1.000 (5/5) | 1.000 (4/4) | 0.603 |
+| random | 0.800 (4/5) | 0.750 (3/4) | 0.690 |
+| lf | 0.600 (3/5) | 0.750 (3/4) | 0.699 |
+| path | 0.400 (2/5) | 0.250 (1/4) | 0.027 |
+| importgraph | 0.000 (0/5) | 0.000 (0/4) | 0.000 |
+
+The middle column is the one that matters: the `|F_full| == 1` stratum, where a single
+failing test is all that stands between a selection and a missed regression. RTDD catches
+every one. **On this population RTDD loses nothing a full run would have caught.**
+
+**What that does not license.** Five detecting commits, one repository, on a population
+biased by construction toward commits that changed code and tests together, and `probe`
+remains an explicit upper bound — every map-based strategy is seeded at the child commit,
+so RTDD and testmon both know about code an agent would not yet have recorded. It is
+enough to make recall computable for the first time. It is not a general result, and
+`testmon` reaches the same recall for less time.
+
+The pre-registered criterion is still **not met**, and for the same reason it was not met
+before: it asks for better recall than the naive `path` heuristic *at equal or better
+selected duration*, and RTDD spends 0.757 of the suite's test time against `path`'s 0.027.
+`summary.md`'s verdict line says so verbatim, win or lose.
+
+**One safety-adjacent thing is separately measured, and it is clean.** The uncovered
+report — which of the lines you just changed no test executes — fired on 12 cycles across
+flask and httpie in the published corpus and was wrong **zero** times: 0/12 at change
+level, 0/52 at line level. Running the whole suite does not tell you this; no selection
+tool in the comparison below does either.
 
 ### Does it change test quality? — no, structurally
 
@@ -209,12 +241,16 @@ and nothing is claimed.
 
 ### So: does it replace running everything?
 
-**Not on this evidence — but one of the three is now met.** Time is measured and RTDD
-wins it: 1.42× at the shipped default, 2.80× with `--record=auto`. Quality is safe by
-construction. **Safety is the open one**, and it is the one that decides the question:
-until a corpus with real detecting commits says RTDD catches what a full run catches,
-"faster" is not "ready to replace". What follows is every number those answers are read
-from, win or lose.
+**Closer than it has ever been, and not yet.** Time is measured and RTDD wins it —
+1.42× at the shipped default, 2.80× with `--record=auto`. Quality is safe by
+construction. Safety is measurable for the first time and RTDD reaches full-suite parity
+on the population that can measure it, including the stratum where one failing test is
+all that is at stake.
+
+What is missing is not a win but a *sample*: five detecting commits on one repository, on
+an upper-bound population, is where this evidence begins rather than ends. And on cost
+against recall, `testmon` still matches RTDD for less time. What follows is every number
+those answers are read from, win or lose.
 
 ## The measurements
 

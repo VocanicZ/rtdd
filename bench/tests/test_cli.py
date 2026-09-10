@@ -927,3 +927,21 @@ def test_the_rebuilt_markdown_publishes_the_derived_arm_as_not_measured(bench):
         if ln.startswith("| `static`")
     ]
     assert row and row[0].count("not measured") == 4
+
+
+# --- a non-default commit selection may not overwrite the published result ------
+
+
+def test_the_published_results_directory_belongs_to_the_recent_rule():
+    assert cli.results_dir_for("flask", "recent") == cli.RESULTS / "flask"
+    assert cli.results_dir_for("flask", "") == cli.RESULTS / "flask"
+
+
+def test_a_paired_run_writes_to_its_own_subtree():
+    # bench/results/flask/ holds the PUBLISHED 46-commit `recent` population that the
+    # README's tables and outcomes_test.go's derived verdict read. A six-commit `paired`
+    # run landing there replaces the published corpus with a differently-selected one
+    # that happens to share a filename.
+    got = cli.results_dir_for("flask", "paired")
+    assert got == cli.RESULTS / "paired" / "flask"
+    assert got != cli.RESULTS / "flask"
