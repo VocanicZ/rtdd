@@ -386,3 +386,40 @@ func TestREADMESafetyAxisMatchesThePairedRun(t *testing.T) {
 		t.Errorf("README.md does not carry the paired run's detecting count (%d)", rtdd.DetectingCommits)
 	}
 }
+
+// A section spliced in twice is invisible to every other guard here: each copy carries
+// the same committed numbers, so the derivation checks all pass while the reader scrolls
+// through the same argument three times in three different versions. This shipped —
+// three copies of one section, the two stale ones describing examples that no longer
+// existed — because the splice that replaced it assumed the text it cut to came after
+// the heading, and one edit moved it before.
+func TestREADMEHasNoDuplicatedSection(t *testing.T) {
+	for _, name := range []string{
+		"README.md",
+		filepath.Join("docs", "outcomes", "README.positive.md"),
+		filepath.Join("docs", "outcomes", "README.negative.md"),
+	} {
+		b, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen := map[string]int{}
+		var fenced bool
+		for _, line := range strings.Split(string(b), "\n") {
+			if strings.HasPrefix(line, "```") {
+				fenced = !fenced
+				continue
+			}
+			if fenced || !strings.HasPrefix(line, "#") {
+				continue
+			}
+			seen[strings.TrimSpace(line)]++
+		}
+		for heading, n := range seen {
+			if n > 1 {
+				t.Errorf("%s carries the heading %q %d times; a section was spliced in "+
+					"rather than replacing the one already there", name, heading, n)
+			}
+		}
+	}
+}
