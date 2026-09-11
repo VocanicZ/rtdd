@@ -169,19 +169,6 @@ RTDD also reports which of your changed lines no test covers. On the published c
 report fired 12 times and was wrong zero times. Running the whole suite tells you nothing
 about this.
 
-### It leaves your tests alone
-
-RTDD never writes, edits, reorders or deletes a test. Whatever your suite caught before, it
-still catches. The only thing RTDD changes is which of them run.
-
-### Should you use it instead of running everything?
-
-In an agent loop, yes — 1.42× faster as shipped, 2.80× with `--record=auto`, and on every
-commit that could be measured it missed nothing.
-
-In CI, or anywhere a missed regression is expensive, no. Run everything. Five commits on
-one repository is where this evidence starts, not where it ends.
-
 ## Documentation
 
 - [Limitations](docs/LIMITATIONS.md) — where selection can be wrong, which languages get
