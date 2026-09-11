@@ -9,24 +9,23 @@
   "complete": true,
   "changed": [
     {
-      "path": "src/b.py",
+      "path": "src/auth.py",
       "status": "modified",
       "instrumentable": true,
       "lines": [
         {
-          "start": 2,
-          "end": 2
+          "start": 7,
+          "end": 7
         }
       ]
     }
   ],
   "selection": {
-    "count": 3,
+    "count": 2,
     "direct": [],
     "tests": [
-      "tests/test_b.py::test_b",
-      "tests/test_d.py::test_d",
-      "tests/test_a.py::test_a"
+      "tests/test_auth.py::test_auth",
+      "tests/test_api.py::test_api"
     ],
     "import_fallback": {}
   }

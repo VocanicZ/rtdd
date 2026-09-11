@@ -39,6 +39,67 @@ numbers are in [`bench/results/flask/summary.json`](bench/results/flask/summary.
 
 ## It runs more than the test you touched
 
+Real code shares things. A small app might have `api.py` calling `auth.py`, both leaning on
+`models.py` and `db.py`, and a `utils.py` that everything touches. You change `auth.py`.
+
+A path heuristic matches `tests/test_auth.py` and stops — missing that `api.handle()` calls
+straight into the function you just edited.
+
+RTDD selects both, because the map records what each test *executed*, not what it is named.
+Drawn as a graph, the rule is just *follow the edges into the file you changed* — and the
+difference between the two approaches is that one has edges to follow and the other reads
+none of them:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/results/figures/how-it-picks-dark.svg">
+  <img alt="Two panels side by side, each holding the same graph: eight source files on the left of the panel, eight tests on the right, and an edge wherever the seed run watched that test execute that file. In the left panel, running everything, every edge is grey and all eight tests run. In the right panel, RTDD, auth.py is highlighted and the two edges into it lead to test_auth and test_api; those two run and the other six are marked never runs. Both catch the change." src="docs/results/figures/how-it-picks-light.svg">
+</picture>
+
+The map for that app, as `rtdd seed` recorded it:
+
+```
+test_api     →  api.py, auth.py, cache.py, db.py, models.py, utils.py
+test_auth    →  auth.py, db.py, models.py, utils.py
+test_report  →  db.py, models.py, report.py, utils.py
+test_mailer  →  mailer.py, models.py, utils.py
+test_models  →  models.py, utils.py
+test_db      →  db.py, utils.py
+test_cache   →  cache.py, utils.py
+test_utils   →  utils.py
+```
+
+Change `src/auth.py` and the two tests whose rows contain it are selected — `test_auth`,
+which any heuristic would find, and `test_api`, which none would: its name points at
+`api.py`, and only the recorded coverage shows it reached `auth.py` from there.
+
+It is transitive for free. `test_api` never imports `auth`; it calls `api.handle()`, which
+calls `auth.login()`. The tracer does not care how deep that goes.
+
+Change a *test* file instead and that test always runs, mapped or not.
+
+The map and the selection are the real output of `rtdd seed` and `rtdd which` on that
+app, committed under [`docs/results/worked-example/`](docs/results/worked-example/) and
+read directly by the figure — including its captions, which are computed from the map
+rather than written beside it.
+
+One limit: this works from what the seed run recorded. A path no test has ever executed
+is not in the map, so new code selects nothing until it has run once — which is what the
+uncovered report tells you.
+
+The run above is *execution-derived* selection, and it is Python only today. Every other
+language gets *static* selection instead — declared file correspondence and imports, with
+nothing instrumented. It never watched a test run, so it can miss a test the Python tier
+would have caught. Passing it is weaker evidence, and every surface tells you which tier
+you are reading.
+
+That static tier was pre-registered against a naive path heuristic and did not beat it, so
+it does not carry its weight as a distinct tier. It ships because a repository RTDD cannot
+instrument is otherwise offered nothing — not because it is measured to be better. The
+numbers are in [`bench/results/flask/summary.json`](bench/results/flask/summary.json) and
+[`bench/results/httpie/summary.json`](bench/results/httpie/summary.json).
+
+## It runs more than the test you touched
+
 Say `a.py` and `d.py` both call `b.py`, and every feature has its own test. You change
 `b.py`. A path heuristic matches `tests/test_b.py` and stops — missing that you may have
 just broken A and D.

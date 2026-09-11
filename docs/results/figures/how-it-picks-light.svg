@@ -1,109 +1,166 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="672" viewBox="0 0 900 672" role="img">
-<rect x="0" y="0" width="900" height="672" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="498" viewBox="0 0 900 498" role="img">
+<rect x="0" y="0" width="900" height="498" fill="#ffffff"/>
 <text x="28.0" y="32.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#1f2328" text-anchor="start">The same change, two ways of deciding what to run</text>
-<text x="28.0" y="52.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#656d76" text-anchor="start">b.py is called by a.py and d.py. Watch where the two paths stop agreeing.</text>
-<text x="28.0" y="108.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11" font-weight="normal" fill="#656d76" text-anchor="start">the map: an edge wherever the seed run watched that test execute that file</text>
-<path d="M62 243 C62 210, 62 200, 62 167" fill="none" stroke="#d8dee4" stroke-width="1.2"/>
-<path d="M62 243 C62 210, 177 200, 177 167" fill="none" stroke="#bc4c00" stroke-width="2.2" opacity="0.15"><animate attributeName="opacity" values="0.15;0.15;1;1" keyTimes="0;0.17143;0.20714;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></path>
-<path d="M177 243 C177 210, 177 200, 177 167" fill="none" stroke="#bc4c00" stroke-width="2.2" opacity="0.15"><animate attributeName="opacity" values="0.15;0.15;1;1" keyTimes="0;0.2;0.23571;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></path>
-<path d="M292 243 C292 210, 292 200, 292 167" fill="none" stroke="#d8dee4" stroke-width="1.2"/>
-<path d="M407 243 C407 210, 177 200, 177 167" fill="none" stroke="#bc4c00" stroke-width="2.2" opacity="0.15"><animate attributeName="opacity" values="0.15;0.15;1;1" keyTimes="0;0.25714;0.29286;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></path>
-<path d="M407 243 C407 210, 407 200, 407 167" fill="none" stroke="#d8dee4" stroke-width="1.2"/>
-<path d="M521 243 C521 210, 521 200, 521 167" fill="none" stroke="#d8dee4" stroke-width="1.2"/>
-<path d="M636 243 C636 210, 636 200, 636 167" fill="none" stroke="#d8dee4" stroke-width="1.2"/>
-<path d="M751 243 C751 210, 751 200, 751 167" fill="none" stroke="#d8dee4" stroke-width="1.2"/>
-<path d="M866 243 C866 210, 866 200, 866 167" fill="none" stroke="#d8dee4" stroke-width="1.2"/>
-<circle cx="62" cy="152" r="11" fill="none" stroke="#656d76" stroke-width="1.3"/>
-<text x="62.0" y="128.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="middle">a.py</text>
-<circle cx="177" cy="152" r="15" fill="none" stroke="#bc4c00" stroke-width="2.5"/>
-<text x="176.9" y="128.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="700" fill="#1f2328" text-anchor="middle">b.py</text>
-<circle cx="292" cy="152" r="11" fill="none" stroke="#656d76" stroke-width="1.3"/>
-<text x="291.7" y="128.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="middle">c.py</text>
-<circle cx="407" cy="152" r="11" fill="none" stroke="#656d76" stroke-width="1.3"/>
-<text x="406.6" y="128.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="middle">d.py</text>
-<circle cx="521" cy="152" r="11" fill="none" stroke="#656d76" stroke-width="1.3"/>
-<text x="521.4" y="128.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="middle">e.py</text>
-<circle cx="636" cy="152" r="11" fill="none" stroke="#656d76" stroke-width="1.3"/>
-<text x="636.3" y="128.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="middle">f.py</text>
-<circle cx="751" cy="152" r="11" fill="none" stroke="#656d76" stroke-width="1.3"/>
-<text x="751.1" y="128.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="middle">g.py</text>
-<circle cx="866" cy="152" r="11" fill="none" stroke="#656d76" stroke-width="1.3"/>
-<text x="866.0" y="128.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="middle">h.py</text>
-<text x="176.9" y="186.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#bc4c00" text-anchor="middle">you changed this</text>
-<circle cx="62" cy="258" r="11" fill="none" stroke="#0969da" stroke-width="2.2"/>
-<text x="62.0" y="284.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#1f2328" text-anchor="middle">test_a</text>
-<circle cx="177" cy="258" r="11" fill="none" stroke="#0969da" stroke-width="2.2"/>
-<text x="176.9" y="284.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#1f2328" text-anchor="middle">test_b</text>
-<circle cx="292" cy="258" r="11" fill="none" stroke="#656d76" stroke-width="1.3"/>
-<text x="291.7" y="284.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="middle">test_c</text>
-<circle cx="407" cy="258" r="11" fill="none" stroke="#0969da" stroke-width="2.2"/>
-<text x="406.6" y="284.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#1f2328" text-anchor="middle">test_d</text>
-<circle cx="521" cy="258" r="11" fill="none" stroke="#656d76" stroke-width="1.3"/>
-<text x="521.4" y="284.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="middle">test_e</text>
-<circle cx="636" cy="258" r="11" fill="none" stroke="#656d76" stroke-width="1.3"/>
-<text x="636.3" y="284.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="middle">test_f</text>
-<circle cx="751" cy="258" r="11" fill="none" stroke="#656d76" stroke-width="1.3"/>
-<text x="751.1" y="284.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="middle">test_g</text>
-<circle cx="866" cy="258" r="11" fill="none" stroke="#656d76" stroke-width="1.3"/>
-<text x="866.0" y="284.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="middle">test_h</text>
-<text x="236.0" y="310.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#1f2328" text-anchor="middle">Run everything</text>
-<rect x="50" y="324" width="372" height="52" rx="8" fill="none" stroke="#d8dee4" stroke-dasharray="5 4"/>
-<text x="236.0" y="344.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#656d76" text-anchor="middle">nothing to look up</text>
-<text x="236.0" y="362.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="middle">the answer is all 8 tests, whatever you changed</text>
-<text x="64.0" y="401.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#1f2328" text-anchor="start">test_a</text>
-<rect x="142" y="389" width="260" height="14" rx="3" fill="#d8dee4" opacity="0.45"/>
-<rect x="142" y="389" width="0" height="14" rx="3" fill="#6e7781"><animate attributeName="width" values="0;0;260;260" keyTimes="0;0.43571;0.49732;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="64.0" y="425.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#1f2328" text-anchor="start">test_b</text>
-<rect x="142" y="413" width="260" height="14" rx="3" fill="#d8dee4" opacity="0.45"/>
-<rect x="142" y="413" width="0" height="14" rx="3" fill="#6e7781"><animate attributeName="width" values="0;0;260;260" keyTimes="0;0.49732;0.55893;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="64.0" y="449.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#1f2328" text-anchor="start">test_c</text>
-<rect x="142" y="437" width="260" height="14" rx="3" fill="#d8dee4" opacity="0.45"/>
-<rect x="142" y="437" width="0" height="14" rx="3" fill="#6e7781"><animate attributeName="width" values="0;0;260;260" keyTimes="0;0.55893;0.62054;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="64.0" y="473.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#1f2328" text-anchor="start">test_d</text>
-<rect x="142" y="461" width="260" height="14" rx="3" fill="#d8dee4" opacity="0.45"/>
-<rect x="142" y="461" width="0" height="14" rx="3" fill="#6e7781"><animate attributeName="width" values="0;0;260;260" keyTimes="0;0.62054;0.68214;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="64.0" y="497.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#1f2328" text-anchor="start">test_e</text>
-<rect x="142" y="485" width="260" height="14" rx="3" fill="#d8dee4" opacity="0.45"/>
-<rect x="142" y="485" width="0" height="14" rx="3" fill="#6e7781"><animate attributeName="width" values="0;0;260;260" keyTimes="0;0.68214;0.74375;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="64.0" y="521.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#1f2328" text-anchor="start">test_f</text>
-<rect x="142" y="509" width="260" height="14" rx="3" fill="#d8dee4" opacity="0.45"/>
-<rect x="142" y="509" width="0" height="14" rx="3" fill="#6e7781"><animate attributeName="width" values="0;0;260;260" keyTimes="0;0.74375;0.80536;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="64.0" y="545.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#1f2328" text-anchor="start">test_g</text>
-<rect x="142" y="533" width="260" height="14" rx="3" fill="#d8dee4" opacity="0.45"/>
-<rect x="142" y="533" width="0" height="14" rx="3" fill="#6e7781"><animate attributeName="width" values="0;0;260;260" keyTimes="0;0.80536;0.86696;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="64.0" y="569.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#1f2328" text-anchor="start">test_h</text>
-<rect x="142" y="557" width="260" height="14" rx="3" fill="#d8dee4" opacity="0.45"/>
-<rect x="142" y="557" width="0" height="14" rx="3" fill="#6e7781"><animate attributeName="width" values="0;0;260;260" keyTimes="0;0.86696;0.92857;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="236" y="600" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#6e7781" text-anchor="middle" opacity="0">8 of 8 tests · caught the change<animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.92857;0.96429;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></text>
-<text x="664.0" y="310.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#1f2328" text-anchor="middle">RTDD</text>
-<rect x="478" y="324" width="372" height="52" rx="8" fill="none" stroke="#d8dee4" stroke-dasharray=""/>
-<text x="664.0" y="344.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#1f2328" text-anchor="middle">follow the edges into b.py</text>
-<text x="664.0" y="362.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="middle">3 tests are at the other end</text>
-<text x="492.0" y="401.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#1f2328" text-anchor="start">test_a</text>
-<rect x="570" y="389" width="260" height="14" rx="3" fill="#d8dee4" opacity="0.45"/>
-<rect x="570" y="389" width="0" height="14" rx="3" fill="#0969da"><animate attributeName="width" values="0;0;260;260" keyTimes="0;0.43571;0.49732;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="492.0" y="425.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#1f2328" text-anchor="start">test_b</text>
-<rect x="570" y="413" width="260" height="14" rx="3" fill="#d8dee4" opacity="0.45"/>
-<rect x="570" y="413" width="0" height="14" rx="3" fill="#0969da"><animate attributeName="width" values="0;0;260;260" keyTimes="0;0.49732;0.55893;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="492.0" y="449.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">test_c</text>
-<rect x="570" y="437" width="260" height="14" rx="3" fill="#d8dee4" opacity="0.45"/>
-<text x="578.0" y="449.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="start">never runs</text>
-<text x="492.0" y="473.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#1f2328" text-anchor="start">test_d</text>
-<rect x="570" y="461" width="260" height="14" rx="3" fill="#d8dee4" opacity="0.45"/>
-<rect x="570" y="461" width="0" height="14" rx="3" fill="#0969da"><animate attributeName="width" values="0;0;260;260" keyTimes="0;0.55893;0.62054;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="492.0" y="497.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">test_e</text>
-<rect x="570" y="485" width="260" height="14" rx="3" fill="#d8dee4" opacity="0.45"/>
-<text x="578.0" y="497.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="start">never runs</text>
-<text x="492.0" y="521.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">test_f</text>
-<rect x="570" y="509" width="260" height="14" rx="3" fill="#d8dee4" opacity="0.45"/>
-<text x="578.0" y="521.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="start">never runs</text>
-<text x="492.0" y="545.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">test_g</text>
-<rect x="570" y="533" width="260" height="14" rx="3" fill="#d8dee4" opacity="0.45"/>
-<text x="578.0" y="545.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="start">never runs</text>
-<text x="492.0" y="569.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">test_h</text>
-<rect x="570" y="557" width="260" height="14" rx="3" fill="#d8dee4" opacity="0.45"/>
-<text x="578.0" y="569.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="start">never runs</text>
-<text x="664" y="600" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#0969da" text-anchor="middle" opacity="0">3 of 8 tests · caught the change<animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.62054;0.65625;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></text>
-<text x="450.0" y="628.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11" font-weight="normal" fill="#656d76" text-anchor="middle">test_a and test_d are the ones that matter: they never name b.py, and running everything has no way to know they reached it.</text>
-<text x="28.0" y="654.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">source: docs/results/worked-example/map.jsonl · docs/results/worked-example/selection-feature-b.json</text>
+<text x="28.0" y="52.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#656d76" text-anchor="start">8 files, 8 tests, 24 edges the seed run recorded. auth.py was executed by 2 of those tests.</text>
+<rect x="28" y="72" width="414" height="374" rx="10" fill="none" stroke="#d8dee4"/>
+<text x="48.0" y="100.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#1f2328" text-anchor="start">Run everything</text>
+<text x="48.0" y="120.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11" font-weight="normal" fill="#656d76" text-anchor="start">the edges are here; nothing reads them</text>
+<text x="90.0" y="130.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="middle">files</text>
+<text x="194.0" y="130.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="middle">tests</text>
+<text x="339.0" y="130.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="middle">what runs</text>
+<path d="M183 150 C152 150, 132 150, 100 150" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M183 150 C152 150, 132 180, 100 180" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M183 150 C152 150, 132 210, 100 210" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M183 150 C152 150, 132 240, 100 240" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M183 150 C152 150, 132 300, 100 300" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M183 150 C152 150, 132 360, 100 360" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M183 180 C152 180, 132 180, 100 180" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M183 180 C152 180, 132 240, 100 240" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M183 180 C152 180, 132 300, 100 300" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M183 180 C152 180, 132 360, 100 360" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M183 210 C152 210, 132 210, 100 210" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M183 210 C152 210, 132 360, 100 360" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M183 240 C152 240, 132 240, 100 240" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M183 240 C152 240, 132 360, 100 360" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M183 270 C152 270, 132 270, 100 270" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M183 270 C152 270, 132 300, 100 300" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M183 270 C152 270, 132 360, 100 360" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M183 300 C152 300, 132 300, 100 300" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M183 300 C152 300, 132 360, 100 360" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M183 330 C152 330, 132 240, 100 240" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M183 330 C152 330, 132 300, 100 300" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M183 330 C152 330, 132 330, 100 330" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M183 330 C152 330, 132 360, 100 360" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M183 360 C152 360, 132 360, 100 360" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<circle cx="90" cy="150" r="6" fill="none" stroke="#656d76" stroke-width="1.2"/>
+<text x="76.0" y="154.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="end">api.py</text>
+<circle cx="90" cy="180" r="6" fill="none" stroke="#656d76" stroke-width="1.2"/>
+<text x="76.0" y="184.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="end">auth.py</text>
+<circle cx="90" cy="210" r="6" fill="none" stroke="#656d76" stroke-width="1.2"/>
+<text x="76.0" y="214.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="end">cache.py</text>
+<circle cx="90" cy="240" r="6" fill="none" stroke="#656d76" stroke-width="1.2"/>
+<text x="76.0" y="244.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="end">db.py</text>
+<circle cx="90" cy="270" r="6" fill="none" stroke="#656d76" stroke-width="1.2"/>
+<text x="76.0" y="274.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="end">mailer.py</text>
+<circle cx="90" cy="300" r="6" fill="none" stroke="#656d76" stroke-width="1.2"/>
+<text x="76.0" y="304.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="end">models.py</text>
+<circle cx="90" cy="330" r="6" fill="none" stroke="#656d76" stroke-width="1.2"/>
+<text x="76.0" y="334.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="end">report.py</text>
+<circle cx="90" cy="360" r="6" fill="none" stroke="#656d76" stroke-width="1.2"/>
+<text x="76.0" y="364.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="end">utils.py</text>
+<circle cx="194" cy="150" r="7" fill="#6e7781" stroke="#6e7781" stroke-width="1.6"/>
+<text x="208.0" y="154.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#1f2328" text-anchor="start">test_api</text>
+<rect x="264" y="144" width="150" height="12" rx="3" fill="#d8dee4" opacity="0.45"/>
+<rect x="264" y="144" width="0" height="12" rx="3" fill="#6e7781"><animate attributeName="width" values="0;0;150;150" keyTimes="0;0.43571;0.49732;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<circle cx="194" cy="180" r="7" fill="#6e7781" stroke="#6e7781" stroke-width="1.6"/>
+<text x="208.0" y="184.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#1f2328" text-anchor="start">test_auth</text>
+<rect x="264" y="174" width="150" height="12" rx="3" fill="#d8dee4" opacity="0.45"/>
+<rect x="264" y="174" width="0" height="12" rx="3" fill="#6e7781"><animate attributeName="width" values="0;0;150;150" keyTimes="0;0.49732;0.55893;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<circle cx="194" cy="210" r="7" fill="#6e7781" stroke="#6e7781" stroke-width="1.6"/>
+<text x="208.0" y="214.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#1f2328" text-anchor="start">test_cache</text>
+<rect x="264" y="204" width="150" height="12" rx="3" fill="#d8dee4" opacity="0.45"/>
+<rect x="264" y="204" width="0" height="12" rx="3" fill="#6e7781"><animate attributeName="width" values="0;0;150;150" keyTimes="0;0.55893;0.62054;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<circle cx="194" cy="240" r="7" fill="#6e7781" stroke="#6e7781" stroke-width="1.6"/>
+<text x="208.0" y="244.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#1f2328" text-anchor="start">test_db</text>
+<rect x="264" y="234" width="150" height="12" rx="3" fill="#d8dee4" opacity="0.45"/>
+<rect x="264" y="234" width="0" height="12" rx="3" fill="#6e7781"><animate attributeName="width" values="0;0;150;150" keyTimes="0;0.62054;0.68214;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<circle cx="194" cy="270" r="7" fill="#6e7781" stroke="#6e7781" stroke-width="1.6"/>
+<text x="208.0" y="274.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#1f2328" text-anchor="start">test_mailer</text>
+<rect x="264" y="264" width="150" height="12" rx="3" fill="#d8dee4" opacity="0.45"/>
+<rect x="264" y="264" width="0" height="12" rx="3" fill="#6e7781"><animate attributeName="width" values="0;0;150;150" keyTimes="0;0.68214;0.74375;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<circle cx="194" cy="300" r="7" fill="#6e7781" stroke="#6e7781" stroke-width="1.6"/>
+<text x="208.0" y="304.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#1f2328" text-anchor="start">test_models</text>
+<rect x="264" y="294" width="150" height="12" rx="3" fill="#d8dee4" opacity="0.45"/>
+<rect x="264" y="294" width="0" height="12" rx="3" fill="#6e7781"><animate attributeName="width" values="0;0;150;150" keyTimes="0;0.74375;0.80536;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<circle cx="194" cy="330" r="7" fill="#6e7781" stroke="#6e7781" stroke-width="1.6"/>
+<text x="208.0" y="334.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#1f2328" text-anchor="start">test_report</text>
+<rect x="264" y="324" width="150" height="12" rx="3" fill="#d8dee4" opacity="0.45"/>
+<rect x="264" y="324" width="0" height="12" rx="3" fill="#6e7781"><animate attributeName="width" values="0;0;150;150" keyTimes="0;0.80536;0.86696;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<circle cx="194" cy="360" r="7" fill="#6e7781" stroke="#6e7781" stroke-width="1.6"/>
+<text x="208.0" y="364.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#1f2328" text-anchor="start">test_utils</text>
+<rect x="264" y="354" width="150" height="12" rx="3" fill="#d8dee4" opacity="0.45"/>
+<rect x="264" y="354" width="0" height="12" rx="3" fill="#6e7781"><animate attributeName="width" values="0;0;150;150" keyTimes="0;0.86696;0.92857;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<text x="48" y="420" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#6e7781" text-anchor="start" opacity="0">8 of 8 tests · caught the change<animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.92857;0.96429;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></text>
+<rect x="458" y="72" width="414" height="374" rx="10" fill="none" stroke="#d8dee4"/>
+<text x="478.0" y="100.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#1f2328" text-anchor="start">RTDD</text>
+<text x="478.0" y="120.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11" font-weight="normal" fill="#0969da" text-anchor="start">follow the edges into auth.py</text>
+<text x="520.0" y="130.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="middle">files</text>
+<text x="624.0" y="130.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="middle">tests</text>
+<text x="769.0" y="130.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#656d76" text-anchor="middle">what runs</text>
+<path d="M613 150 C582 150, 562 150, 530 150" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M613 150 C582 150, 562 180, 530 180" fill="none" stroke="#bc4c00" stroke-width="2.2" opacity="0.12"><animate attributeName="opacity" values="0.12;0.12;1;1" keyTimes="0;0.17143;0.20714;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></path>
+<path d="M613 150 C582 150, 562 210, 530 210" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M613 150 C582 150, 562 240, 530 240" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M613 150 C582 150, 562 300, 530 300" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M613 150 C582 150, 562 360, 530 360" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M613 180 C582 180, 562 180, 530 180" fill="none" stroke="#bc4c00" stroke-width="2.2" opacity="0.12"><animate attributeName="opacity" values="0.12;0.12;1;1" keyTimes="0;0.2;0.23571;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></path>
+<path d="M613 180 C582 180, 562 240, 530 240" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M613 180 C582 180, 562 300, 530 300" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M613 180 C582 180, 562 360, 530 360" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M613 210 C582 210, 562 210, 530 210" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M613 210 C582 210, 562 360, 530 360" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M613 240 C582 240, 562 240, 530 240" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M613 240 C582 240, 562 360, 530 360" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M613 270 C582 270, 562 270, 530 270" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M613 270 C582 270, 562 300, 530 300" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M613 270 C582 270, 562 360, 530 360" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M613 300 C582 300, 562 300, 530 300" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M613 300 C582 300, 562 360, 530 360" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M613 330 C582 330, 562 240, 530 240" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M613 330 C582 330, 562 300, 530 300" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M613 330 C582 330, 562 330, 530 330" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M613 330 C582 330, 562 360, 530 360" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<path d="M613 360 C582 360, 562 360, 530 360" fill="none" stroke="#d8dee4" stroke-width="1.1"/>
+<circle cx="520" cy="150" r="6" fill="none" stroke="#656d76" stroke-width="1.2"/>
+<text x="506.0" y="154.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="end">api.py</text>
+<circle cx="520" cy="180" r="8" fill="none" stroke="#bc4c00" stroke-width="2.4"/>
+<text x="506.0" y="184.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="700" fill="#1f2328" text-anchor="end">auth.py</text>
+<circle cx="520" cy="210" r="6" fill="none" stroke="#656d76" stroke-width="1.2"/>
+<text x="506.0" y="214.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="end">cache.py</text>
+<circle cx="520" cy="240" r="6" fill="none" stroke="#656d76" stroke-width="1.2"/>
+<text x="506.0" y="244.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="end">db.py</text>
+<circle cx="520" cy="270" r="6" fill="none" stroke="#656d76" stroke-width="1.2"/>
+<text x="506.0" y="274.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="end">mailer.py</text>
+<circle cx="520" cy="300" r="6" fill="none" stroke="#656d76" stroke-width="1.2"/>
+<text x="506.0" y="304.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="end">models.py</text>
+<circle cx="520" cy="330" r="6" fill="none" stroke="#656d76" stroke-width="1.2"/>
+<text x="506.0" y="334.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="end">report.py</text>
+<circle cx="520" cy="360" r="6" fill="none" stroke="#656d76" stroke-width="1.2"/>
+<text x="506.0" y="364.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="end">utils.py</text>
+<text x="520.0" y="202.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9" font-weight="normal" fill="#bc4c00" text-anchor="middle">changed</text>
+<circle cx="624" cy="150" r="7" fill="#0969da" stroke="#0969da" stroke-width="1.6"/>
+<text x="638.0" y="154.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#1f2328" text-anchor="start">test_api</text>
+<rect x="694" y="144" width="150" height="12" rx="3" fill="#d8dee4" opacity="0.45"/>
+<rect x="694" y="144" width="0" height="12" rx="3" fill="#0969da"><animate attributeName="width" values="0;0;150;150" keyTimes="0;0.43571;0.49732;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<circle cx="624" cy="180" r="7" fill="#0969da" stroke="#0969da" stroke-width="1.6"/>
+<text x="638.0" y="184.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#1f2328" text-anchor="start">test_auth</text>
+<rect x="694" y="174" width="150" height="12" rx="3" fill="#d8dee4" opacity="0.45"/>
+<rect x="694" y="174" width="0" height="12" rx="3" fill="#0969da"><animate attributeName="width" values="0;0;150;150" keyTimes="0;0.49732;0.55893;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<circle cx="624" cy="210" r="7" fill="none" stroke="#656d76" stroke-width="1.6"/>
+<text x="638.0" y="214.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="start">test_cache</text>
+<rect x="694" y="204" width="150" height="12" rx="3" fill="#d8dee4" opacity="0.45"/>
+<text x="700.0" y="214.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9" font-weight="normal" fill="#656d76" text-anchor="start">never runs</text>
+<circle cx="624" cy="240" r="7" fill="none" stroke="#656d76" stroke-width="1.6"/>
+<text x="638.0" y="244.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="start">test_db</text>
+<rect x="694" y="234" width="150" height="12" rx="3" fill="#d8dee4" opacity="0.45"/>
+<text x="700.0" y="244.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9" font-weight="normal" fill="#656d76" text-anchor="start">never runs</text>
+<circle cx="624" cy="270" r="7" fill="none" stroke="#656d76" stroke-width="1.6"/>
+<text x="638.0" y="274.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="start">test_mailer</text>
+<rect x="694" y="264" width="150" height="12" rx="3" fill="#d8dee4" opacity="0.45"/>
+<text x="700.0" y="274.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9" font-weight="normal" fill="#656d76" text-anchor="start">never runs</text>
+<circle cx="624" cy="300" r="7" fill="none" stroke="#656d76" stroke-width="1.6"/>
+<text x="638.0" y="304.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="start">test_models</text>
+<rect x="694" y="294" width="150" height="12" rx="3" fill="#d8dee4" opacity="0.45"/>
+<text x="700.0" y="304.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9" font-weight="normal" fill="#656d76" text-anchor="start">never runs</text>
+<circle cx="624" cy="330" r="7" fill="none" stroke="#656d76" stroke-width="1.6"/>
+<text x="638.0" y="334.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="start">test_report</text>
+<rect x="694" y="324" width="150" height="12" rx="3" fill="#d8dee4" opacity="0.45"/>
+<text x="700.0" y="334.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9" font-weight="normal" fill="#656d76" text-anchor="start">never runs</text>
+<circle cx="624" cy="360" r="7" fill="none" stroke="#656d76" stroke-width="1.6"/>
+<text x="638.0" y="364.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#656d76" text-anchor="start">test_utils</text>
+<rect x="694" y="354" width="150" height="12" rx="3" fill="#d8dee4" opacity="0.45"/>
+<text x="700.0" y="364.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9" font-weight="normal" fill="#656d76" text-anchor="start">never runs</text>
+<text x="478" y="420" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#0969da" text-anchor="start" opacity="0">2 of 8 tests · caught the change<animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.55893;0.59464;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></text>
+<text x="28.0" y="454.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11" font-weight="normal" fill="#656d76" text-anchor="start">test_api runs too: its name points elsewhere, and only the recorded coverage shows the change was reached from there.</text>
+<text x="28.0" y="476.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#656d76" text-anchor="start">source: docs/results/worked-example/map.jsonl · docs/results/worked-example/selection-auth.json</text>
 </svg>

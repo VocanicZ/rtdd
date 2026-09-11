@@ -368,19 +368,19 @@ def test_every_test_the_diagram_runs_is_one_the_selection_returned(worked):
     # without naming it, so selection cannot be filename matching
     changed = [c["path"] for c in selection["changed"] if c.get("instrumentable")]
     assert len(changed) == 1, f"the worked example must change exactly one file, got {changed}"
-    indirect = [t for t in selected if changed[0] not in t and changed[0] in
-                next(r["f"] for r in rows if r["t"] == t)]
-    assert indirect, (
-        "no selected test reaches the changed file indirectly, so this example no longer "
-        "shows why coverage-derived selection differs from matching test filenames"
+    covers = {r["t"]: r["f"] for r in rows}
+    assert chart._indirect(changed[0], covers, selected), (
+        "no selected test reaches the changed file without naming it, so this example no "
+        "longer shows why coverage-derived selection differs from matching test filenames"
     )
 
 
 def test_the_diagram_refuses_a_selection_the_map_does_not_support(worked):
     rows, selection = worked
+    changed = selection["changed"][0]["path"]
     broken = copy.deepcopy(rows)
     for row in broken:
-        row["f"] = [f for f in row["f"] if not f.endswith("b.py")]
+        row["f"] = [f for f in row["f"] if f != changed]
     with pytest.raises(chart.ChartError, match="map row"):
         chart.worked_example_svg(broken, selection, chart.LIGHT)
 
@@ -431,8 +431,38 @@ def test_the_graph_draws_an_edge_for_every_pair_the_map_recorded(worked):
     """The picture of the map is the map, not a tidied version of it."""
     rows, selection = worked
     svg = chart.worked_example_svg(rows, selection, chart.LIGHT)
+    # Both panels draw the whole map — that is the comparison: same graph, different
+    # decision. So the figure carries two edges per recorded pair, never fewer.
     pairs = sum(1 for r in rows for f in r["f"] if not f.startswith("tests/"))
-    assert svg.count("<path d=") == pairs, (
+    assert svg.count("<path d=") == 2 * pairs, (
         f"the graph draws {svg.count('<path d=')} edges but the map records {pairs} "
-        f"(test, source file) pairs"
+        f"(test, source file) pairs across two panels"
+    )
+
+
+def test_the_example_looks_like_real_code_not_a_star_graph(worked):
+    """Shared helpers, layered imports, tests that touch more than one file.
+
+    The first version of this example was eight isolated features with one test each and
+    a single file that anything depended on. It made the picture tidy and the argument
+    weak: nothing in it looked like a codebase, so the one interesting edge read as
+    contrived. These floors keep the example honest without pinning it to today's shape.
+    """
+    rows, _ = worked
+    covers = {r["t"]: [f for f in r["f"] if not f.startswith("tests/")] for r in rows}
+    sources = {f for fs in covers.values() for f in fs}
+
+    multi = [t for t, fs in covers.items() if len(fs) > 1]
+    assert len(multi) >= len(rows) * 0.6, (
+        f"only {len(multi)} of {len(rows)} tests touch more than one file; real tests "
+        f"exercise a stack, and a graph of one-to-one pairs argues nothing"
+    )
+    shared = [f for f in sources if sum(1 for fs in covers.values() if f in fs) > 1]
+    assert len(shared) >= 3, (
+        f"only {len(shared)} files are used by more than one test; real code has shared "
+        f"helpers, and without them there is no indirect reach to demonstrate"
+    )
+    assert chart._edge_count(covers) >= 2 * len(rows), (
+        f"{chart._edge_count(covers)} edges across {len(rows)} tests is too sparse to "
+        f"read as a dependency graph"
     )
