@@ -247,6 +247,45 @@ Three things about the run are worth knowing before reading a table:
   `config.json` and in `summary.md`'s header, so a bounded table always says how many
   commits produced it. Omit it to replay the corpus's own count.
 
+## `rtdd update` and the network boundary
+
+`internal/selfupdate` is the only package in this module that can open a connection, and
+`TestOnlySelfupdateReachesTheNetwork` (`network_test.go`) fails the build if any other
+non-test file imports `net` or `net/http`. Before `rtdd update` existed nothing here made a
+network call at all; that was a property of the tool worth keeping true on every other code
+path, and a property is only kept by something that fails when it stops being true.
+
+Two consequences worth knowing before you touch this package:
+
+- **It is a second implementation of `install.sh`'s protocol.** The installer cannot be Go,
+  because it runs before Go is on the machine, so the duplication is unavoidable. What
+  keeps it honest is `internal/selfupdate/drift_test.go`, which feeds the Go functions the
+  shell's own variable names (`archiveName("${VERSION_NUM}", "${OS}", "${ARCH}")`) and
+  asserts `install.sh` contains the literal that comes back. It compares derivation rules
+  rather than one version's answer, so releasing cannot break it.
+- **`net/http` costs the darwin artifacts two framework links.** `crypto/x509` verifies
+  server certificates against the macOS trust store, which is `CoreFoundation` and
+  `Security`. Both are in `baseSystemDylibs` (`release_artifacts_test.go`) for the same
+  reason `libresolv` already was: Apple ships them inside macOS and no user installs them.
+  `linkage_allowlist_test.go` stops that list widening any further - every entry must sit
+  under `/usr/lib/` or `/System/Library/Frameworks/`, and `foreignDylibs` is tested against
+  a synthetic Homebrew path so the check can still fail.
+
+Nothing here reads the compiled-in `version`: `selfupdate.Update` takes the running version
+as a parameter, so no test is coupled to what ldflags stamped into any particular build.
+
+## `rtdd uninstall`
+
+`install.PlanUninstall` is `install.Plan`'s inverse and covers exactly what `Plan` writes
+outside `.rtdd/`. The property under test is a round trip:
+`TestMergeThenRemoveReturnsTheFileUnchanged` merges rtdd's block into a host file and
+removes it again, and requires the original bytes back. AGENTS.md and CLAUDE.md belong to
+the host project, so an ambiguous file - two blocks, half a block - is a conflict that
+stops the run, never a guess.
+
+`.rtdd/` and the binary are left alone unless `--state` or `--binary` asks: the recorded map
+is the expensive thing to rebuild, and a repository is not where the binary lives.
+
 ## Release pre-flight
 
 `scripts/release-preflight.sh` is the last thing an agent runs, at the end of plan Task 24,

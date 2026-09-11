@@ -21,6 +21,10 @@ const (
 	AppendBlock
 	Skip
 	Conflict
+	// Delete and StripBlock are uninstall's actions: remove the path outright, or
+	// rewrite it without rtdd's block. See uninstall.go.
+	Delete
+	StripBlock
 )
 
 func (a Action) String() string {
@@ -35,6 +39,10 @@ func (a Action) String() string {
 		return "skip"
 	case Conflict:
 		return "conflict"
+	case Delete:
+		return "delete"
+	case StripBlock:
+		return "strip-block"
 	}
 	return "unknown"
 }
