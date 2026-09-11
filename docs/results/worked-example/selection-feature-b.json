@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "command": "which",
+  "base": "HEAD",
+  "adapter": "python",
+  "tier": "T0",
+  "reason": "tests whose recorded coverage intersects the changed set",
+  "selection_fidelity": "execution-derived",
+  "complete": true,
+  "changed": [
+    {
+      "path": "src/b.py",
+      "status": "modified",
+      "instrumentable": true,
+      "lines": [
+        {
+          "start": 2,
+          "end": 2
+        }
+      ]
+    }
+  ],
+  "selection": {
+    "count": 2,
+    "direct": [],
+    "tests": [
+      "tests/test_b.py::test_b",
+      "tests/test_a.py::test_a"
+    ],
+    "import_fallback": {}
+  }
+}

@@ -56,7 +56,7 @@ NOT_MEASURED = report.NOT_MEASURED
 #: Order is fixed so a re-render cannot churn the diff. `rtdd-vs-full` leads because it
 #: is the only figure that answers the project's own question rather than the
 #: pre-registered one; the `axis2-*` figures answer the baselines a reviewer will ask for.
-FIGURES: tuple[str, ...] = ("rtdd-vs-full", "axis2-savings", "axis2-safety", "axis2-wallclock")
+FIGURES: tuple[str, ...] = ("how-it-picks", "rtdd-vs-full", "axis2-savings", "axis2-safety", "axis2-wallclock")
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
@@ -753,10 +753,174 @@ def head_to_head_svg(summary: dict, session: dict, palette: Palette) -> str:
     return _svg(WIDTH, int(y + 20 + 13 * len(HEAD_TO_HEAD_CAVEATS)), body + footer, palette)
 
 
+# --- figure: the worked example, animated ----------------------------------------
+
+WORKED_EXAMPLE = "docs/results/worked-example"
+
+#: One loop. Cues below are seconds on this timeline.
+DUR = 7.0
+CUE_CHANGE = 0.4      # the changed feature starts pulsing
+CUE_TRACE = 1.3       # the coverage edges out of it light up
+CUE_RUN = 2.0         # both panels start running tests
+STEP = 0.85           # one test's worth of running time
+CUE_HOLD = 6.3        # everything is settled and holds until the loop restarts
+
+
+def _t(seconds: float) -> float:
+    """A cue in seconds -> its keyTime fraction on the loop."""
+    return round(seconds / DUR, 5)
+
+
+def load_worked_example(root: pathlib.Path) -> tuple[list[dict], dict]:
+    base = root / WORKED_EXAMPLE
+    try:
+        rows = [json.loads(l) for l in (base / "map.jsonl").read_text().splitlines() if l.strip()]
+        selection = json.loads((base / "selection-feature-b.json").read_text())
+    except FileNotFoundError as exc:
+        raise ChartError(f"the worked-example figure needs {exc.filename}") from exc
+    if not rows:
+        raise ChartError(f"{base / 'map.jsonl'} is empty")
+    return rows, selection
+
+
+def _short(path: str) -> str:
+    """`src/b.py` -> `b.py`, `tests/test_a.py::test_a` -> `test_a`."""
+    if "::" in path:
+        return path.split("::", 1)[1]
+    return path.rsplit("/", 1)[-1]
+
+
+def _anim(attr: str, values: str, key_times: str, *, calc: str = "discrete") -> str:
+    return (
+        f'<animate attributeName="{attr}" values="{values}" keyTimes="{key_times}" '
+        f'dur="{DUR}s" calcMode="{calc}" repeatCount="indefinite"/>'
+    )
+
+
+def worked_example_svg(rows: Sequence[dict], selection: dict, palette: Palette) -> str:
+    """One change, two approaches, the same three tests.
+
+    The point the prose could not make: `test_a` never mentions the changed file. It is
+    selected because the seed run watched it execute that file, which is the whole
+    difference between this and matching `tests/test_<module>.py`.
+    """
+    changed = "src/b.py"
+    selected = set(selection["selection"]["tests"])
+    tests = [r["t"] for r in rows]
+    covers = {r["t"]: set(r["f"]) for r in rows}
+    for t in tests:
+        if changed not in covers[t] and t in selected:
+            raise ChartError(f"{t} is selected but its map row does not carry {changed}")
+
+    W, ROW_Y, FEAT_Y = 900, 196, 104
+    cols = {t: 118 + i * 262 for i, t in enumerate(tests)}
+    body: list[str] = [
+        _text(MARGIN, MARGIN + 4, "How RTDD picks tests", fill=palette.ink, size=17, weight="700"),
+        _text(MARGIN, MARGIN + 24,
+              f"You changed one feature. {_short(changed)} is called by one other feature, and that is enough to matter.",
+              fill=palette.muted, size=11.5),
+    ]
+
+    # --- the code: features on top, their tests below, coverage drawn between --------
+    feats = ["src/a.py", "src/b.py", "src/c.py"]
+    fx = {f: 118 + i * 262 for i, f in enumerate(feats)}
+    body.append(f'<path d="M{fx["src/a.py"] + 52:.0f} {FEAT_Y + 16} L{fx["src/b.py"] - 52:.0f} {FEAT_Y + 16}" '
+                f'stroke="{palette.muted}" stroke-width="1.5" marker-end="url(#arrow-{palette.name})"/>')
+    body.append(_text((fx["src/a.py"] + fx["src/b.py"]) / 2, FEAT_Y + 8, "calls",
+                      fill=palette.muted, size=9.5, anchor="middle"))
+
+    for f in feats:
+        is_changed = f == changed
+        colour = palette.warn if is_changed else palette.muted
+        box = (f'<rect x="{fx[f] - 52}" y="{FEAT_Y}" width="104" height="32" rx="6" '
+               f'fill="none" stroke="{colour}" stroke-width="{2.5 if is_changed else 1.5}"')
+        if is_changed:
+            box += '>' + _anim("stroke-opacity", "0.25;1;1;1", f"0;{_t(CUE_CHANGE)};{_t(CUE_HOLD)};1", calc="linear") + "</rect>"
+        else:
+            box += "/>"
+        body.append(box)
+        body.append(_text(fx[f], FEAT_Y + 21, _short(f), fill=palette.ink, size=12, anchor="middle", mono=True,
+                          weight="700" if is_changed else "normal"))
+    body.append(_text(fx[changed], FEAT_Y - 10, "you changed this", fill=palette.warn, size=10, anchor="middle"))
+
+    # coverage edges: every (test, file) pair the map actually recorded
+    for t in tests:
+        for f in feats:
+            if f not in covers[t]:
+                continue
+            live = f == changed
+            edge = (f'<path d="M{cols[t]} {ROW_Y - 14} C{cols[t]} {ROW_Y - 44}, {fx[f]} {FEAT_Y + 62}, {fx[f]} {FEAT_Y + 34}" '
+                    f'fill="none" stroke="{palette.warn if live else palette.grid}" stroke-width="{2 if live else 1.2}" '
+                    f'stroke-dasharray="4 3"')
+            if live:
+                edge += ">" + _anim("stroke-opacity", "0.15;0.15;1;1", f"0;{_t(CUE_TRACE)};{_t(CUE_TRACE + 0.35)};1", calc="linear") + "</path>"
+            else:
+                edge += "/>"
+            body.append(edge)
+
+    for t in tests:
+        body.append(_text(cols[t], ROW_Y, _short(t), fill=palette.ink, size=12, anchor="middle", mono=True))
+        body.append(_text(cols[t], ROW_Y + 14,
+                          "covers " + ", ".join(sorted(_short(f) for f in covers[t] if f in feats)),
+                          fill=palette.muted, size=9.5, anchor="middle"))
+
+    # --- the two panels -------------------------------------------------------------
+    panels = (
+        ("Run everything", tests, palette.full, 28),
+        ("RTDD", [t for t in tests if t in selected], palette.rtdd, 470),
+    )
+    PANEL_Y, PANEL_W = 262, 402
+    for title, runs, colour, px in panels:
+        body.append(f'<rect x="{px}" y="{PANEL_Y}" width="{PANEL_W}" height="146" rx="8" fill="none" stroke="{palette.grid}"/>')
+        body.append(_text(px + 16, PANEL_Y + 24, title, fill=palette.ink, size=13, weight="700"))
+        body.append(_text(px + PANEL_W - 16, PANEL_Y + 24, f"{len(runs)} of {len(tests)} tests",
+                          fill=palette.muted, size=11, anchor="end", mono=True))
+        order = 0
+        for t in tests:
+            y = PANEL_Y + 44 + tests.index(t) * 24
+            running = t in runs
+            body.append(_text(px + 16, y + 13, _short(t), fill=palette.ink if running else palette.muted,
+                              size=11, mono=True))
+            bar_x, bar_w = px + 104, PANEL_W - 132
+            body.append(f'<rect x="{bar_x}" y="{y + 4}" width="{bar_w}" height="11" rx="3" fill="{palette.grid}" opacity="0.5"/>')
+            if running:
+                start = CUE_RUN + order * STEP
+                body.append(
+                    f'<rect x="{bar_x}" y="{y + 4}" width="{bar_w}" height="11" rx="3" fill="{colour}">'
+                    + _anim("width", f"0;0;{bar_w};{bar_w}",
+                            f"0;{_t(start)};{_t(start + STEP)};1", calc="linear")
+                    + "</rect>"
+                )
+                order += 1
+            else:
+                body.append(_text(bar_x + 6, y + 13, "skipped — nothing it covers changed",
+                                  fill=palette.muted, size=9.5))
+        done = CUE_RUN + len(runs) * STEP
+        # Built directly rather than by patching `_text`: this element needs both a
+        # starting opacity and a child <animate>, and string-surgery on a rendered tag
+        # closed it early — the attributes rendered as visible text in the figure.
+        body.append(
+            f'<text x="{px + 16:.1f}" y="{PANEL_Y + 130:.1f}" font-family="{FONT}" font-size="11" '
+            f'font-weight="700" fill="{colour}" text-anchor="start" opacity="0">'
+            f'{_esc(f"caught the change · finished after {len(runs)} tests")}'
+            + _anim("opacity", "0;0;1;1", f"0;{_t(done)};{_t(done + 0.25)};1", calc="linear")
+            + "</text>"
+        )
+
+    body.append(_source_note(438, palette,
+                             f"source: {WORKED_EXAMPLE}/map.jsonl · {WORKED_EXAMPLE}/selection-feature-b.json"))
+    defs = (f'<defs><marker id="arrow-{palette.name}" viewBox="0 0 10 10" refX="9" refY="5" '
+            f'markerWidth="6" markerHeight="6" orient="auto-start-reverse">'
+            f'<path d="M0 0 L10 5 L0 10 z" fill="{palette.muted}"/></marker></defs>')
+    return _svg(W, 460, [defs, *body], palette)
+
 # --- emission ----------------------------------------------------------------------
 
 
 def render_figure(figure: str, summaries: Sequence[dict], palette: Palette) -> str:
+    if figure == "how-it-picks":
+        rows, selection = load_worked_example(REPO_ROOT)
+        return worked_example_svg(rows, selection, palette)
     if figure == "rtdd-vs-full":
         summary, session = load_head_to_head()
         return head_to_head_svg(summary, session, palette)

@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="460" viewBox="0 0 900 460" role="img">
+<rect x="0" y="0" width="900" height="460" fill="#0d1117"/>
+<defs><marker id="arrow-dark" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#9198a1"/></marker></defs>
+<text x="28.0" y="32.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#e6edf3" text-anchor="start">How RTDD picks tests</text>
+<text x="28.0" y="52.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#9198a1" text-anchor="start">You changed one feature. b.py is called by one other feature, and that is enough to matter.</text>
+<path d="M170 120 L328 120" stroke="#9198a1" stroke-width="1.5" marker-end="url(#arrow-dark)"/>
+<text x="249.0" y="112.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#9198a1" text-anchor="middle">calls</text>
+<rect x="66" y="104" width="104" height="32" rx="6" fill="none" stroke="#9198a1" stroke-width="1.5"/>
+<text x="118.0" y="125.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#e6edf3" text-anchor="middle">a.py</text>
+<rect x="328" y="104" width="104" height="32" rx="6" fill="none" stroke="#f0883e" stroke-width="2.5"><animate attributeName="stroke-opacity" values="0.25;1;1;1" keyTimes="0;0.05714;0.9;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<text x="380.0" y="125.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="700" fill="#e6edf3" text-anchor="middle">b.py</text>
+<rect x="590" y="104" width="104" height="32" rx="6" fill="none" stroke="#9198a1" stroke-width="1.5"/>
+<text x="642.0" y="125.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#e6edf3" text-anchor="middle">c.py</text>
+<text x="380.0" y="94.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="normal" fill="#f0883e" text-anchor="middle">you changed this</text>
+<path d="M118 182 C118 152, 118 166, 118 138" fill="none" stroke="#30363d" stroke-width="1.2" stroke-dasharray="4 3"/>
+<path d="M118 182 C118 152, 380 166, 380 138" fill="none" stroke="#f0883e" stroke-width="2" stroke-dasharray="4 3"><animate attributeName="stroke-opacity" values="0.15;0.15;1;1" keyTimes="0;0.18571;0.23571;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></path>
+<path d="M380 182 C380 152, 380 166, 380 138" fill="none" stroke="#f0883e" stroke-width="2" stroke-dasharray="4 3"><animate attributeName="stroke-opacity" values="0.15;0.15;1;1" keyTimes="0;0.18571;0.23571;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></path>
+<path d="M642 182 C642 152, 642 166, 642 138" fill="none" stroke="#30363d" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="118.0" y="196.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#e6edf3" text-anchor="middle">test_a</text>
+<text x="118.0" y="210.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#9198a1" text-anchor="middle">covers a.py, b.py</text>
+<text x="380.0" y="196.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#e6edf3" text-anchor="middle">test_b</text>
+<text x="380.0" y="210.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#9198a1" text-anchor="middle">covers b.py</text>
+<text x="642.0" y="196.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="normal" fill="#e6edf3" text-anchor="middle">test_c</text>
+<text x="642.0" y="210.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#9198a1" text-anchor="middle">covers c.py</text>
+<rect x="28" y="262" width="402" height="146" rx="8" fill="none" stroke="#30363d"/>
+<text x="44.0" y="286.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#e6edf3" text-anchor="start">Run everything</text>
+<text x="414.0" y="286.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#9198a1" text-anchor="end">3 of 3 tests</text>
+<text x="44.0" y="319.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#e6edf3" text-anchor="start">test_a</text>
+<rect x="132" y="310" width="270" height="11" rx="3" fill="#30363d" opacity="0.5"/>
+<rect x="132" y="310" width="270" height="11" rx="3" fill="#8b949e"><animate attributeName="width" values="0;0;270;270" keyTimes="0;0.28571;0.40714;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<text x="44.0" y="343.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#e6edf3" text-anchor="start">test_b</text>
+<rect x="132" y="334" width="270" height="11" rx="3" fill="#30363d" opacity="0.5"/>
+<rect x="132" y="334" width="270" height="11" rx="3" fill="#8b949e"><animate attributeName="width" values="0;0;270;270" keyTimes="0;0.40714;0.52857;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<text x="44.0" y="367.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#e6edf3" text-anchor="start">test_c</text>
+<rect x="132" y="358" width="270" height="11" rx="3" fill="#30363d" opacity="0.5"/>
+<rect x="132" y="358" width="270" height="11" rx="3" fill="#8b949e"><animate attributeName="width" values="0;0;270;270" keyTimes="0;0.52857;0.65;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<text x="44.0" y="392.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11" font-weight="700" fill="#8b949e" text-anchor="start" opacity="0">caught the change · finished after 3 tests<animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.65;0.68571;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></text>
+<rect x="470" y="262" width="402" height="146" rx="8" fill="none" stroke="#30363d"/>
+<text x="486.0" y="286.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#e6edf3" text-anchor="start">RTDD</text>
+<text x="856.0" y="286.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#9198a1" text-anchor="end">2 of 3 tests</text>
+<text x="486.0" y="319.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#e6edf3" text-anchor="start">test_a</text>
+<rect x="574" y="310" width="270" height="11" rx="3" fill="#30363d" opacity="0.5"/>
+<rect x="574" y="310" width="270" height="11" rx="3" fill="#4493f8"><animate attributeName="width" values="0;0;270;270" keyTimes="0;0.28571;0.40714;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<text x="486.0" y="343.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#e6edf3" text-anchor="start">test_b</text>
+<rect x="574" y="334" width="270" height="11" rx="3" fill="#30363d" opacity="0.5"/>
+<rect x="574" y="334" width="270" height="11" rx="3" fill="#4493f8"><animate attributeName="width" values="0;0;270;270" keyTimes="0;0.40714;0.52857;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<text x="486.0" y="367.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#9198a1" text-anchor="start">test_c</text>
+<rect x="574" y="358" width="270" height="11" rx="3" fill="#30363d" opacity="0.5"/>
+<text x="580.0" y="367.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#9198a1" text-anchor="start">skipped — nothing it covers changed</text>
+<text x="486.0" y="392.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11" font-weight="700" fill="#4493f8" text-anchor="start" opacity="0">caught the change · finished after 2 tests<animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.52857;0.56429;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></text>
+<text x="28.0" y="438.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="start">source: docs/results/worked-example/map.jsonl · docs/results/worked-example/selection-feature-b.json</text>
+</svg>

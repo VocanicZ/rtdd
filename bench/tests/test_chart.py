@@ -201,8 +201,26 @@ def test_render_is_byte_stable(figure, flask, httpie):
 
 @pytest.mark.parametrize("figure", chart.FIGURES)
 def test_every_figure_declares_its_source(figure, flask, httpie):
+    """Every figure names the committed file it was drawn from, and that file exists.
+
+    Was a substring check for `bench/results`, which a figure drawn from a record kept
+    anywhere else would fail for the wrong reason — and which a figure citing a path
+    that had since been deleted or renamed would pass. Reading the cited paths off the
+    source line and stat-ing them checks the thing the line is actually promising.
+    """
     svg = chart.render_figure(figure, [flask, httpie], chart.LIGHT)
-    assert "bench/results" in svg
+    line = next((l for l in svg.splitlines() if ">source:" in l), None)
+    assert line is not None, f"{figure} declares no source line"
+    cited = re.findall(r"[\w./&;-]*/[\w./&;-]*\.(?:jsonl|json|md)", line)
+    assert cited, f"{figure} source line names no committed file: {line}"
+    for rel in cited:
+        # `bench/results/&lt;repo&gt;/summary.json` stands for one file per repo, so the
+        # figure cannot name a single path. The directory above the placeholder is still
+        # a real one, and checking it catches the rename this guard exists to catch.
+        concrete = rel.split("&lt;")[0].rstrip("/") if "&lt;" in rel else rel
+        assert (REPO_ROOT / concrete).exists(), (
+            f"{figure} cites {rel}, but {concrete} does not exist"
+        )
 
 
 def test_dark_palette_actually_changes_the_ink(flask, httpie):
@@ -302,3 +320,71 @@ def test_head_to_head_refuses_a_summary_missing_an_arm(paired, session):
     del stripped["strategies"]["full"]
     with pytest.raises(chart.ChartError, match="full"):
         chart.head_to_head_svg(stripped, session, chart.LIGHT)
+
+
+# --- the worked example: a diagram that cannot disagree with the tool ---------------
+#
+# This figure explains a mechanism rather than plotting a measurement, which is exactly
+# the kind of picture that drifts: prose and diagrams describing selection are written
+# from memory, and the tool changes underneath them. It is drawn from the map `rtdd seed`
+# really built and the selection `rtdd which` really returned for the same change, so a
+# selector that stopped behaving this way fails here instead of shipping a lie on the
+# front page.
+
+
+@pytest.fixture
+def worked():
+    return chart.load_worked_example(REPO_ROOT)
+
+
+def test_the_diagram_draws_the_tests_the_map_actually_holds(worked):
+    rows, selection = worked
+    svg = chart.worked_example_svg(rows, selection, chart.LIGHT)
+    for row in rows:
+        short = row["t"].split("::", 1)[1]
+        assert short in svg, f"{row['t']} is in the map but not in the figure"
+
+
+def test_every_test_the_diagram_runs_is_one_the_selection_returned(worked):
+    rows, selection = worked
+    selected = set(selection["selection"]["tests"])
+    assert selected, "the committed selection is empty; the figure would show nothing running"
+    assert selected < {r["t"] for r in rows}, "the point is that some test is skipped"
+    svg = chart.worked_example_svg(rows, selection, chart.LIGHT)
+    skipped = [r["t"] for r in rows if r["t"] not in selected]
+    for t in skipped:
+        assert "skipped" in svg
+    # the claim the whole figure exists to make: a selected test covers the changed file
+    # without naming it, so selection cannot be filename matching
+    changed = [c["path"] for c in selection["changed"] if c.get("instrumentable")]
+    assert len(changed) == 1, f"the worked example must change exactly one file, got {changed}"
+    indirect = [t for t in selected if changed[0] not in t and changed[0] in
+                next(r["f"] for r in rows if r["t"] == t)]
+    assert indirect, (
+        "no selected test reaches the changed file indirectly, so this example no longer "
+        "shows why coverage-derived selection differs from matching test filenames"
+    )
+
+
+def test_the_diagram_refuses_a_selection_the_map_does_not_support(worked):
+    rows, selection = worked
+    broken = copy.deepcopy(rows)
+    for row in broken:
+        row["f"] = [f for f in row["f"] if not f.endswith("b.py")]
+    with pytest.raises(chart.ChartError, match="map row"):
+        chart.worked_example_svg(broken, selection, chart.LIGHT)
+
+
+@pytest.mark.parametrize("palette", [chart.LIGHT, chart.DARK])
+def test_the_diagram_animates_and_is_well_formed(worked, palette):
+    import xml.etree.ElementTree as ET
+
+    rows, selection = worked
+    svg = chart.worked_example_svg(rows, selection, palette)
+    root = ET.fromstring(svg)
+    ns = "{http://www.w3.org/2000/svg}"
+    assert len(list(root.iter(ns + "animate"))) >= 4, "the figure does not animate"
+    # a <text> whose attributes leaked into its body renders them as visible words; this
+    # shipped once, from patching a rendered tag with a string replace
+    for node in root.iter(ns + "text"):
+        assert "font-family" not in (node.text or ""), f"malformed text node: {node.text!r}"

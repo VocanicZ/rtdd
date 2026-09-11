@@ -37,6 +37,43 @@ instrument is otherwise offered nothing — not because it is measured to be bet
 numbers are in [`bench/results/flask/summary.json`](bench/results/flask/summary.json) and
 [`bench/results/httpie/summary.json`](bench/results/httpie/summary.json).
 
+## It runs more than the test you touched
+
+Say feature A calls feature B, and each has its own test. You change B. A path heuristic
+matches `tests/test_b.py` and stops — and misses that you just broke A.
+
+RTDD selects both, because the map records what each test *executed*, not what it is
+named:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/results/figures/how-it-picks-dark.svg">
+  <img alt="A worked example. Feature a.py calls feature b.py; c.py is unrelated. test_a covers a.py and b.py, test_b covers b.py, test_c covers c.py. You change b.py. Running everything executes all three tests; RTDD executes test_a and test_b and skips test_c, because nothing test_c covers changed." src="docs/results/figures/how-it-picks-light.svg">
+</picture>
+
+`test_a` never mentions `b.py`. It imports `feature_a`, which calls into B — and the seed
+run watched that happen, so `b.py` is in `test_a`'s row:
+
+```
+tests/test_a.py::test_a  →  src/a.py, src/b.py, tests/test_a.py
+tests/test_b.py::test_b  →  src/b.py, tests/test_b.py
+tests/test_c.py::test_c  →  src/c.py, tests/test_c.py
+```
+
+Change `src/b.py` and every test whose row contains it is selected. It is transitive for
+free: if A called B which called C, C's file would be in A's row too, because the tracer
+only records what actually ran.
+
+Change a *test* file instead and that test always runs, mapped or not.
+
+The map and selection above are the real output of `rtdd seed` and `rtdd which` on that
+repository, committed under
+[`docs/results/worked-example/`](docs/results/worked-example/) and read directly by the
+figure.
+
+One limit: this works from what the seed run recorded. A path no test has ever executed
+is not in the map, so new code selects nothing until it has run once — which is what the
+uncovered report tells you.
+
 ## Install
 
 There are two routes, and which one works depends on whether a release exists: **no release

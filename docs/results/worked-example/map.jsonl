@@ -1,0 +1,3 @@
+{"t":"tests/test_a.py::test_a","f":["src/a.py","src/b.py","tests/test_a.py"],"c":"0360fa1","d":1,"s":"pass","a":"python"}
+{"t":"tests/test_b.py::test_b","f":["src/b.py","tests/test_b.py"],"c":"0360fa1","d":0,"s":"pass","a":"python"}
+{"t":"tests/test_c.py::test_c","f":["src/c.py","tests/test_c.py"],"c":"0360fa1","d":0,"s":"pass","a":"python"}
