@@ -168,6 +168,23 @@ def cmd_doctor(args) -> int:
     return EXIT_OK
 
 
+def results_dir_for(repo_id: str, commit_selection: str) -> pathlib.Path:
+    """Where a run's results go, keyed by which commits it chose to replay.
+
+    A non-default commit selection writes to its own subtree and can never land on
+    `bench/results/<repo>/`. That directory holds the PUBLISHED result — the one the
+    README's tables, `aggregate.md` and `outcomes_test.go`'s derived verdict all read —
+    and it was produced under the `recent` rule over 46 commits. A six-commit `paired`
+    run overwriting it silently replaces the published corpus with a differently-selected
+    population that happens to share a filename, which is exactly the substitution a
+    pre-registration exists to prevent. Measured the hard way: it happened once, and the
+    files had to be restored from git.
+    """
+    if commit_selection and commit_selection != "recent":
+        return RESULTS / commit_selection / repo_id
+    return RESULTS / repo_id
+
+
 def cmd_replay(args) -> int:
     hw = probe()
     corpus = _corpus(getattr(args, "corpus_version", None))
@@ -219,11 +236,13 @@ def cmd_replay(args) -> int:
             wallclock_enabled=wallclock_enabled,
             rtdd_binary=args.rtdd_binary,
             python=str(env.python),
+            commit_selection=getattr(args, "commit_selection", "recent"),
         ),
         corpus=corpus,
     )
+    out_dir = results_dir_for(spec.id, getattr(args, "commit_selection", "recent"))
     summary = write_results(
-        RESULTS / spec.id,
+        out_dir,
         output,
         cfg,
         hw,
@@ -231,7 +250,7 @@ def cmd_replay(args) -> int:
         wallclock_enabled=wallclock_enabled,
     )
     print(
-        f"wrote {RESULTS / spec.id} — {summary['n_commits']} commits, "
+        f"wrote {out_dir} — {summary['n_commits']} commits, "
         f"{len(output.skipped)} skipped"
     )
     return EXIT_OK
@@ -523,6 +542,19 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     r.add_argument("--no-wallclock", action="store_true")
+    r.add_argument(
+        "--commit-selection",
+        choices=("recent", "paired"),
+        default="recent",
+        dest="commit_selection",
+        help=(
+            "which commits to replay: `recent` (the shipped rule, and what every published "
+            "result used) or `paired` — only commits touching BOTH a test file and a "
+            "non-test file, the one shape `probe` can detect anything from. `paired` biases "
+            "the population toward commits that changed code and tests together; publish "
+            "that bias beside any number it produces"
+        ),
+    )
     r.add_argument("--seed", type=int, default=1)
     r.set_defaults(func=cmd_replay)
 

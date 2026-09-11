@@ -44,6 +44,7 @@ from replay.gitwork import (
     materialise_natural,
     materialise_probe,
     remove_worktree,
+    paired_points,
     replay_points,
     working_changed_paths,
 )
@@ -137,6 +138,16 @@ class ReplayOptions:
     wallclock_sample: int = 20
     wallclock_enabled: bool = True
     rtdd_binary: str = "rtdd"
+    #: How the replayed commits are chosen. "recent" is the shipped rule and what every
+    #: published result used: the last N non-merge commits. "paired" keeps only those
+    #: touching BOTH a test file and a non-test file, which is the only shape `probe`
+    #: can detect anything from — the published corpus yielded 3 detecting commits in
+    #: flask and none at all in httpie or sqlfluff, so every recall figure reads
+    #: `n/a (0/0)`. Selecting for the property biases the population toward commits that
+    #: changed code and tests together, and that bias must be published beside any
+    #: number it produces. It never asks what a strategy would select, so it cannot bias
+    #: toward or against RTDD.
+    commit_selection: str = "recent"
     #: The interpreter the corpus repo's suite runs in. `None` means the harness's
     #: own, which is right for the synthetic repo and wrong for every real one:
     #: flask's tests need flask installed, and `sys.executable` never has it.
@@ -382,7 +393,10 @@ def replay_repo(
 
     out = ReplayOutput()
     python = opts.python or sys.executable
-    points = replay_points(repo, spec.pin, spec.replay_commits)
+    if opts.commit_selection == "paired":
+        points = paired_points(repo, spec.pin, spec.replay_commits, spec.test_globs)
+    else:
+        points = replay_points(repo, spec.pin, spec.replay_commits)
     order = strategy_order(opts.strategy_ids)
     wall_every = (
         max(1, len(points) // opts.wallclock_sample)
