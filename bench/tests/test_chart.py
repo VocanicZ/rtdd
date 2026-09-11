@@ -398,3 +398,41 @@ def test_the_diagram_animates_and_is_well_formed(worked, palette):
     # shipped once, from patching a rendered tag with a string replace
     for node in root.iter(ns + "text"):
         assert "font-family" not in (node.text or ""), f"malformed text node: {node.text!r}"
+
+
+@pytest.mark.parametrize("figure", chart.FIGURES)
+@pytest.mark.parametrize("palette", [chart.LIGHT, chart.DARK])
+def test_no_animation_runs_off_the_end_of_its_loop(figure, palette, flask, httpie):
+    """SMIL discards an animation whose keyTimes leave [0, 1], silently.
+
+    The element then renders at its static attribute value, so a bar that should fill
+    from zero draws permanently full — a skipped test shown as the most expensive one.
+    This shipped: a fixed per-test step fit three tests and overflowed at eight, and the
+    last three bars in the run-everything column sat full and motionless while the rest
+    animated. Nothing failed, because nothing looked.
+    """
+    svg = chart.render_figure(figure, [flask, httpie], palette)
+    for raw in re.findall(r'keyTimes="([^"]+)"', svg):
+        keys = [float(k) for k in raw.split(";")]
+        assert keys == sorted(keys), f"{figure}: keyTimes not monotonic: {raw}"
+        assert keys[0] >= 0.0 and keys[-1] <= 1.0, f"{figure}: keyTimes outside [0,1]: {raw}"
+
+    # Range alone is not the property. The cue builder clamps, so an overflowing timeline
+    # comes back in range as `0;1;1;1` — legal SMIL that never moves inside the loop, and
+    # a bar that never moves is a bar drawn at its static width. What has to hold is that
+    # each transition both starts and FINISHES before the loop ends.
+    for raw in re.findall(r'attributeName="width" values="[^"]*" keyTimes="([^"]+)"', svg):
+        start, end = (float(k) for k in raw.split(";")[1:3])
+        assert end > start, f"{figure}: a bar transition has zero duration: {raw}"
+        assert end < 1.0, f"{figure}: a bar is still filling when the loop restarts: {raw}"
+
+
+def test_the_graph_draws_an_edge_for_every_pair_the_map_recorded(worked):
+    """The picture of the map is the map, not a tidied version of it."""
+    rows, selection = worked
+    svg = chart.worked_example_svg(rows, selection, chart.LIGHT)
+    pairs = sum(1 for r in rows for f in r["f"] if not f.startswith("tests/"))
+    assert svg.count("<path d=") == pairs, (
+        f"the graph draws {svg.count('<path d=')} edges but the map records {pairs} "
+        f"(test, source file) pairs"
+    )

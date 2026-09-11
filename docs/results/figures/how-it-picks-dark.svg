@@ -1,96 +1,109 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="776" viewBox="0 0 900 776" role="img">
-<rect x="0" y="0" width="900" height="776" fill="#0d1117"/>
-<defs><marker id="arrow-dark" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#9198a1"/></marker></defs>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="672" viewBox="0 0 900 672" role="img">
+<rect x="0" y="0" width="900" height="672" fill="#0d1117"/>
 <text x="28.0" y="32.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#e6edf3" text-anchor="start">The same change, two ways of deciding what to run</text>
 <text x="28.0" y="52.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#9198a1" text-anchor="start">b.py is called by a.py and d.py. Watch where the two paths stop agreeing.</text>
-<rect x="358.0" y="76" width="184" height="34" rx="17" fill="none" stroke="#f0883e" stroke-width="2"><animate attributeName="stroke-opacity" values="0.3;1;1;1" keyTimes="0;0.05714;0.9;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="450.0" y="98.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.5" font-weight="700" fill="#f0883e" text-anchor="middle">you changed b.py</text>
-<path d="M450.0 110 C450.0 132, 236 122, 236 146" fill="none" stroke="#9198a1" stroke-width="1.5" marker-end="url(#arrow-dark)"/>
-<path d="M450.0 110 C450.0 132, 664 122, 664 146" fill="none" stroke="#9198a1" stroke-width="1.5" marker-end="url(#arrow-dark)"/>
-<text x="236.0" y="168.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#e6edf3" text-anchor="middle">Run everything</text>
-<rect x="50" y="186" width="372" height="242" rx="8" fill="none" stroke="#30363d" stroke-dasharray="5 4"/>
-<text x="236.0" y="293.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="normal" fill="#9198a1" text-anchor="middle">nothing to look up</text>
-<text x="236.0" y="313.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">the answer is the same whatever you changed</text>
-<text x="236.0" y="333.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">— so all 8 tests are next —</text>
-<path d="M236 428 L236 456" fill="none" stroke="#9198a1" stroke-width="1.5" marker-end="url(#arrow-dark)"/>
-<text x="64.0" y="484.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#e6edf3" text-anchor="start">test_a</text>
-<rect x="146" y="471" width="256" height="16" rx="3" fill="#30363d" opacity="0.45"/>
-<rect x="146" y="471" width="256" height="16" rx="3" fill="#8b949e"><animate attributeName="width" values="0;0;256;256" keyTimes="0;0.28571;0.40714;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="64.0" y="510.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#e6edf3" text-anchor="start">test_b</text>
-<rect x="146" y="497" width="256" height="16" rx="3" fill="#30363d" opacity="0.45"/>
-<rect x="146" y="497" width="256" height="16" rx="3" fill="#8b949e"><animate attributeName="width" values="0;0;256;256" keyTimes="0;0.40714;0.52857;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="64.0" y="536.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#e6edf3" text-anchor="start">test_c</text>
-<rect x="146" y="523" width="256" height="16" rx="3" fill="#30363d" opacity="0.45"/>
-<rect x="146" y="523" width="256" height="16" rx="3" fill="#8b949e"><animate attributeName="width" values="0;0;256;256" keyTimes="0;0.52857;0.65;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="64.0" y="562.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#e6edf3" text-anchor="start">test_d</text>
-<rect x="146" y="549" width="256" height="16" rx="3" fill="#30363d" opacity="0.45"/>
-<rect x="146" y="549" width="256" height="16" rx="3" fill="#8b949e"><animate attributeName="width" values="0;0;256;256" keyTimes="0;0.65;0.77143;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="64.0" y="588.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#e6edf3" text-anchor="start">test_e</text>
-<rect x="146" y="575" width="256" height="16" rx="3" fill="#30363d" opacity="0.45"/>
-<rect x="146" y="575" width="256" height="16" rx="3" fill="#8b949e"><animate attributeName="width" values="0;0;256;256" keyTimes="0;0.77143;0.89286;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="64.0" y="614.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#e6edf3" text-anchor="start">test_f</text>
-<rect x="146" y="601" width="256" height="16" rx="3" fill="#30363d" opacity="0.45"/>
-<rect x="146" y="601" width="256" height="16" rx="3" fill="#8b949e"><animate attributeName="width" values="0;0;256;256" keyTimes="0;0.89286;1.01429;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="64.0" y="640.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#e6edf3" text-anchor="start">test_g</text>
-<rect x="146" y="627" width="256" height="16" rx="3" fill="#30363d" opacity="0.45"/>
-<rect x="146" y="627" width="256" height="16" rx="3" fill="#8b949e"><animate attributeName="width" values="0;0;256;256" keyTimes="0;1.01429;1.13571;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="64.0" y="666.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#e6edf3" text-anchor="start">test_h</text>
-<rect x="146" y="653" width="256" height="16" rx="3" fill="#30363d" opacity="0.45"/>
-<rect x="146" y="653" width="256" height="16" rx="3" fill="#8b949e"><animate attributeName="width" values="0;0;256;256" keyTimes="0;1.13571;1.25714;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="236" y="702" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#8b949e" text-anchor="middle" opacity="0">8 of 8 tests · caught the change<animate attributeName="opacity" values="0;0;1;1" keyTimes="0;1.25714;1.29286;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></text>
-<text x="664.0" y="168.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#e6edf3" text-anchor="middle">RTDD</text>
-<rect x="478" y="186" width="372" height="242" rx="8" fill="none" stroke="#30363d" stroke-dasharray=""/>
-<text x="664.0" y="206.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#e6edf3" text-anchor="middle">look up b.py in the map</text>
-<rect x="492" y="218" width="344" height="22" rx="4" fill="#4493f8" opacity="0"><animate attributeName="opacity" values="0;0;0.16;0.16" keyTimes="0;0.18571;0.21429;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="502.0" y="235.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#e6edf3" text-anchor="start">test_a → a.py, b.py, test_a.py</text>
-<text x="826" y="235" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="700" fill="#4493f8" text-anchor="end" opacity="0">covers it<animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.18571;0.21429;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></text>
-<rect x="492" y="244" width="344" height="22" rx="4" fill="#4493f8" opacity="0"><animate attributeName="opacity" values="0;0;0.16;0.16" keyTimes="0;0.2125;0.24107;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="502.0" y="261.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#e6edf3" text-anchor="start">test_b → b.py, test_b.py</text>
-<text x="826" y="261" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="700" fill="#4493f8" text-anchor="end" opacity="0">covers it<animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.2125;0.24107;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></text>
-<rect x="492" y="270" width="344" height="22" rx="4" fill="#30363d" opacity="0"><animate attributeName="opacity" values="0;0;0.3;0.3" keyTimes="0;0.23929;0.26786;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="502.0" y="287.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#9198a1" text-anchor="start">test_c → c.py, test_c.py</text>
-<text x="826" y="287" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="700" fill="#9198a1" text-anchor="end" opacity="0">does not<animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.23929;0.26786;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></text>
-<rect x="492" y="296" width="344" height="22" rx="4" fill="#4493f8" opacity="0"><animate attributeName="opacity" values="0;0;0.16;0.16" keyTimes="0;0.26607;0.29464;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="502.0" y="313.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#e6edf3" text-anchor="start">test_d → b.py, d.py, test_d.py</text>
-<text x="826" y="313" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="700" fill="#4493f8" text-anchor="end" opacity="0">covers it<animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.26607;0.29464;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></text>
-<rect x="492" y="322" width="344" height="22" rx="4" fill="#30363d" opacity="0"><animate attributeName="opacity" values="0;0;0.3;0.3" keyTimes="0;0.29286;0.32143;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="502.0" y="339.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#9198a1" text-anchor="start">test_e → e.py, test_e.py</text>
-<text x="826" y="339" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="700" fill="#9198a1" text-anchor="end" opacity="0">does not<animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.29286;0.32143;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></text>
-<rect x="492" y="348" width="344" height="22" rx="4" fill="#30363d" opacity="0"><animate attributeName="opacity" values="0;0;0.3;0.3" keyTimes="0;0.31964;0.34821;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="502.0" y="365.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#9198a1" text-anchor="start">test_f → f.py, test_f.py</text>
-<text x="826" y="365" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="700" fill="#9198a1" text-anchor="end" opacity="0">does not<animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.31964;0.34821;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></text>
-<rect x="492" y="374" width="344" height="22" rx="4" fill="#30363d" opacity="0"><animate attributeName="opacity" values="0;0;0.3;0.3" keyTimes="0;0.34643;0.375;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="502.0" y="391.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#9198a1" text-anchor="start">test_g → g.py, test_g.py</text>
-<text x="826" y="391" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="700" fill="#9198a1" text-anchor="end" opacity="0">does not<animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.34643;0.375;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></text>
-<rect x="492" y="400" width="344" height="22" rx="4" fill="#30363d" opacity="0"><animate attributeName="opacity" values="0;0;0.3;0.3" keyTimes="0;0.37321;0.40179;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="502.0" y="417.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#9198a1" text-anchor="start">test_h → h.py, test_h.py</text>
-<text x="826" y="417" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="700" fill="#9198a1" text-anchor="end" opacity="0">does not<animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.37321;0.40179;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></text>
-<path d="M664 428 L664 456" fill="none" stroke="#9198a1" stroke-width="1.5" marker-end="url(#arrow-dark)"/>
-<text x="492.0" y="484.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#e6edf3" text-anchor="start">test_a</text>
-<rect x="574" y="471" width="256" height="16" rx="3" fill="#30363d" opacity="0.45"/>
-<rect x="574" y="471" width="256" height="16" rx="3" fill="#4493f8"><animate attributeName="width" values="0;0;256;256" keyTimes="0;0.28571;0.40714;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="492.0" y="510.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#e6edf3" text-anchor="start">test_b</text>
-<rect x="574" y="497" width="256" height="16" rx="3" fill="#30363d" opacity="0.45"/>
-<rect x="574" y="497" width="256" height="16" rx="3" fill="#4493f8"><animate attributeName="width" values="0;0;256;256" keyTimes="0;0.40714;0.52857;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="492.0" y="536.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#9198a1" text-anchor="start">test_c</text>
-<rect x="574" y="523" width="256" height="16" rx="3" fill="#30363d" opacity="0.45"/>
-<text x="582.0" y="536.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="normal" fill="#9198a1" text-anchor="start">never runs</text>
-<text x="492.0" y="562.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#e6edf3" text-anchor="start">test_d</text>
-<rect x="574" y="549" width="256" height="16" rx="3" fill="#30363d" opacity="0.45"/>
-<rect x="574" y="549" width="256" height="16" rx="3" fill="#4493f8"><animate attributeName="width" values="0;0;256;256" keyTimes="0;0.52857;0.65;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
-<text x="492.0" y="588.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#9198a1" text-anchor="start">test_e</text>
-<rect x="574" y="575" width="256" height="16" rx="3" fill="#30363d" opacity="0.45"/>
-<text x="582.0" y="588.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="normal" fill="#9198a1" text-anchor="start">never runs</text>
-<text x="492.0" y="614.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#9198a1" text-anchor="start">test_f</text>
-<rect x="574" y="601" width="256" height="16" rx="3" fill="#30363d" opacity="0.45"/>
-<text x="582.0" y="614.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="normal" fill="#9198a1" text-anchor="start">never runs</text>
-<text x="492.0" y="640.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#9198a1" text-anchor="start">test_g</text>
-<rect x="574" y="627" width="256" height="16" rx="3" fill="#30363d" opacity="0.45"/>
-<text x="582.0" y="640.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="normal" fill="#9198a1" text-anchor="start">never runs</text>
-<text x="492.0" y="666.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="normal" fill="#9198a1" text-anchor="start">test_h</text>
-<rect x="574" y="653" width="256" height="16" rx="3" fill="#30363d" opacity="0.45"/>
-<text x="582.0" y="666.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="10" font-weight="normal" fill="#9198a1" text-anchor="start">never runs</text>
-<text x="664" y="702" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#4493f8" text-anchor="middle" opacity="0">3 of 8 tests · caught the change<animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.65;0.68571;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></text>
-<text x="450.0" y="732.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11" font-weight="normal" fill="#9198a1" text-anchor="middle">test_a and test_d are the ones that matter: they never name b.py, and running everything has no way to know they reached it.</text>
-<text x="28.0" y="758.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="start">source: docs/results/worked-example/map.jsonl · docs/results/worked-example/selection-feature-b.json</text>
+<text x="28.0" y="108.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11" font-weight="normal" fill="#9198a1" text-anchor="start">the map: an edge wherever the seed run watched that test execute that file</text>
+<path d="M62 243 C62 210, 62 200, 62 167" fill="none" stroke="#30363d" stroke-width="1.2"/>
+<path d="M62 243 C62 210, 177 200, 177 167" fill="none" stroke="#f0883e" stroke-width="2.2" opacity="0.15"><animate attributeName="opacity" values="0.15;0.15;1;1" keyTimes="0;0.17143;0.20714;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></path>
+<path d="M177 243 C177 210, 177 200, 177 167" fill="none" stroke="#f0883e" stroke-width="2.2" opacity="0.15"><animate attributeName="opacity" values="0.15;0.15;1;1" keyTimes="0;0.2;0.23571;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></path>
+<path d="M292 243 C292 210, 292 200, 292 167" fill="none" stroke="#30363d" stroke-width="1.2"/>
+<path d="M407 243 C407 210, 177 200, 177 167" fill="none" stroke="#f0883e" stroke-width="2.2" opacity="0.15"><animate attributeName="opacity" values="0.15;0.15;1;1" keyTimes="0;0.25714;0.29286;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></path>
+<path d="M407 243 C407 210, 407 200, 407 167" fill="none" stroke="#30363d" stroke-width="1.2"/>
+<path d="M521 243 C521 210, 521 200, 521 167" fill="none" stroke="#30363d" stroke-width="1.2"/>
+<path d="M636 243 C636 210, 636 200, 636 167" fill="none" stroke="#30363d" stroke-width="1.2"/>
+<path d="M751 243 C751 210, 751 200, 751 167" fill="none" stroke="#30363d" stroke-width="1.2"/>
+<path d="M866 243 C866 210, 866 200, 866 167" fill="none" stroke="#30363d" stroke-width="1.2"/>
+<circle cx="62" cy="152" r="11" fill="none" stroke="#9198a1" stroke-width="1.3"/>
+<text x="62.0" y="128.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">a.py</text>
+<circle cx="177" cy="152" r="15" fill="none" stroke="#f0883e" stroke-width="2.5"/>
+<text x="176.9" y="128.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="700" fill="#e6edf3" text-anchor="middle">b.py</text>
+<circle cx="292" cy="152" r="11" fill="none" stroke="#9198a1" stroke-width="1.3"/>
+<text x="291.7" y="128.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">c.py</text>
+<circle cx="407" cy="152" r="11" fill="none" stroke="#9198a1" stroke-width="1.3"/>
+<text x="406.6" y="128.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">d.py</text>
+<circle cx="521" cy="152" r="11" fill="none" stroke="#9198a1" stroke-width="1.3"/>
+<text x="521.4" y="128.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">e.py</text>
+<circle cx="636" cy="152" r="11" fill="none" stroke="#9198a1" stroke-width="1.3"/>
+<text x="636.3" y="128.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">f.py</text>
+<circle cx="751" cy="152" r="11" fill="none" stroke="#9198a1" stroke-width="1.3"/>
+<text x="751.1" y="128.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">g.py</text>
+<circle cx="866" cy="152" r="11" fill="none" stroke="#9198a1" stroke-width="1.3"/>
+<text x="866.0" y="128.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">h.py</text>
+<text x="176.9" y="186.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#f0883e" text-anchor="middle">you changed this</text>
+<circle cx="62" cy="258" r="11" fill="none" stroke="#4493f8" stroke-width="2.2"/>
+<text x="62.0" y="284.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#e6edf3" text-anchor="middle">test_a</text>
+<circle cx="177" cy="258" r="11" fill="none" stroke="#4493f8" stroke-width="2.2"/>
+<text x="176.9" y="284.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#e6edf3" text-anchor="middle">test_b</text>
+<circle cx="292" cy="258" r="11" fill="none" stroke="#9198a1" stroke-width="1.3"/>
+<text x="291.7" y="284.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#9198a1" text-anchor="middle">test_c</text>
+<circle cx="407" cy="258" r="11" fill="none" stroke="#4493f8" stroke-width="2.2"/>
+<text x="406.6" y="284.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#e6edf3" text-anchor="middle">test_d</text>
+<circle cx="521" cy="258" r="11" fill="none" stroke="#9198a1" stroke-width="1.3"/>
+<text x="521.4" y="284.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#9198a1" text-anchor="middle">test_e</text>
+<circle cx="636" cy="258" r="11" fill="none" stroke="#9198a1" stroke-width="1.3"/>
+<text x="636.3" y="284.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#9198a1" text-anchor="middle">test_f</text>
+<circle cx="751" cy="258" r="11" fill="none" stroke="#9198a1" stroke-width="1.3"/>
+<text x="751.1" y="284.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#9198a1" text-anchor="middle">test_g</text>
+<circle cx="866" cy="258" r="11" fill="none" stroke="#9198a1" stroke-width="1.3"/>
+<text x="866.0" y="284.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="normal" fill="#9198a1" text-anchor="middle">test_h</text>
+<text x="236.0" y="310.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#e6edf3" text-anchor="middle">Run everything</text>
+<rect x="50" y="324" width="372" height="52" rx="8" fill="none" stroke="#30363d" stroke-dasharray="5 4"/>
+<text x="236.0" y="344.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#9198a1" text-anchor="middle">nothing to look up</text>
+<text x="236.0" y="362.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">the answer is all 8 tests, whatever you changed</text>
+<text x="64.0" y="401.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#e6edf3" text-anchor="start">test_a</text>
+<rect x="142" y="389" width="260" height="14" rx="3" fill="#30363d" opacity="0.45"/>
+<rect x="142" y="389" width="0" height="14" rx="3" fill="#8b949e"><animate attributeName="width" values="0;0;260;260" keyTimes="0;0.43571;0.49732;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<text x="64.0" y="425.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#e6edf3" text-anchor="start">test_b</text>
+<rect x="142" y="413" width="260" height="14" rx="3" fill="#30363d" opacity="0.45"/>
+<rect x="142" y="413" width="0" height="14" rx="3" fill="#8b949e"><animate attributeName="width" values="0;0;260;260" keyTimes="0;0.49732;0.55893;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<text x="64.0" y="449.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#e6edf3" text-anchor="start">test_c</text>
+<rect x="142" y="437" width="260" height="14" rx="3" fill="#30363d" opacity="0.45"/>
+<rect x="142" y="437" width="0" height="14" rx="3" fill="#8b949e"><animate attributeName="width" values="0;0;260;260" keyTimes="0;0.55893;0.62054;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<text x="64.0" y="473.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#e6edf3" text-anchor="start">test_d</text>
+<rect x="142" y="461" width="260" height="14" rx="3" fill="#30363d" opacity="0.45"/>
+<rect x="142" y="461" width="0" height="14" rx="3" fill="#8b949e"><animate attributeName="width" values="0;0;260;260" keyTimes="0;0.62054;0.68214;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<text x="64.0" y="497.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#e6edf3" text-anchor="start">test_e</text>
+<rect x="142" y="485" width="260" height="14" rx="3" fill="#30363d" opacity="0.45"/>
+<rect x="142" y="485" width="0" height="14" rx="3" fill="#8b949e"><animate attributeName="width" values="0;0;260;260" keyTimes="0;0.68214;0.74375;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<text x="64.0" y="521.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#e6edf3" text-anchor="start">test_f</text>
+<rect x="142" y="509" width="260" height="14" rx="3" fill="#30363d" opacity="0.45"/>
+<rect x="142" y="509" width="0" height="14" rx="3" fill="#8b949e"><animate attributeName="width" values="0;0;260;260" keyTimes="0;0.74375;0.80536;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<text x="64.0" y="545.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#e6edf3" text-anchor="start">test_g</text>
+<rect x="142" y="533" width="260" height="14" rx="3" fill="#30363d" opacity="0.45"/>
+<rect x="142" y="533" width="0" height="14" rx="3" fill="#8b949e"><animate attributeName="width" values="0;0;260;260" keyTimes="0;0.80536;0.86696;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<text x="64.0" y="569.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#e6edf3" text-anchor="start">test_h</text>
+<rect x="142" y="557" width="260" height="14" rx="3" fill="#30363d" opacity="0.45"/>
+<rect x="142" y="557" width="0" height="14" rx="3" fill="#8b949e"><animate attributeName="width" values="0;0;260;260" keyTimes="0;0.86696;0.92857;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<text x="236" y="600" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#8b949e" text-anchor="middle" opacity="0">8 of 8 tests · caught the change<animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.92857;0.96429;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></text>
+<text x="664.0" y="310.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="14" font-weight="700" fill="#e6edf3" text-anchor="middle">RTDD</text>
+<rect x="478" y="324" width="372" height="52" rx="8" fill="none" stroke="#30363d" stroke-dasharray=""/>
+<text x="664.0" y="344.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="normal" fill="#e6edf3" text-anchor="middle">follow the edges into b.py</text>
+<text x="664.0" y="362.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="middle">3 tests are at the other end</text>
+<text x="492.0" y="401.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#e6edf3" text-anchor="start">test_a</text>
+<rect x="570" y="389" width="260" height="14" rx="3" fill="#30363d" opacity="0.45"/>
+<rect x="570" y="389" width="0" height="14" rx="3" fill="#4493f8"><animate attributeName="width" values="0;0;260;260" keyTimes="0;0.43571;0.49732;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<text x="492.0" y="425.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#e6edf3" text-anchor="start">test_b</text>
+<rect x="570" y="413" width="260" height="14" rx="3" fill="#30363d" opacity="0.45"/>
+<rect x="570" y="413" width="0" height="14" rx="3" fill="#4493f8"><animate attributeName="width" values="0;0;260;260" keyTimes="0;0.49732;0.55893;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<text x="492.0" y="449.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="start">test_c</text>
+<rect x="570" y="437" width="260" height="14" rx="3" fill="#30363d" opacity="0.45"/>
+<text x="578.0" y="449.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#9198a1" text-anchor="start">never runs</text>
+<text x="492.0" y="473.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#e6edf3" text-anchor="start">test_d</text>
+<rect x="570" y="461" width="260" height="14" rx="3" fill="#30363d" opacity="0.45"/>
+<rect x="570" y="461" width="0" height="14" rx="3" fill="#4493f8"><animate attributeName="width" values="0;0;260;260" keyTimes="0;0.55893;0.62054;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></rect>
+<text x="492.0" y="497.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="start">test_e</text>
+<rect x="570" y="485" width="260" height="14" rx="3" fill="#30363d" opacity="0.45"/>
+<text x="578.0" y="497.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#9198a1" text-anchor="start">never runs</text>
+<text x="492.0" y="521.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="start">test_f</text>
+<rect x="570" y="509" width="260" height="14" rx="3" fill="#30363d" opacity="0.45"/>
+<text x="578.0" y="521.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#9198a1" text-anchor="start">never runs</text>
+<text x="492.0" y="545.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="start">test_g</text>
+<rect x="570" y="533" width="260" height="14" rx="3" fill="#30363d" opacity="0.45"/>
+<text x="578.0" y="545.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#9198a1" text-anchor="start">never runs</text>
+<text x="492.0" y="569.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="start">test_h</text>
+<rect x="570" y="557" width="260" height="14" rx="3" fill="#30363d" opacity="0.45"/>
+<text x="578.0" y="569.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="9.5" font-weight="normal" fill="#9198a1" text-anchor="start">never runs</text>
+<text x="664" y="600" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" fill="#4493f8" text-anchor="middle" opacity="0">3 of 8 tests · caught the change<animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.62054;0.65625;1" dur="7.0s" calcMode="linear" repeatCount="indefinite"/></text>
+<text x="450.0" y="628.0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="11" font-weight="normal" fill="#9198a1" text-anchor="middle">test_a and test_d are the ones that matter: they never name b.py, and running everything has no way to know they reached it.</text>
+<text x="28.0" y="654.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="normal" fill="#9198a1" text-anchor="start">source: docs/results/worked-example/map.jsonl · docs/results/worked-example/selection-feature-b.json</text>
 </svg>

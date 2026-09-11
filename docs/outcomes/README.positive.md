@@ -44,12 +44,13 @@ Say `a.py` and `d.py` both call `b.py`, and every feature has its own test. You 
 just broken A and D.
 
 RTDD selects all three, because the map records what each test *executed*, not what it is
-named. The difference is not only how many tests run — it is that one approach has
-something to consult and the other does not:
+named. Drawn as a graph, the selection rule is just *follow the edges into the file you
+changed* — and the difference between the two approaches is that one has edges to follow
+and the other has nothing to look up:
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/results/figures/how-it-picks-dark.svg">
-  <img alt="The same change, two ways of deciding what to run. Eight features, eight tests; a.py and d.py both call b.py. You changed b.py. Running everything has nothing to look up — the answer is the same whatever you changed — so all 8 tests run. RTDD looks up b.py in the map: test_a, test_b and test_d cover it, the other five do not. RTDD runs 3 of 8 and both approaches catch the change." src="docs/results/figures/how-it-picks-light.svg">
+  <img alt="The map drawn as a graph: eight source files on top, eight tests below, and an edge wherever the seed run watched that test execute that file. b.py is highlighted as the changed file, and three edges lead into it from test_a, test_b and test_d. Below, two paths: running everything has nothing to look up and fills all eight bars; RTDD follows the edges into b.py, fills three bars and marks the other five never runs. Both catch the change." src="docs/results/figures/how-it-picks-light.svg">
 </picture>
 
 Neither `test_a` nor `test_d` mentions `b.py`. They call into it, the seed run watched that
