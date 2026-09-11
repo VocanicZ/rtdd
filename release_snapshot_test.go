@@ -93,11 +93,14 @@ func binaryNameFor(binary, goos string) string {
 
 // archiveExtensionFor is the extension the archive carries, derived from the config's
 // format_overrides: zip for Windows, the default tarball everywhere else.
-func archiveExtensionFor(goos string) string {
+func archiveExtensionsFor(goos string) []string {
 	if goos == "windows" {
-		return ".zip"
+		// Both, because the two Windows install routes need different ones: install.ps1
+		// uses Expand-Archive (zip), while install.sh under Git Bash / MSYS2 / Cygwin has
+		// GNU tar but not necessarily unzip.
+		return []string{".zip", ".tar.gz"}
 	}
-	return ".tar.gz"
+	return []string{".tar.gz"}
 }
 
 // archiveFileList reads the names an archive contains without extracting it, so the
@@ -348,7 +351,7 @@ func TestTheArchiveGateRunsWithNoGoreleaserBinaryOnPATH(t *testing.T) {
 
 // snapshotGateName is the gate below, named once so the child run above and the -run
 // pattern that selects it cannot drift apart.
-const snapshotGateName = "TestGoreleaserSnapshotShipsFiveArchivesWithEveryShippedPath"
+const snapshotGateName = "TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippedPath"
 
 // trackedDirs are the directories a snapshot run must leave exactly as it found them.
 // dist/ is the one actually at risk - GoReleaser cleans its output dir, and pointing it at
@@ -383,9 +386,9 @@ func trackedTreeState(t *testing.T, root string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// TestGoreleaserSnapshotShipsFiveArchivesWithEveryShippedPath is the gate: it runs the
+// TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippedPath is the gate: it runs the
 // release for real in snapshot mode and asserts on the archives that come out.
-func TestGoreleaserSnapshotShipsFiveArchivesWithEveryShippedPath(t *testing.T) {
+func TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippedPath(t *testing.T) {
 	root := findRepoRootForTest(t)
 	cfg := loadGoreleaserConfig(t)
 	shipped := archiveShippedFiles(t, cfg)
@@ -454,41 +457,50 @@ func TestGoreleaserSnapshotShipsFiveArchivesWithEveryShippedPath(t *testing.T) {
 		}
 	}
 
-	if len(archives) != 5 {
-		t.Fatalf("%s holds %d archives, want exactly 5: %v", snapshotDistDir, len(archives), archives)
+	// One archive per (target, format): four single-format targets plus windows/amd64,
+	// which ships in two formats so both documented Windows install routes resolve.
+	wantArchives := 0
+	for _, tg := range matrix {
+		wantArchives += len(archiveExtensionsFor(tg.goos))
+	}
+	if len(archives) != wantArchives {
+		t.Fatalf("%s holds %d archives, want exactly %d: %v", snapshotDistDir, len(archives), wantArchives, archives)
 	}
 
-	// Each matrix target must own exactly one archive, named for its os/arch and carrying
-	// the extension format_overrides gives it.
+	// Each (matrix target, format) pair must own exactly one archive, named for its os/arch
+	// and carrying the extension format_overrides gives it. Every one of them is opened:
+	// a zip that shipped without the front-ends is as broken as a tarball that did.
 	matched := map[string]bool{}
 	for _, tg := range matrix {
-		suffix := "_" + tg.goos + "_" + tg.goarch + archiveExtensionFor(tg.goos)
-		var found string
-		for _, a := range archives {
-			if strings.HasSuffix(a, suffix) {
-				if found != "" {
-					t.Errorf("two archives end in %q: %s and %s", suffix, found, a)
+		for _, ext := range archiveExtensionsFor(tg.goos) {
+			suffix := "_" + tg.goos + "_" + tg.goarch + ext
+			var found string
+			for _, a := range archives {
+				if strings.HasSuffix(a, suffix) {
+					if found != "" {
+						t.Errorf("two archives end in %q: %s and %s", suffix, found, a)
+					}
+					found = a
 				}
-				found = a
 			}
-		}
-		if found == "" {
-			t.Errorf("no archive in %s is named for %s with extension %s; got %v",
-				snapshotDistDir, tg, archiveExtensionFor(tg.goos), archives)
-			continue
-		}
-		matched[found] = true
+			if found == "" {
+				t.Errorf("no archive in %s is named for %s with extension %s; got %v",
+					snapshotDistDir, tg, ext, archives)
+				continue
+			}
+			matched[found] = true
 
-		t.Run(tg.goos+"_"+tg.goarch, func(t *testing.T) {
-			names, err := archiveFileList(filepath.Join(distDir, found))
-			if err != nil {
-				t.Fatalf("read %s: %v", found, err)
-			}
-			want := append([]string{binaryNameFor(binary, tg.goos)}, shipped...)
-			if err := verifyArchiveShipsEveryPath(names, want); err != nil {
-				t.Errorf("the %s archive %s %v", tg, found, err)
-			}
-		})
+			t.Run(tg.goos+"_"+tg.goarch+ext, func(t *testing.T) {
+				names, err := archiveFileList(filepath.Join(distDir, found))
+				if err != nil {
+					t.Fatalf("read %s: %v", found, err)
+				}
+				want := append([]string{binaryNameFor(binary, tg.goos)}, shipped...)
+				if err := verifyArchiveShipsEveryPath(names, want); err != nil {
+					t.Errorf("the %s archive %s %v", tg, found, err)
+				}
+			})
+		}
 	}
 	for _, a := range archives {
 		if !matched[a] {

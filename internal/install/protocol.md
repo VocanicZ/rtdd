@@ -5,7 +5,46 @@ This file is the single source for every generated agent front-end. Edit it, the
 
 <!-- rtdd:meta version=1 -->
 
-<!-- rtdd:section id=what title="What rtdd reports" targets=skill,agents,mdc order=10 -->
+<!-- rtdd:section id=setup title="Setting up a repository" targets=global,global-agents order=5 -->
+Check for `.rtdd/map.jsonl` before anything else. It decides which of two things you are doing.
+
+**The repository has one.** rtdd is set up. Use `rtdd which` and `rtdd run` as described
+below, and do not re-run `rtdd init`.
+
+**The repository has none.** rtdd cannot select anything yet — there is no recorded coverage
+to select from, so every answer would be "run the full suite". Set it up once:
+
+```
+rtdd init      # writes the front-ends, the merge driver and .rtdd/config.yaml
+rtdd seed      # one full instrumented run that builds .rtdd/map.jsonl
+```
+
+Then commit `.rtdd/map.jsonl` along with the `.gitattributes` line `rtdd init` added. The map
+is the expensive artifact: seeding costs one full suite run, and committing it is what stops
+every clone of the repository from paying that cost again.
+
+**`rtdd init` exited 2.** That is the no-adapter refusal, not a failure to install. It means
+nothing in the repository matched a toolchain rtdd knows how to instrument, so it declined to
+install instructions promising a selection it could not make. Its message names what it found.
+Detection keys on a config file, not on a language: a JavaScript repository configuring Jest
+inside `package.json` rather than a `jest.config.*` file matches nothing, and so does a Vitest
+project configured inside `vite.config.ts`. Two ways forward:
+
+- Add the config file the adapter detects, or write `.rtdd/adapters/<language>.yaml` for the
+  toolchain this repository actually uses, then re-run `rtdd init`.
+- `rtdd init --force` installs anyway. The front-ends it writes then carry a caveat saying
+  selection is unavailable, because until an adapter matches, it is.
+
+Run `rtdd doctor` at any point to see which adapters matched and what fidelity they give.
+<!-- rtdd:variant target=global-agents -->
+Check for `.rtdd/map.jsonl` first. If it exists, rtdd is set up — use the commands below. If
+it does not, run `rtdd init` then `rtdd seed` once, and commit the map. `rtdd init` exiting 2
+is the no-adapter refusal: nothing matched a toolchain rtdd can instrument, so add the
+adapter it names or re-run with `--force`.
+<!-- rtdd:endvariant -->
+<!-- rtdd:endsection -->
+
+<!-- rtdd:section id=what title="What rtdd reports" targets=skill,agents,mdc,global,global-agents order=10 -->
 `rtdd` reports which tests cover the code you just changed, and which of the lines you just
 changed nothing covers. Both come from coverage recorded during real execution of this
 repository's suite, not from a static call graph, so the relation includes edges reached
@@ -19,7 +58,7 @@ from recorded coverage rather than a static graph. It reports; it never gates.
 <!-- rtdd:endvariant -->
 <!-- rtdd:endsection -->
 
-<!-- rtdd:section id=which title="rtdd which" targets=skill,agents,mdc order=20 -->
+<!-- rtdd:section id=which title="rtdd which" targets=skill,agents,mdc,global,global-agents order=20 -->
 ```
 rtdd which [--base <ref>] [--json]
 ```
@@ -40,7 +79,7 @@ report, and runs nothing. Untracked files count, so a file you just wrote is inc
 <!-- rtdd:endvariant -->
 <!-- rtdd:endsection -->
 
-<!-- rtdd:section id=run title="rtdd run" targets=skill,agents,mdc order=30 -->
+<!-- rtdd:section id=run title="rtdd run" targets=skill,agents,mdc,global,global-agents order=30 -->
 ```
 rtdd run [--base <ref>] [--fail-fast] [--json]
 ```
@@ -56,7 +95,7 @@ failed, and nothing else — an empty selection and an uncovered report are both
 <!-- rtdd:endvariant -->
 <!-- rtdd:endsection -->
 
-<!-- rtdd:section id=uncovered title="The uncovered report" targets=skill,agents,mdc order=40 -->
+<!-- rtdd:section id=uncovered title="The uncovered report" targets=skill,agents,mdc,global,global-agents order=40 -->
 The report classifies your changed lines into three classes, and the distinction matters:
 
 - **covered** — an executing test touched these changed lines.
@@ -74,7 +113,7 @@ reported separately and are not a coverage gap.
 <!-- rtdd:endvariant -->
 <!-- rtdd:endsection -->
 
-<!-- rtdd:section id=empty title="An empty selection is not green" targets=skill,agents,mdc order=50 -->
+<!-- rtdd:section id=empty title="An empty selection is not green" targets=skill,agents,mdc,global,global-agents order=50 -->
 When nothing is selected, `rtdd` says so explicitly. An empty selection is a distinct
 outcome from "all selected tests passed", because every under-selection path terminates
 there. Treat it as "the map has nothing to say about this change", not as a pass.
@@ -83,7 +122,7 @@ An empty selection is reported as its own outcome, never as a pass.
 <!-- rtdd:endvariant -->
 <!-- rtdd:endsection -->
 
-<!-- rtdd:section id=fidelity title="Selection fidelity" targets=skill,agents,mdc order=55 -->
+<!-- rtdd:section id=fidelity title="Selection fidelity" targets=skill,agents,mdc,global,global-agents order=55 -->
 Every `--json` document carries `selection_fidelity`, which answers a different question
 from `tier`: `tier` says how much of the suite was selected, `selection_fidelity` says what
 that answer was derived from. It is never null and never absent, and it is one of three
@@ -124,7 +163,7 @@ weaker evidence — read a green `static` run as "the tests I could name passed"
 <!-- rtdd:endvariant -->
 <!-- rtdd:endsection -->
 
-<!-- rtdd:section id=json title="JSON output" targets=skill order=60 -->
+<!-- rtdd:section id=json title="JSON output" targets=skill,global order=60 -->
 `--json` emits one object for programmatic consumption:
 
 ```json
@@ -148,7 +187,7 @@ because the map is unseeded, a dependency manifest changed, the test-harness con
 or the drift guard was reached; `reason` says which.
 <!-- rtdd:endsection -->
 
-<!-- rtdd:section id=commands title="The rest of the commands" targets=skill order=70 -->
+<!-- rtdd:section id=commands title="The rest of the commands" targets=skill,global order=70 -->
 ```
 rtdd status                  adapter, map freshness, seed state
 rtdd seed                    one full instrumented run; the only op that may shrink a row
@@ -165,7 +204,7 @@ import-time line migrates to whichever test ran first, and a failing test record
 truncated prefix of its real path.
 <!-- rtdd:endsection -->
 
-<!-- rtdd:section id=limits title="What it cannot see" targets=skill,mdc order=80 -->
+<!-- rtdd:section id=limits title="What it cannot see" targets=skill,mdc,global order=80 -->
 Stated plainly, because a selector that hides its blind spots is worse than no selector:
 
 - Coverage only knows paths some test actually took. A branch nothing has ever exercised has
@@ -185,7 +224,7 @@ whichever test ran first. Selection is file-level. `rtdd verify` does not replac
 <!-- rtdd:endvariant -->
 <!-- rtdd:endsection -->
 
-<!-- rtdd:section id=map title="The map file" targets=skill order=90 -->
+<!-- rtdd:section id=map title="The map file" targets=skill,global order=90 -->
 `.rtdd/map.jsonl` is committed, sorted by test id, one line per test, file-level only:
 
 ```

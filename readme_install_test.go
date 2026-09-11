@@ -107,3 +107,35 @@ func TestInstallEditLeavesTheProductClaimsAlone(t *testing.T) {
 		}
 	}
 }
+
+// The PowerShell one-liner, for a Windows shell with no POSIX sh behind it.
+const ps1InstallLine = "irm https://raw.githubusercontent.com/VocanicZ/rtdd/main/install.ps1 | iex"
+
+// A Windows developer following a README that offers only `curl | sh` either has no shell
+// to run it in, or runs it in Git Bash and — before this change — was told "unsupported
+// OS" by a project that ships a windows/amd64 binary. Both routes have to be on the page.
+func TestReleaseShippingREADMEsDocumentTheWindowsRoute(t *testing.T) {
+	for _, name := range releaseShippingREADMEs {
+		text := readREADME(t, name)
+		if !strings.Contains(text, ps1InstallLine) {
+			t.Errorf("%s does not offer the PowerShell installer %q", name, ps1InstallLine)
+		}
+		if !strings.Contains(text, curlInstallLine) {
+			t.Errorf("%s no longer offers the sh installer %q", name, curlInstallLine)
+		}
+	}
+}
+
+// The installer now writes into the user's home directory, which is a side effect outside
+// the install directory. A README that documents the install but not that side effect, or
+// not how to decline it, is hiding it.
+func TestReleaseShippingREADMEsDocumentTheSkillInstallAndItsOptOut(t *testing.T) {
+	for _, name := range releaseShippingREADMEs {
+		text := readREADME(t, name)
+		for _, needle := range []string{"RTDD_NO_SKILL", "rtdd skill prompt"} {
+			if !strings.Contains(text, needle) {
+				t.Errorf("%s does not document %q", name, needle)
+			}
+		}
+	}
+}

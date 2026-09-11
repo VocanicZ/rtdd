@@ -17,8 +17,29 @@ type Target struct {
 	OutPath  string
 	MaxBytes int
 	Required []string
-	Render   func(d *Doc) (string, error)
+	// BodyKeys is the variant lookup order for section bodies. Empty means just Name.
+	// See Section.BodyForAny for why a target's section set and its body style are
+	// allowed to disagree.
+	BodyKeys []string
+	// Desc is the frontmatter `description:` for the targets that carry frontmatter.
+	// It is per-target because it is the trigger an agent matches on, and the machine-wide
+	// skill must fire in exactly the repositories the repo-scoped one stands down in.
+	Desc     string
+	Render   func(d *Doc, t Target) (string, error)
 	Validate func(d *Doc, t Target, out string) error
+}
+
+// bodyKeys is BodyKeys with the documented default applied.
+func (t Target) bodyKeys() []string {
+	if len(t.BodyKeys) > 0 {
+		return t.BodyKeys
+	}
+	return []string{t.Name}
+}
+
+// BodyOf returns the body of s that this target should render.
+func (t Target) BodyOf(s Section) string {
+	return s.BodyForAny(t.bodyKeys()...)
 }
 
 // Generated marks every output so a reader knows where to edit.
@@ -48,44 +69,48 @@ func requireSections(d *Doc, t Target) error {
 	return nil
 }
 
-func renderSkill(d *Doc) (string, error) {
+// renderSkill serves both skill targets. They differ only in which sections they select
+// and in the frontmatter description, and both of those live on the Target.
+func renderSkill(d *Doc, t Target) (string, error) {
 	var b strings.Builder
 	b.WriteString("---\n")
 	b.WriteString("name: rtdd\n")
-	b.WriteString("description: " + SkillDescription + "\n")
+	b.WriteString("description: " + t.Desc + "\n")
 	b.WriteString("---\n\n")
 	b.WriteString(Generated + "\n\n")
 	b.WriteString("# rtdd\n\n")
-	for _, s := range d.For("skill") {
+	for _, s := range d.For(t.Name) {
 		b.WriteString("## " + s.Title + "\n\n")
-		b.WriteString(s.BodyFor("skill") + "\n\n")
+		b.WriteString(t.BodyOf(s) + "\n\n")
 	}
 	return strings.TrimRight(b.String(), "\n") + "\n", nil
 }
 
-func renderAgents(d *Doc) (string, error) {
+// renderAgents serves both marker-delimited targets: the repo AGENTS.md/CLAUDE.md block and
+// the machine-wide block for a global AGENTS.md or GEMINI.md.
+func renderAgents(d *Doc, t Target) (string, error) {
 	var b strings.Builder
 	b.WriteString(BeginMarker + "\n")
 	b.WriteString("## rtdd\n\n")
-	for _, s := range d.For("agents") {
-		b.WriteString(s.BodyFor("agents") + "\n\n")
+	for _, s := range d.For(t.Name) {
+		b.WriteString(t.BodyOf(s) + "\n\n")
 	}
 	b.WriteString(EndMarker + "\n")
 	return b.String(), nil
 }
 
-func renderMDC(d *Doc) (string, error) {
+func renderMDC(d *Doc, t Target) (string, error) {
 	var b strings.Builder
 	b.WriteString("---\n")
-	b.WriteString("description: " + MdcDescription + "\n")
+	b.WriteString("description: " + t.Desc + "\n")
 	b.WriteString("globs: " + MdcGlobs + "\n")
 	b.WriteString("alwaysApply: false\n")
 	b.WriteString("---\n\n")
 	b.WriteString(Generated + "\n\n")
 	b.WriteString("# rtdd\n\n")
-	for _, s := range d.For("mdc") {
+	for _, s := range d.For(t.Name) {
 		b.WriteString("## " + s.Title + "\n\n")
-		b.WriteString(s.BodyFor("mdc") + "\n\n")
+		b.WriteString(t.BodyOf(s) + "\n\n")
 	}
 	return strings.TrimRight(b.String(), "\n") + "\n", nil
 }
@@ -98,7 +123,7 @@ func RenderAll(d *Doc) (map[string]string, error) {
 		if err := requireSections(d, t); err != nil {
 			return nil, err
 		}
-		body, err := t.Render(d)
+		body, err := t.Render(d, t)
 		if err != nil {
 			return nil, fmt.Errorf("render %s: %w", t.Name, err)
 		}

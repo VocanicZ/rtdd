@@ -41,11 +41,12 @@ func cmdUninstall(args []string, stdout, stderr io.Writer) int {
 	dryRun := fs.Bool("dry-run", false, "print the plan and change nothing")
 	state := fs.Bool("state", false, "also remove .rtdd/ — the config and the recorded map")
 	binary := fs.Bool("binary", false, "also delete the installed rtdd binary")
+	global := fs.Bool("global", false, "also remove the machine-wide agent front-ends `rtdd skill install` wrote")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if fs.NArg() != 0 {
-		fmt.Fprintln(stderr, "usage: rtdd uninstall [--dry-run] [--state] [--binary]")
+		fmt.Fprintln(stderr, "usage: rtdd uninstall [--dry-run] [--state] [--binary] [--global]")
 		return 2
 	}
 
@@ -62,7 +63,30 @@ func cmdUninstall(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "rtdd uninstall: %v\n", err)
 		return 3
 	}
+
+	// The machine-wide front-ends are opt-in: this command's subject is THIS repository,
+	// and someone uninstalling rtdd from one project usually still wants it on the machine.
+	//
+	// Both plans are computed BEFORE anything is printed or applied, so --dry-run shows the
+	// whole of what the command would do. A dry run that printed only half the plan would
+	// be the same defect `rtdd init` avoids by gating ahead of its own plan: a plan is the
+	// one output a user reads as a promise.
+	var globalSteps []install.Step
+	var home string
+	if *global {
+		home, err = homeDir()
+		if err != nil {
+			fmt.Fprintf(stderr, "rtdd uninstall: %v\n", err)
+			return 3
+		}
+		if globalSteps, err = install.PlanGlobalUninstall(home); err != nil {
+			fmt.Fprintf(stderr, "rtdd uninstall: %v\n", err)
+			return 3
+		}
+	}
+
 	fmt.Fprint(stdout, RenderUninstall(steps))
+	fmt.Fprint(stdout, RenderUninstall(globalSteps))
 
 	if *dryRun {
 		fmt.Fprintln(stdout, "\ndry run — nothing was changed")
@@ -71,6 +95,12 @@ func cmdUninstall(args []string, stdout, stderr io.Writer) int {
 	if err := install.ApplyUninstall(root, steps); err != nil {
 		fmt.Fprintf(stderr, "rtdd uninstall: %v\n", err)
 		return 2
+	}
+	if *global {
+		if err := install.ApplyUninstall(home, globalSteps); err != nil {
+			fmt.Fprintf(stderr, "rtdd uninstall: %v\n", err)
+			return 2
+		}
 	}
 
 	// The binary goes last. Removing it first would leave a half-uninstalled repository

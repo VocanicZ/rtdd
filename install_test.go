@@ -325,3 +325,43 @@ func TestInstallFailsWhenTheLatestReleaseCannotBeResolved(t *testing.T) {
 		})
 	}
 }
+
+// buildArchiveAs is buildArchive with the member name spelled out: the Windows archives
+// carry `rtdd.exe`, and install.sh extracts one named member rather than the whole tree.
+func buildArchiveAs(t *testing.T, binPath, member string) []byte {
+	t.Helper()
+	bin, err := os.ReadFile(binPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	if err := tw.WriteHeader(&tar.Header{Name: member, Mode: 0o755, Size: int64(len(bin))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write(bin); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// fakeUname replaces the `uname` in an isolatedPATH directory with a stub reporting the
+// given system and machine, so the OS-detection branches can be exercised on this host.
+func fakeUname(t *testing.T, binDir, system, machine string) {
+	t.Helper()
+	p := filepath.Join(binDir, "uname")
+	if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\ncase \"$1\" in\n-s) echo " + system + " ;;\n-m) echo " + machine + " ;;\n*) echo " + system + " ;;\nesac\n"
+	if err := os.WriteFile(p, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}

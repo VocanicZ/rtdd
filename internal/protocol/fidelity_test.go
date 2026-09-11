@@ -134,7 +134,7 @@ func TestEveryTargetRejectsAGuttedFidelitySection(t *testing.T) {
 		var body string
 		for _, s := range d.For(tgt.Name) {
 			if s.ID == fidelitySectionID {
-				body = s.BodyFor(tgt.Name)
+				body = tgt.BodyOf(s)
 			}
 		}
 		if body == "" {

@@ -5,8 +5,16 @@ rtdd runs every test that executed the code you changed, directly or deep in a c
 
 ## Install
 
+Linux and macOS — also works in Git Bash, MSYS2 and Cygwin on Windows:
+
 ```
 curl -fsSL https://raw.githubusercontent.com/VocanicZ/rtdd/main/install.sh | sh
+```
+
+Windows, in PowerShell:
+
+```
+irm https://raw.githubusercontent.com/VocanicZ/rtdd/main/install.ps1 | iex
 ```
 
 Or build from source, with Go 1.24 or newer:
@@ -16,9 +24,26 @@ git clone https://github.com/VocanicZ/rtdd && cd rtdd
 go build ./cmd/rtdd
 ```
 
-`rtdd update` replaces the binary with the latest release, and only if it is newer;
-`rtdd update --check` asks without installing. `rtdd uninstall` removes what `rtdd init`
-wrote into a repository, leaving the recorded map unless you add `--state`.
+Both installers also install a **machine-wide agent skill**, so your coding agent knows rtdd
+exists in every repository — including ones where rtdd has not been set up yet, where the
+skill tells it to run `rtdd init` first. It is written only for agents you already have: it
+lands in `~/.claude/skills/rtdd/`, and as a marker-delimited block in `~/.codex/AGENTS.md`
+and `~/.gemini/GEMINI.md`, and any of those directories that does not exist is skipped
+rather than created. Set `RTDD_NO_SKILL=1` to install the binary alone.
+
+For any other agent — Cursor, whose user rules live in its settings rather than in a file,
+or anything else — `rtdd skill prompt` prints a self-contained document to hand it.
+
+```
+rtdd skill install     # (re)install the machine-wide front-ends
+rtdd skill prompt      # print a copy to paste into any other agent
+rtdd skill uninstall   # remove them
+```
+
+`rtdd update` replaces the binary with the latest release, and only if it is newer, then
+refreshes the machine-wide skill to match; `rtdd update --check` asks without installing.
+`rtdd uninstall` removes what `rtdd init` wrote into a repository, leaving the recorded map
+unless you add `--state`, and the machine-wide front-ends unless you add `--global`.
 
 ## Usage
 

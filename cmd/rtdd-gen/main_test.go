@@ -391,11 +391,11 @@ func TestCheckCatchesAnUnrenderedProtocolEdit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Append a section every target carries, so all three go stale at once. An
+	// Append a section every target carries, so all of them go stale at once. An
 	// edit inside an existing section would only reach the targets that do not
 	// override it with a variant.
 	edited := string(src) + `
-<!-- rtdd:section id=drifttest title="Drift test" targets=skill,agents,mdc order=95 -->
+<!-- rtdd:section id=drifttest title="Drift test" targets=skill,agents,mdc,global,global-agents order=95 -->
 a sentence no generated file has seen yet
 <!-- rtdd:endsection -->
 `

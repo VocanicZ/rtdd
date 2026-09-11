@@ -37,8 +37,11 @@ archives:
     ids: [rtdd]
     name_template: "rtdd_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
+      # Both, because the two Windows install routes need different ones: install.ps1 uses
+      # Expand-Archive (zip), while install.sh under Git Bash / MSYS2 / Cygwin has GNU tar
+      # but not necessarily unzip. Publishing one would 404 the other route.
       - goos: windows
-        formats: [zip]
+        formats: [zip, tar.gz]
     files:
       # Plan Task 20: the tarball ships the license and the README alongside the
       # generated front-ends. Without LICENSE the redistribution terms travel nowhere.
@@ -47,6 +50,9 @@ archives:
       - dist/SKILL.md
       - dist/AGENTS.md
       - dist/cursor/rules/rtdd.mdc
+      # The machine-wide pair `rtdd skill install` writes into the user's home directory.
+      - dist/GLOBAL-SKILL.md
+      - dist/GLOBAL-AGENTS.md
 
 checksum:
   name_template: "checksums.txt"

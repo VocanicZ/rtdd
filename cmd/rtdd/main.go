@@ -24,6 +24,9 @@ usage:
   rtdd explain <file>
   rtdd doctor [--limit <n>]
   rtdd update [--check] [--version <tag>]
+  rtdd skill install   [--dry-run] [--force]
+  rtdd skill uninstall [--dry-run]
+  rtdd skill prompt
   rtdd uninstall [--dry-run] [--state] [--binary]
   rtdd --version
 
@@ -60,6 +63,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdDoctor(args[1:], stdout, stderr)
 	case "update":
 		return cmdUpdate(args[1:], stdout, stderr)
+	case "skill":
+		return cmdSkill(args[1:], stdout, stderr)
 	case "uninstall":
 		return cmdUninstall(args[1:], stdout, stderr)
 	case "-h", "--help", "help":
