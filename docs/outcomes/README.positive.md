@@ -6,6 +6,28 @@ just changed nothing covers** — derived from real execution rather than a stat
 It is a context provider, not a gate. `rtdd run` exits non-zero when a test fails, and for
 no other reason.
 
+## Install
+
+```
+curl -fsSL https://raw.githubusercontent.com/VocanicZ/rtdd/main/install.sh | sh
+```
+
+Or build from source, with Go 1.24 or newer:
+
+```
+git clone https://github.com/VocanicZ/rtdd && cd rtdd
+go build ./cmd/rtdd
+```
+
+## Usage
+
+```
+cd your-python-repo
+rtdd init      # front-ends, .gitattributes merge=union, config
+rtdd seed      # one full instrumented run to build the map
+rtdd which     # what covers your current changes
+```
+
 ```
 $ rtdd which
 base:     HEAD
@@ -25,17 +47,10 @@ tier T0: 2 selected (tests whose recorded coverage intersects the changed set)
   import-time: src/calc.py:5  (executed during collection, not attributed)
 ```
 
-The run above is *execution-derived* selection, and it is Python only today. Every other
-language gets *static* selection instead — declared file correspondence and imports, with
-nothing instrumented. It never watched a test run, so it can miss a test the Python tier
-would have caught. Passing it is weaker evidence, and every surface tells you which tier
-you are reading.
-
-That static tier was pre-registered against a naive path heuristic and did not beat it, so
-it does not carry its weight as a distinct tier. It ships because a repository RTDD cannot
-instrument is otherwise offered nothing — not because it is measured to be better. The
-numbers are in [`bench/results/flask/summary.json`](bench/results/flask/summary.json) and
-[`bench/results/httpie/summary.json`](bench/results/httpie/summary.json).
+`rtdd init` writes a Claude Code skill at `.claude/skills/rtdd/SKILL.md`, a Cursor rule at
+`.cursor/rules/rtdd.mdc`, and a marker-delimited block in `AGENTS.md` and `CLAUDE.md`. It
+never edits outside its own markers. With no matching adapter it writes nothing and exits 2;
+`--force` installs anyway.
 
 ## It runs more than the test you touched
 
@@ -85,44 +100,6 @@ rather than written beside it.
 One limit: this works from what the seed run recorded. A path no test has ever executed
 is not in the map, so new code selects nothing until it has run once — which is what the
 uncovered report tells you.
-
-## Install
-
-There are two routes, and which one works depends on whether a release exists: **no release
-is published yet**, so build from source today; the one-line installer below starts working
-the moment a release is published, and is the shorter route once it does.
-
-Build from source — Go 1.24 or newer:
-
-```
-git clone https://github.com/VocanicZ/rtdd && cd rtdd
-go build ./cmd/rtdd      # writes ./rtdd — put it somewhere on your PATH
-```
-
-Or, once a release exists:
-
-```
-curl -fsSL https://raw.githubusercontent.com/VocanicZ/rtdd/main/install.sh | sh
-```
-
-Either way, the loop is the same:
-
-```
-cd your-python-repo
-rtdd init      # front-ends, .gitattributes merge=union, config
-rtdd seed      # one full instrumented run to build the map
-rtdd which     # what covers your current changes
-```
-
-`rtdd init` installs a Claude Code skill at `.claude/skills/rtdd/SKILL.md`, a Cursor rule at
-`.cursor/rules/rtdd.mdc`, and a short marker-delimited block in `AGENTS.md` (and `CLAUDE.md`
-if you have one). It never rewrites a byte outside its own markers.
-
-It first checks that an adapter matches the repository. If none does, it writes **nothing**
-and exits 2: agent instructions promising a selection RTDD cannot make are worse than no
-instructions at all. The way out is an adapter of your own in `.rtdd/adapters/<language>.yaml`
-— or `rtdd init --force`, which installs anyway and states the caveat in the first paragraph
-of the skill it writes.
 
 ## Does it work?
 
@@ -205,27 +182,28 @@ commit that could be measured it missed nothing.
 In CI, or anywhere a missed regression is expensive, no. Run everything. Five commits on
 one repository is where this evidence starts, not where it ends.
 
-## What it does not do
+## Limitations
 
-- **It does not enforce anything.** No gate, no policy exit code, no expected-phase flag.
-- **It does not replace CI.** Running `rtdd` is a convenience for the inner loop, not a
-  substitute for a full CI run.
-- **It is not sound program analysis.** It is risk-managed test selection: it can be
-  wrong, and the tier and uncovered report are there so you can see when.
-- **It does not reduce token cost.** There are no model calls in the hot path.
-- **Only the Python tier is measured coverage.** Per-test attribution does not exist in the
-  JavaScript or Go ecosystems — Istanbul and v8 carry aggregate counters with no test
+- **Only Python gets execution-derived selection.** Per-test attribution does not exist in
+  the JavaScript or Go ecosystems — Istanbul and v8 carry aggregate counters with no test
   dimension ([vitest#6735](https://github.com/vitest-dev/vitest/issues/6735), open since
-  October 2024), and Go's `-coverprofile` has none either. Those languages get static
-  selection, which was measured against a path heuristic and did not beat it
-  ([the comparison](docs/results/axis2-selection-baselines.md)).
-- **Coverage is blind in its own way.** It only knows paths some test actually took, and it
-  attributes nothing to code executed at import time — which is why the uncovered report has
-  a separate import-time class instead of calling dataclasses and enums untested.
-- **`COVERAGE_CORE=ctrace` is forced**, so instrumented runs pay roughly 2× tracing overhead.
-  With coverage.py's `sysmon` core — the default on Python 3.14+ — dynamic contexts are
-  silently dropped with a warning and a zero exit, producing a mostly-empty map; RTDD treats
-  that warning as fatal.
+  October 2024), and Go's `-coverprofile` has none either. Other languages get *static*
+  selection: declared correspondence and imports, nothing instrumented.
+  Passing it is weaker evidence, and it was pre-registered against a naive path heuristic
+  and did not beat it, so it does not carry its weight as a distinct tier.
+  See [the comparison](docs/results/axis2-selection-baselines.md), and the records in
+  [`bench/results/flask/summary.json`](bench/results/flask/summary.json) and
+  [`bench/results/httpie/summary.json`](bench/results/httpie/summary.json).
+- **It does not enforce anything.** No gate, no policy exit code, no expected-phase flag.
+- **It does not replace CI.** Run the full suite there.
+- **It is not sound program analysis.** Selection can be wrong; the tier and the uncovered
+  report are how you see when.
+- **It does not reduce token cost.** No model calls in the hot path.
+- **Coverage misses what no test ran.** Code executed at import time is attributed to no
+  test and reported separately, not as a coverage gap.
+- **`COVERAGE_CORE=ctrace` is forced**, costing roughly 2× tracing overhead. Under
+  coverage.py's `sysmon` core — the default on Python 3.14+ — dynamic contexts are dropped
+  with a warning and a zero exit, producing a near-empty map. RTDD treats that as fatal.
 
 ## Documentation
 
