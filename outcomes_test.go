@@ -52,12 +52,19 @@ func TestBothOutcomeFilesExist(t *testing.T) {
 // after it. The replacement is the two-tier statement, not a deletion — the Python-only
 // LIMIT is still real for execution-derived selection, and dropping the bullet would
 // quietly upgrade every non-Python repository's evidence.
+// The two-tier caveat, the pre-registered static verdict and the citations behind it
+// moved out of the README when it was cut back to install, usage and results: they are
+// documentation of where the tool is weak, not front-page material. They are still
+// published, still derived from the committed records, and still guarded — on the page
+// that now carries them. README.negative.md keeps its own copy, because that branch's
+// README is a withdrawal notice and states the limits inline.
+var tierClaimDocs = []string{
+	filepath.Join("docs", "LIMITATIONS.md"),
+	filepath.Join("docs", "outcomes", "README.negative.md"),
+}
+
 func TestREADMEStatesTheTwoTiersRatherThanPythonOnly(t *testing.T) {
-	for _, name := range []string{
-		"README.md",
-		filepath.Join("docs", "outcomes", "README.positive.md"),
-		filepath.Join("docs", "outcomes", "README.negative.md"),
-	} {
+	for _, name := range tierClaimDocs {
 		b, err := os.ReadFile(name)
 		if err != nil {
 			t.Fatal(err)
@@ -79,9 +86,10 @@ func TestREADMEStatesTheTwoTiersRatherThanPythonOnly(t *testing.T) {
 // PRD #233 AC12 / #351: the pre-registered static-tier kill condition is reported in the
 // README, win or lose, and it names the measurement rather than asserting a conclusion.
 func TestREADMEReportsThePreRegisteredStaticVerdict(t *testing.T) {
-	b, err := os.ReadFile("README.md")
+	page := filepath.Join("docs", "LIMITATIONS.md")
+	b, err := os.ReadFile(page)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("read %s: %v", page, err)
 	}
 	text := string(b)
 	for _, needle := range []string{
@@ -91,7 +99,7 @@ func TestREADMEReportsThePreRegisteredStaticVerdict(t *testing.T) {
 		"pre-registered",
 	} {
 		if !strings.Contains(text, needle) {
-			t.Errorf("README.md does not cite %q for the static-tier verdict", needle)
+			t.Errorf("%s does not cite %q for the static-tier verdict", page, needle)
 		}
 	}
 }
@@ -174,11 +182,7 @@ func TestREADMEStaticVerdictMatchesTheCommittedSummaries(t *testing.T) {
 	if fired {
 		want, unwanted = staticKillFiredClaim, staticKillHeldClaim
 	}
-	for _, name := range []string{
-		"README.md",
-		filepath.Join("docs", "outcomes", "README.positive.md"),
-		filepath.Join("docs", "outcomes", "README.negative.md"),
-	} {
+	for _, name := range tierClaimDocs {
 		b, err := os.ReadFile(name)
 		if err != nil {
 			t.Fatal(err)
@@ -192,15 +196,20 @@ func TestREADMEStaticVerdictMatchesTheCommittedSummaries(t *testing.T) {
 		}
 	}
 
-	// Every figure the comparison turns on is quoted, so a regeneration that moves a
-	// number cannot leave the README's table describing the previous run.
-	root, err := os.ReadFile("README.md")
+	// Every figure the comparison turns on is quoted wherever the comparison is
+	// published, so a regeneration that moves a number cannot leave a table describing
+	// the previous run. That page is no longer the README: the README was cut back to the
+	// one comparison the project exists to make — RTDD against running the whole suite —
+	// and states this verdict with its sources rather than its arithmetic. The guarantee
+	// is unchanged, only the file it is enforced against.
+	page := filepath.Join("docs", "results", "axis2-selection-baselines.md")
+	root, err := os.ReadFile(page)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("read %s: %v", page, err)
 	}
 	for _, q := range quoted {
 		if !strings.Contains(string(root), q) {
-			t.Errorf("README.md does not quote %q from the committed summaries", q)
+			t.Errorf("%s does not quote %q from the committed summaries", page, q)
 		}
 	}
 }
@@ -379,5 +388,42 @@ func TestREADMESafetyAxisMatchesThePairedRun(t *testing.T) {
 	}
 	if !strings.Contains(text, fmt.Sprintf("| **%d** |", rtdd.DetectingCommits)) {
 		t.Errorf("README.md does not carry the paired run's detecting count (%d)", rtdd.DetectingCommits)
+	}
+}
+
+// A section spliced in twice is invisible to every other guard here: each copy carries
+// the same committed numbers, so the derivation checks all pass while the reader scrolls
+// through the same argument three times in three different versions. This shipped —
+// three copies of one section, the two stale ones describing examples that no longer
+// existed — because the splice that replaced it assumed the text it cut to came after
+// the heading, and one edit moved it before.
+func TestREADMEHasNoDuplicatedSection(t *testing.T) {
+	for _, name := range []string{
+		"README.md",
+		filepath.Join("docs", "outcomes", "README.positive.md"),
+		filepath.Join("docs", "outcomes", "README.negative.md"),
+	} {
+		b, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen := map[string]int{}
+		var fenced bool
+		for _, line := range strings.Split(string(b), "\n") {
+			if strings.HasPrefix(line, "```") {
+				fenced = !fenced
+				continue
+			}
+			if fenced || !strings.HasPrefix(line, "#") {
+				continue
+			}
+			seen[strings.TrimSpace(line)]++
+		}
+		for heading, n := range seen {
+			if n > 1 {
+				t.Errorf("%s carries the heading %q %d times; a section was spliced in "+
+					"rather than replacing the one already there", name, heading, n)
+			}
+		}
 	}
 }

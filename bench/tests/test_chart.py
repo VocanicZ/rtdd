@@ -27,6 +27,7 @@ import re
 import pytest
 
 from replay import chart
+from replay.chart import _short
 from replay.report import FAILURE_WORDING
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -201,8 +202,26 @@ def test_render_is_byte_stable(figure, flask, httpie):
 
 @pytest.mark.parametrize("figure", chart.FIGURES)
 def test_every_figure_declares_its_source(figure, flask, httpie):
+    """Every figure names the committed file it was drawn from, and that file exists.
+
+    Was a substring check for `bench/results`, which a figure drawn from a record kept
+    anywhere else would fail for the wrong reason — and which a figure citing a path
+    that had since been deleted or renamed would pass. Reading the cited paths off the
+    source line and stat-ing them checks the thing the line is actually promising.
+    """
     svg = chart.render_figure(figure, [flask, httpie], chart.LIGHT)
-    assert "bench/results" in svg
+    line = next((l for l in svg.splitlines() if ">source:" in l), None)
+    assert line is not None, f"{figure} declares no source line"
+    cited = re.findall(r"[\w./&;-]*/[\w./&;-]*\.(?:jsonl|json|md)", line)
+    assert cited, f"{figure} source line names no committed file: {line}"
+    for rel in cited:
+        # `bench/results/&lt;repo&gt;/summary.json` stands for one file per repo, so the
+        # figure cannot name a single path. The directory above the placeholder is still
+        # a real one, and checking it catches the rename this guard exists to catch.
+        concrete = rel.split("&lt;")[0].rstrip("/") if "&lt;" in rel else rel
+        assert (REPO_ROOT / concrete).exists(), (
+            f"{figure} cites {rel}, but {concrete} does not exist"
+        )
 
 
 def test_dark_palette_actually_changes_the_ink(flask, httpie):
@@ -302,3 +321,148 @@ def test_head_to_head_refuses_a_summary_missing_an_arm(paired, session):
     del stripped["strategies"]["full"]
     with pytest.raises(chart.ChartError, match="full"):
         chart.head_to_head_svg(stripped, session, chart.LIGHT)
+
+
+# --- the worked example: a diagram that cannot disagree with the tool ---------------
+#
+# This figure explains a mechanism rather than plotting a measurement, which is exactly
+# the kind of picture that drifts: prose and diagrams describing selection are written
+# from memory, and the tool changes underneath them. It is drawn from the map `rtdd seed`
+# really built and the selection `rtdd which` really returned for the same change, so a
+# selector that stopped behaving this way fails here instead of shipping a lie on the
+# front page.
+
+
+@pytest.fixture
+def worked():
+    return chart.load_worked_example(REPO_ROOT)
+
+
+def test_the_diagram_draws_the_tests_the_map_actually_holds(worked):
+    rows, selection = worked
+    svg = chart.worked_example_svg(rows, selection, chart.LIGHT)
+    for row in rows:
+        short = row["t"].split("::", 1)[1]
+        assert short in svg, f"{row['t']} is in the map but not in the figure"
+
+
+def test_every_test_the_diagram_runs_is_one_the_selection_returned(worked):
+    rows, selection = worked
+    selected = set(selection["selection"]["tests"])
+    assert selected, "the committed selection is empty; the figure would show nothing running"
+    assert selected < {r["t"] for r in rows}, "the point is that some test is skipped"
+    svg = chart.worked_example_svg(rows, selection, chart.LIGHT)
+
+    # Structural, not prose: a running test is one with a width animation on its bar, so
+    # the figure animates exactly (every test, once, for the run-everything column) plus
+    # (every SELECTED test, once, for RTDD). Asserting on the word "skipped" only checked
+    # the caption, and passed a redraw that changed the wording to "never runs".
+    running_bars = svg.count('<animate attributeName="width"')
+    assert running_bars == len(rows) + len(selected), (
+        f"{running_bars} bars animate; expected {len(rows)} for running everything plus "
+        f"{len(selected)} for RTDD"
+    )
+    for skipped in (r["t"] for r in rows if r["t"] not in selected):
+        assert _short(skipped) in svg, "a skipped test must still be shown, not omitted"
+    # the claim the whole figure exists to make: a selected test covers the changed file
+    # without naming it, so selection cannot be filename matching
+    changed = [c["path"] for c in selection["changed"] if c.get("instrumentable")]
+    assert len(changed) == 1, f"the worked example must change exactly one file, got {changed}"
+    covers = {r["t"]: r["f"] for r in rows}
+    assert chart._indirect(changed[0], covers, selected), (
+        "no selected test reaches the changed file without naming it, so this example no "
+        "longer shows why coverage-derived selection differs from matching test filenames"
+    )
+
+
+def test_the_diagram_refuses_a_selection_the_map_does_not_support(worked):
+    rows, selection = worked
+    changed = selection["changed"][0]["path"]
+    broken = copy.deepcopy(rows)
+    for row in broken:
+        row["f"] = [f for f in row["f"] if f != changed]
+    with pytest.raises(chart.ChartError, match="map row"):
+        chart.worked_example_svg(broken, selection, chart.LIGHT)
+
+
+@pytest.mark.parametrize("palette", [chart.LIGHT, chart.DARK])
+def test_the_diagram_animates_and_is_well_formed(worked, palette):
+    import xml.etree.ElementTree as ET
+
+    rows, selection = worked
+    svg = chart.worked_example_svg(rows, selection, palette)
+    root = ET.fromstring(svg)
+    ns = "{http://www.w3.org/2000/svg}"
+    assert len(list(root.iter(ns + "animate"))) >= 4, "the figure does not animate"
+    # a <text> whose attributes leaked into its body renders them as visible words; this
+    # shipped once, from patching a rendered tag with a string replace
+    for node in root.iter(ns + "text"):
+        assert "font-family" not in (node.text or ""), f"malformed text node: {node.text!r}"
+
+
+@pytest.mark.parametrize("figure", chart.FIGURES)
+@pytest.mark.parametrize("palette", [chart.LIGHT, chart.DARK])
+def test_no_animation_runs_off_the_end_of_its_loop(figure, palette, flask, httpie):
+    """SMIL discards an animation whose keyTimes leave [0, 1], silently.
+
+    The element then renders at its static attribute value, so a bar that should fill
+    from zero draws permanently full — a skipped test shown as the most expensive one.
+    This shipped: a fixed per-test step fit three tests and overflowed at eight, and the
+    last three bars in the run-everything column sat full and motionless while the rest
+    animated. Nothing failed, because nothing looked.
+    """
+    svg = chart.render_figure(figure, [flask, httpie], palette)
+    for raw in re.findall(r'keyTimes="([^"]+)"', svg):
+        keys = [float(k) for k in raw.split(";")]
+        assert keys == sorted(keys), f"{figure}: keyTimes not monotonic: {raw}"
+        assert keys[0] >= 0.0 and keys[-1] <= 1.0, f"{figure}: keyTimes outside [0,1]: {raw}"
+
+    # Range alone is not the property. The cue builder clamps, so an overflowing timeline
+    # comes back in range as `0;1;1;1` — legal SMIL that never moves inside the loop, and
+    # a bar that never moves is a bar drawn at its static width. What has to hold is that
+    # each transition both starts and FINISHES before the loop ends.
+    for raw in re.findall(r'attributeName="width" values="[^"]*" keyTimes="([^"]+)"', svg):
+        start, end = (float(k) for k in raw.split(";")[1:3])
+        assert end > start, f"{figure}: a bar transition has zero duration: {raw}"
+        assert end < 1.0, f"{figure}: a bar is still filling when the loop restarts: {raw}"
+
+
+def test_the_graph_draws_an_edge_for_every_pair_the_map_recorded(worked):
+    """The picture of the map is the map, not a tidied version of it."""
+    rows, selection = worked
+    svg = chart.worked_example_svg(rows, selection, chart.LIGHT)
+    # Both panels draw the whole map — that is the comparison: same graph, different
+    # decision. So the figure carries two edges per recorded pair, never fewer.
+    pairs = sum(1 for r in rows for f in r["f"] if not f.startswith("tests/"))
+    assert svg.count("<path d=") == 2 * pairs, (
+        f"the graph draws {svg.count('<path d=')} edges but the map records {pairs} "
+        f"(test, source file) pairs across two panels"
+    )
+
+
+def test_the_example_looks_like_real_code_not_a_star_graph(worked):
+    """Shared helpers, layered imports, tests that touch more than one file.
+
+    The first version of this example was eight isolated features with one test each and
+    a single file that anything depended on. It made the picture tidy and the argument
+    weak: nothing in it looked like a codebase, so the one interesting edge read as
+    contrived. These floors keep the example honest without pinning it to today's shape.
+    """
+    rows, _ = worked
+    covers = {r["t"]: [f for f in r["f"] if not f.startswith("tests/")] for r in rows}
+    sources = {f for fs in covers.values() for f in fs}
+
+    multi = [t for t, fs in covers.items() if len(fs) > 1]
+    assert len(multi) >= len(rows) * 0.6, (
+        f"only {len(multi)} of {len(rows)} tests touch more than one file; real tests "
+        f"exercise a stack, and a graph of one-to-one pairs argues nothing"
+    )
+    shared = [f for f in sources if sum(1 for fs in covers.values() if f in fs) > 1]
+    assert len(shared) >= 3, (
+        f"only {len(shared)} files are used by more than one test; real code has shared "
+        f"helpers, and without them there is no indirect reach to demonstrate"
+    )
+    assert chart._edge_count(covers) >= 2 * len(rows), (
+        f"{chart._edge_count(covers)} edges across {len(rows)} tests is too sparse to "
+        f"read as a dependency graph"
+    )

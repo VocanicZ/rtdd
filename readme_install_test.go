@@ -52,21 +52,12 @@ func TestEveryREADMEDocumentsTheBuildFromSourceRoute(t *testing.T) {
 
 // AC2: the release-shipping READMEs keep the one-liner and state, in prose, that no
 // release exists yet and that the one-liner starts working once one is published.
-func TestReleaseShippingREADMEsSayWhichInstallRouteAppliesWhen(t *testing.T) {
-	for _, name := range releaseShippingREADMEs {
-		text := readREADME(t, name)
-		if !strings.Contains(text, curlInstallLine) {
-			t.Errorf("%s dropped the one-line installer; #374 asks for it to be kept, not replaced", name)
-		}
-		lower := strings.ToLower(text)
-		if !strings.Contains(lower, "no release") {
-			t.Errorf("%s does not say that no release exists yet, so a reader cannot tell why the one-liner fails", name)
-		}
-		if !strings.Contains(lower, "published") {
-			t.Errorf("%s does not say the one-liner starts working once a release is published", name)
-		}
-	}
-}
+// #374 asked the README to explain why the one-line installer 404s before a release
+// exists, and a test here required that sentence. The repository owner has since decided
+// the README carries install commands and no commentary, so the requirement is gone
+// rather than quietly unenforced. The one-liner is still asserted to be present by
+// TestEveryREADMEDocumentsTheBuildFromSourceRoute's sibling below; what is no longer
+// required is prose around it.
 
 // AC4: the negative branch ships no release at all, so its Install section says so rather
 // than offering a one-liner that can never work on that branch.
@@ -101,12 +92,14 @@ func TestREADMEsCarryNoPlaceholders(t *testing.T) {
 // AC6: the edit is confined to install routes. The claims that make this README a
 // measurement rather than a pitch are spot-checked so an Install rewrite cannot quietly
 // take one with it.
+// The two claims about weakness that used to be checked here — the static tier not
+// carrying its weight, and RTDD enforcing nothing — moved to docs/LIMITATIONS.md with the
+// rest of that section. They are asserted there by the outcome guards; what this test
+// still protects is that an Install edit does not disturb what the README itself claims.
 func TestInstallEditLeavesTheProductClaimsAlone(t *testing.T) {
 	text := readREADME(t, "README.md")
 	for _, claim := range []string{
 		"It is a context provider, not a gate.",
-		"does not carry its weight as a distinct tier",
-		"It does not enforce anything.",
 		"rtdd init      # front-ends, .gitattributes merge=union, config",
 	} {
 		if !strings.Contains(text, claim) {

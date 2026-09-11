@@ -56,7 +56,7 @@ NOT_MEASURED = report.NOT_MEASURED
 #: Order is fixed so a re-render cannot churn the diff. `rtdd-vs-full` leads because it
 #: is the only figure that answers the project's own question rather than the
 #: pre-registered one; the `axis2-*` figures answer the baselines a reviewer will ask for.
-FIGURES: tuple[str, ...] = ("rtdd-vs-full", "axis2-savings", "axis2-safety", "axis2-wallclock")
+FIGURES: tuple[str, ...] = ("how-it-picks", "rtdd-vs-full", "axis2-savings", "axis2-safety", "axis2-wallclock")
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
@@ -753,10 +753,254 @@ def head_to_head_svg(summary: dict, session: dict, palette: Palette) -> str:
     return _svg(WIDTH, int(y + 20 + 13 * len(HEAD_TO_HEAD_CAVEATS)), body + footer, palette)
 
 
+# --- figure: the worked example, animated ----------------------------------------
+
+WORKED_EXAMPLE = "docs/results/worked-example"
+
+#: One loop. Cues below are seconds on this timeline.
+DUR = 7.0
+CUE_CHANGE = 0.4      # the changed feature starts pulsing
+CUE_TRACE = 1.3       # the coverage edges out of it light up
+CUE_RUN = 2.0         # both panels start running tests
+STEP = 0.85           # one test's worth of running time
+CUE_HOLD = 6.3        # everything is settled and holds until the loop restarts
+
+
+def _t(seconds: float) -> float:
+    """A cue in seconds -> its keyTime fraction on the loop."""
+    return round(seconds / DUR, 5)
+
+
+def load_worked_example(root: pathlib.Path) -> tuple[list[dict], dict]:
+    base = root / WORKED_EXAMPLE
+    try:
+        rows = [json.loads(l) for l in (base / "map.jsonl").read_text().splitlines() if l.strip()]
+        selection = json.loads((base / "selection-auth.json").read_text())
+    except FileNotFoundError as exc:
+        raise ChartError(f"the worked-example figure needs {exc.filename}") from exc
+    if not rows:
+        raise ChartError(f"{base / 'map.jsonl'} is empty")
+    return rows, selection
+
+
+def _short(path: str) -> str:
+    """`src/b.py` -> `b.py`, `tests/test_a.py::test_a` -> `test_a`."""
+    if "::" in path:
+        return path.split("::", 1)[1]
+    return path.rsplit("/", 1)[-1]
+
+
+def _anim(attr: str, values: str, key_times: str, *, calc: str = "discrete") -> str:
+    return (
+        f'<animate attributeName="{attr}" values="{values}" keyTimes="{key_times}" '
+        f'dur="{DUR}s" calcMode="{calc}" repeatCount="indefinite"/>'
+    )
+
+
+def _indirect(changed: str, covers: dict, selected: set) -> list[str]:
+    """Selected tests whose own name points somewhere other than the changed file.
+
+    `test_auth` covering `auth.py` is the case any filename heuristic also gets. The
+    argument for a coverage map is the other kind: `test_api` runs because it reached
+    `auth.py` through `api.handle`, and nothing in its name or path says so. Derived from
+    the map rather than asserted, so the caption cannot outlive the example.
+    """
+    stem = _short(changed).removesuffix(".py")
+    out = []
+    for t in sorted(selected):
+        if changed not in covers.get(t, []):
+            continue
+        if _short(t).removesuffix("_test").removeprefix("test_") != stem:
+            out.append(t)
+    return out
+
+
+def _edge_count(covers: dict) -> int:
+    return sum(1 for fs in covers.values() for f in fs if not f.startswith("tests/"))
+
+
+def _reach_sentence(changed: str, covers: dict, selected: set) -> str:
+    """Only what the map itself carries: how big it is, and how much of it this touches.
+
+    An earlier version said the changed file was "called by" every other source file a
+    selected test happened to execute. The map records co-execution, not calls, so that
+    sentence claimed a relationship the record cannot support — and on a realistic
+    example it listed five callers for a file with one.
+    """
+    sources = {f for fs in covers.values() for f in fs if not f.startswith("tests/")}
+    reached = sum(1 for fs in covers.values() if changed in fs)
+    return (f"{len(sources)} files, {len(covers)} tests, {_edge_count(covers)} edges the seed run "
+            f"recorded. {_short(changed)} was executed by {reached} of those tests.")
+
+
+def _punchline(changed: str, covers: dict, selected: set) -> str:
+    names = [_short(t) for t in _indirect(changed, covers, selected)]
+    if not names:
+        return (f"Every test that executed {_short(changed)} runs, and the rest do not. "
+                f"Nothing here was decided by a filename.")
+    joined = " and ".join(names) if len(names) < 3 else ", ".join(names[:-1]) + f" and {names[-1]}"
+    verb, subj = ("runs too", "its name points") if len(names) == 1 else ("run too", "their names point")
+    return (f"{joined} {verb}: {subj} elsewhere, and only the recorded coverage shows "
+            f"the change was reached from there.")
+
+
+class Timeline:
+    """Cues for one loop, derived from how many tests there are.
+
+    Every cue has to land inside [0, DUR], because SMIL silently discards an animation
+    whose keyTimes leave [0, 1] and the element then renders at its static attribute —
+    a skipped bar drawn permanently full, which is the opposite of what it means. A fixed
+    per-test step shipped exactly that: it fit three tests and overflowed at eight.
+    """
+
+    def __init__(self, n: int) -> None:
+        self.n = max(n, 1)
+        self.change = 0.4
+        self.trace = 1.2
+        self.trace_span = 1.6
+        self.run = self.trace + self.trace_span + 0.25
+        self.hold = DUR - 0.5
+        self.step = (self.hold - self.run) / self.n
+
+    def edge(self, i: int) -> float:
+        return self.trace + i * (self.trace_span / self.n)
+
+    def bar(self, order: int) -> float:
+        return self.run + order * self.step
+
+    def keys(self, *cues: float) -> str:
+        out = []
+        for c in cues:
+            f = round(min(max(c, 0.0), DUR) / DUR, 5)
+            out.append(f if not out else max(f, out[-1]))
+        return ";".join(f"{v:g}" for v in out)
+
+
+def worked_example_svg(rows: Sequence[dict], selection: dict, palette: Palette) -> str:
+    """Two self-contained panels, the same graph in each, decided differently.
+
+    Both sides draw every file, every test and every edge the map recorded, so the only
+    thing that differs between them is what gets lit and what gets run. Nothing spans the
+    middle: a figure whose graph sat across both columns belonged to neither, and the
+    left-hand approach ended up with no picture of its own to compare against.
+
+    The left panel's edges are drawn and then ignored, which is the honest shape of
+    running everything — the structure is right there and nothing reads it.
+    """
+    changed = selection["changed"][0]["path"]
+    selected = set(selection["selection"]["tests"])
+    tests = [r["t"] for r in rows]
+    covers = {r["t"]: list(r["f"]) for r in rows}
+    for t in tests:
+        if changed not in covers[t] and t in selected:
+            raise ChartError(f"{t} is selected but its map row does not carry {changed}")
+
+    sources = sorted({f for fs in covers.values() for f in fs if not f.startswith("tests/")})
+    n, tl = len(tests), Timeline(len(tests))
+    W, PW, GAP = 900, 414, 16
+    ROW, TOP = 30, 150
+    PANELS = (
+        ("Run everything", MARGIN, palette.full, False),
+        ("RTDD", MARGIN + PW + GAP, palette.rtdd, True),
+    )
+    graph_h = n * ROW
+    total_y = TOP + graph_h + 30
+    H = int(total_y + 78)
+
+    body: list[str] = [
+        _text(MARGIN, MARGIN + 4, "The same change, two ways of deciding what to run",
+              fill=palette.ink, size=17, weight="700"),
+        _text(MARGIN, MARGIN + 24, _reach_sentence(changed, covers, selected),
+              fill=palette.muted, size=11.5),
+    ]
+
+    for title, px, colour, consults in PANELS:
+        sx, tx = px + 62, px + 166          # node columns, inside this panel only
+        bar_x, bar_w = px + 236, 150
+        body.append(f'<rect x="{px}" y="{MARGIN + 44}" width="{PW}" height="{H - MARGIN - 96}" '
+                    f'rx="10" fill="none" stroke="{palette.grid}"/>')
+        body.append(_text(px + 20, MARGIN + 72, title, fill=palette.ink, size=14, weight="700"))
+        body.append(_text(px + 20, MARGIN + 92,
+                          f"follow the edges into {_short(changed)}" if consults
+                          else "the edges are here; nothing reads them",
+                          fill=colour if consults else palette.muted, size=11))
+        body.append(_text(sx, TOP - 20, "files", fill=palette.muted, size=9.5, anchor="middle"))
+        body.append(_text(tx, TOP - 20, "tests", fill=palette.muted, size=9.5, anchor="middle"))
+        body.append(_text(bar_x + bar_w / 2, TOP - 20, "what runs", fill=palette.muted,
+                          size=9.5, anchor="middle"))
+
+        sy = {f: TOP + i * ROW for i, f in enumerate(sources)}
+        ty = {t: TOP + i * ROW for i, t in enumerate(tests)}
+
+        # every (test, file) pair the map holds, drawn in both panels
+        for t in tests:
+            for f in covers[t]:
+                if f.startswith("tests/"):
+                    continue
+                live = consults and f == changed
+                d = (f'M{tx - 11:.0f} {ty[t]:.0f} C{tx - 42:.0f} {ty[t]:.0f}, '
+                     f'{sx + 42:.0f} {sy[f]:.0f}, {sx + 10:.0f} {sy[f]:.0f}')
+                if live:
+                    cue = tl.edge(tests.index(t))
+                    body.append(f'<path d="{d}" fill="none" stroke="{palette.warn}" '
+                                f'stroke-width="2.2" opacity="0.12">'
+                                + _anim("opacity", "0.12;0.12;1;1",
+                                        tl.keys(0, cue, cue + 0.25, DUR), calc="linear") + "</path>")
+                else:
+                    body.append(f'<path d="{d}" fill="none" stroke="{palette.grid}" stroke-width="1.1"/>')
+
+        for f in sources:
+            hot = consults and f == changed
+            ink = palette.warn if hot else palette.muted
+            body.append(f'<circle cx="{sx}" cy="{sy[f]:.0f}" r="{8 if hot else 6}" fill="none" '
+                        f'stroke="{ink}" stroke-width="{2.4 if hot else 1.2}"/>')
+            body.append(_text(sx - 14, sy[f] + 4, _short(f), fill=palette.ink if hot else palette.muted,
+                              size=10, anchor="end", mono=True, weight="700" if hot else "normal"))
+        if consults:
+            body.append(_text(sx, sy[changed] + 22, "changed", fill=palette.warn,
+                              size=9, anchor="middle"))
+
+        runs = [t for t in tests if (t in selected or not consults)]
+        order = 0
+        for t in tests:
+            running = t in runs
+            body.append(f'<circle cx="{tx}" cy="{ty[t]:.0f}" r="7" fill="{colour if running else "none"}" '
+                        f'stroke="{colour if running else palette.muted}" stroke-width="1.6"/>')
+            body.append(_text(tx + 14, ty[t] + 4, _short(t),
+                              fill=palette.ink if running else palette.muted, size=10, mono=True))
+            body.append(f'<rect x="{bar_x}" y="{ty[t] - 6:.0f}" width="{bar_w}" height="12" rx="3" '
+                        f'fill="{palette.grid}" opacity="0.45"/>')
+            if running:
+                start = tl.bar(order)
+                body.append(f'<rect x="{bar_x}" y="{ty[t] - 6:.0f}" width="0" height="12" rx="3" '
+                            f'fill="{colour}">'
+                            + _anim("width", f"0;0;{bar_w};{bar_w}",
+                                    tl.keys(0, start, start + tl.step, DUR), calc="linear") + "</rect>")
+                order += 1
+            else:
+                body.append(_text(bar_x + 6, ty[t] + 4, "never runs", fill=palette.muted, size=9))
+
+        done = tl.bar(len(runs))
+        body.append(f'<text x="{px + 20:.0f}" y="{total_y:.0f}" font-family="{FONT}" font-size="13" '
+                    f'font-weight="700" fill="{colour}" text-anchor="start" opacity="0">'
+                    f'{_esc(f"{len(runs)} of {n} tests · caught the change")}'
+                    + _anim("opacity", "0;0;1;1", tl.keys(0, done, done + 0.25, DUR), calc="linear")
+                    + "</text>")
+
+    body.append(_text(MARGIN, H - 44, _punchline(changed, covers, selected),
+                      fill=palette.muted, size=11))
+    body.append(_source_note(H - 22, palette,
+                             f"source: {WORKED_EXAMPLE}/map.jsonl · {WORKED_EXAMPLE}/selection-auth.json"))
+    return _svg(W, H, body, palette)
+
+
 # --- emission ----------------------------------------------------------------------
 
 
 def render_figure(figure: str, summaries: Sequence[dict], palette: Palette) -> str:
+    if figure == "how-it-picks":
+        rows, selection = load_worked_example(REPO_ROOT)
+        return worked_example_svg(rows, selection, palette)
     if figure == "rtdd-vs-full":
         summary, session = load_head_to_head()
         return head_to_head_svg(summary, session, palette)
