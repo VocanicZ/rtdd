@@ -52,12 +52,19 @@ func TestBothOutcomeFilesExist(t *testing.T) {
 // after it. The replacement is the two-tier statement, not a deletion — the Python-only
 // LIMIT is still real for execution-derived selection, and dropping the bullet would
 // quietly upgrade every non-Python repository's evidence.
+// The two-tier caveat, the pre-registered static verdict and the citations behind it
+// moved out of the README when it was cut back to install, usage and results: they are
+// documentation of where the tool is weak, not front-page material. They are still
+// published, still derived from the committed records, and still guarded — on the page
+// that now carries them. README.negative.md keeps its own copy, because that branch's
+// README is a withdrawal notice and states the limits inline.
+var tierClaimDocs = []string{
+	filepath.Join("docs", "LIMITATIONS.md"),
+	filepath.Join("docs", "outcomes", "README.negative.md"),
+}
+
 func TestREADMEStatesTheTwoTiersRatherThanPythonOnly(t *testing.T) {
-	for _, name := range []string{
-		"README.md",
-		filepath.Join("docs", "outcomes", "README.positive.md"),
-		filepath.Join("docs", "outcomes", "README.negative.md"),
-	} {
+	for _, name := range tierClaimDocs {
 		b, err := os.ReadFile(name)
 		if err != nil {
 			t.Fatal(err)
@@ -79,9 +86,10 @@ func TestREADMEStatesTheTwoTiersRatherThanPythonOnly(t *testing.T) {
 // PRD #233 AC12 / #351: the pre-registered static-tier kill condition is reported in the
 // README, win or lose, and it names the measurement rather than asserting a conclusion.
 func TestREADMEReportsThePreRegisteredStaticVerdict(t *testing.T) {
-	b, err := os.ReadFile("README.md")
+	page := filepath.Join("docs", "LIMITATIONS.md")
+	b, err := os.ReadFile(page)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("read %s: %v", page, err)
 	}
 	text := string(b)
 	for _, needle := range []string{
@@ -91,7 +99,7 @@ func TestREADMEReportsThePreRegisteredStaticVerdict(t *testing.T) {
 		"pre-registered",
 	} {
 		if !strings.Contains(text, needle) {
-			t.Errorf("README.md does not cite %q for the static-tier verdict", needle)
+			t.Errorf("%s does not cite %q for the static-tier verdict", page, needle)
 		}
 	}
 }
@@ -174,11 +182,7 @@ func TestREADMEStaticVerdictMatchesTheCommittedSummaries(t *testing.T) {
 	if fired {
 		want, unwanted = staticKillFiredClaim, staticKillHeldClaim
 	}
-	for _, name := range []string{
-		"README.md",
-		filepath.Join("docs", "outcomes", "README.positive.md"),
-		filepath.Join("docs", "outcomes", "README.negative.md"),
-	} {
+	for _, name := range tierClaimDocs {
 		b, err := os.ReadFile(name)
 		if err != nil {
 			t.Fatal(err)

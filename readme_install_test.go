@@ -92,12 +92,14 @@ func TestREADMEsCarryNoPlaceholders(t *testing.T) {
 // AC6: the edit is confined to install routes. The claims that make this README a
 // measurement rather than a pitch are spot-checked so an Install rewrite cannot quietly
 // take one with it.
+// The two claims about weakness that used to be checked here — the static tier not
+// carrying its weight, and RTDD enforcing nothing — moved to docs/LIMITATIONS.md with the
+// rest of that section. They are asserted there by the outcome guards; what this test
+// still protects is that an Install edit does not disturb what the README itself claims.
 func TestInstallEditLeavesTheProductClaimsAlone(t *testing.T) {
 	text := readREADME(t, "README.md")
 	for _, claim := range []string{
 		"It is a context provider, not a gate.",
-		"does not carry its weight as a distinct tier",
-		"It does not enforce anything.",
 		"rtdd init      # front-ends, .gitattributes merge=union, config",
 	} {
 		if !strings.Contains(text, claim) {
