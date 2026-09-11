@@ -21,10 +21,11 @@
     }
   ],
   "selection": {
-    "count": 2,
+    "count": 3,
     "direct": [],
     "tests": [
       "tests/test_b.py::test_b",
+      "tests/test_d.py::test_d",
       "tests/test_a.py::test_a"
     ],
     "import_fallback": {}

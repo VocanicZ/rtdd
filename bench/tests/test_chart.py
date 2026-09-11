@@ -27,6 +27,7 @@ import re
 import pytest
 
 from replay import chart
+from replay.chart import _short
 from replay.report import FAILURE_WORDING
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -351,9 +352,18 @@ def test_every_test_the_diagram_runs_is_one_the_selection_returned(worked):
     assert selected, "the committed selection is empty; the figure would show nothing running"
     assert selected < {r["t"] for r in rows}, "the point is that some test is skipped"
     svg = chart.worked_example_svg(rows, selection, chart.LIGHT)
-    skipped = [r["t"] for r in rows if r["t"] not in selected]
-    for t in skipped:
-        assert "skipped" in svg
+
+    # Structural, not prose: a running test is one with a width animation on its bar, so
+    # the figure animates exactly (every test, once, for the run-everything column) plus
+    # (every SELECTED test, once, for RTDD). Asserting on the word "skipped" only checked
+    # the caption, and passed a redraw that changed the wording to "never runs".
+    running_bars = svg.count('<animate attributeName="width"')
+    assert running_bars == len(rows) + len(selected), (
+        f"{running_bars} bars animate; expected {len(rows)} for running everything plus "
+        f"{len(selected)} for RTDD"
+    )
+    for skipped in (r["t"] for r in rows if r["t"] not in selected):
+        assert _short(skipped) in svg, "a skipped test must still be shown, not omitted"
     # the claim the whole figure exists to make: a selected test covers the changed file
     # without naming it, so selection cannot be filename matching
     changed = [c["path"] for c in selection["changed"] if c.get("instrumentable")]

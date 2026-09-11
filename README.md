@@ -39,15 +39,70 @@ numbers are in [`bench/results/flask/summary.json`](bench/results/flask/summary.
 
 ## It runs more than the test you touched
 
+Say `a.py` and `d.py` both call `b.py`, and every feature has its own test. You change
+`b.py`. A path heuristic matches `tests/test_b.py` and stops — missing that you may have
+just broken A and D.
+
+RTDD selects all three, because the map records what each test *executed*, not what it is
+named. The difference is not only how many tests run — it is that one approach has
+something to consult and the other does not:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/results/figures/how-it-picks-dark.svg">
+  <img alt="The same change, two ways of deciding what to run. Eight features, eight tests; a.py and d.py both call b.py. You changed b.py. Running everything has nothing to look up — the answer is the same whatever you changed — so all 8 tests run. RTDD looks up b.py in the map: test_a, test_b and test_d cover it, the other five do not. RTDD runs 3 of 8 and both approaches catch the change." src="docs/results/figures/how-it-picks-light.svg">
+</picture>
+
+Neither `test_a` nor `test_d` mentions `b.py`. They call into it, the seed run watched that
+happen, and `b.py` landed in both their rows:
+
+```
+tests/test_a.py::test_a  →  src/a.py, src/b.py, tests/test_a.py
+tests/test_b.py::test_b  →  src/b.py, tests/test_b.py
+tests/test_d.py::test_d  →  src/b.py, src/d.py, tests/test_d.py
+tests/test_c.py::test_c  →  src/c.py, tests/test_c.py
+                            ... and four more that never touched b.py
+```
+
+Change `src/b.py` and every test whose row contains it is selected — three of eight here.
+It is transitive for free: if A called B which called C, C's file would be in A's row too,
+because the tracer only records what actually ran.
+
+Change a *test* file instead and that test always runs, mapped or not.
+
+The map and selection above are the real output of `rtdd seed` and `rtdd which` on that
+repository, committed under
+[`docs/results/worked-example/`](docs/results/worked-example/) and read directly by the
+figure — including the sentences naming `a.py` and `d.py`, which are derived from the map
+rather than written beside it.
+
+One limit: this works from what the seed run recorded. A path no test has ever executed
+is not in the map, so new code selects nothing until it has run once — which is what the
+uncovered report tells you.
+
+The run above is *execution-derived* selection, and it is Python only today. Every other
+language gets *static* selection instead — declared file correspondence and imports, with
+nothing instrumented. It never watched a test run, so it can miss a test the Python tier
+would have caught. Passing it is weaker evidence, and every surface tells you which tier
+you are reading.
+
+That static tier was pre-registered against a naive path heuristic and did not beat it, so
+it does not carry its weight as a distinct tier. It ships because a repository RTDD cannot
+instrument is otherwise offered nothing — not because it is measured to be better. The
+numbers are in [`bench/results/flask/summary.json`](bench/results/flask/summary.json) and
+[`bench/results/httpie/summary.json`](bench/results/httpie/summary.json).
+
+## It runs more than the test you touched
+
 Say feature A calls feature B, and each has its own test. You change B. A path heuristic
 matches `tests/test_b.py` and stops — and misses that you just broke A.
 
 RTDD selects both, because the map records what each test *executed*, not what it is
-named:
+named. The difference is not how many tests run — it is that one approach has something to
+consult and the other does not:
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/results/figures/how-it-picks-dark.svg">
-  <img alt="A worked example. Feature a.py calls feature b.py; c.py is unrelated. test_a covers a.py and b.py, test_b covers b.py, test_c covers c.py. You change b.py. Running everything executes all three tests; RTDD executes test_a and test_b and skips test_c, because nothing test_c covers changed." src="docs/results/figures/how-it-picks-light.svg">
+  <img alt="The same change, two ways of deciding what to run. You changed b.py. Running everything has nothing to look up — the answer is the same whatever you changed — so all three tests run. RTDD looks up b.py in the map: test_a covers a.py and b.py so it covers it, test_b covers b.py so it covers it, test_c covers c.py so it does not. RTDD runs test_a and test_b, never runs test_c, and both approaches catch the change." src="docs/results/figures/how-it-picks-light.svg">
 </picture>
 
 `test_a` never mentions `b.py`. It imports `feature_a`, which calls into B — and the seed
