@@ -1,48 +1,7 @@
 # rtdd
 
-**rtdd tells an agent which tests cover the code it just changed, and which of the lines it
-just changed nothing covers** — derived from real execution rather than a static call graph.
-
-An agent editing code runs the tests after every change, dozens of times in a single task.
-Running the whole suite each time is slow, and guessing from filenames is wrong in the
-direction that matters: the test most likely to catch your bug is often the one whose name
-has nothing to do with the file you edited.
-
-RTDD answers from a record rather than a guess. Three commands:
-
-- **`rtdd seed`** runs the suite once under coverage and writes a map — for every test, the
-  set of source files that test actually executed.
-- **`rtdd which`** diffs your working tree against a base, looks the changed files up in
-  that map, and prints the tests whose recorded coverage intersects them, ranked. It runs
-  nothing. Untracked files count, so a file you just wrote is included.
-- **`rtdd run`** runs that selection and reports what happened.
-
-Because the map records what a test *executed* and not what it is *named*, selection is
-transitive for free: a test that never mentions the file you changed is still selected when
-the seed run watched it reach that file, however deep the call went. That is the whole
-argument for building a coverage map instead of matching paths, and the worked example
-below shows it happening.
-
-Every answer carries three things besides the list of tests:
-
-- a **tier**, naming the rule that produced the selection, so a narrow answer and a
-  fall-back to the full suite never look alike;
-- an **uncovered report**, listing the changed lines no selected test executed. Lines that
-  ran at import time are reported separately, because they belong to no test and are not a
-  coverage gap;
-- a **fidelity**: `execution-derived` when tests came from recorded coverage, `static` when
-  they came from declared correspondence and imports because the toolchain records nothing,
-  and `none` when nothing narrower than the full suite was available. A passing static
-  selection is weaker evidence, and `rtdd doctor` reports which fidelity a repository can
-  reach and why. Python reaches the first; see
-  [Limitations](docs/LIMITATIONS.md) for what the others cost you.
-
-It is a context provider, not a gate. `rtdd run` exits non-zero when a test fails, and for
-no other reason — an empty selection and an uncovered report are both exit 0. An empty
-selection is reported as its own outcome, never as a pass.
-
-It works from what the seed run recorded, so a path no test has ever executed is in no map
-and selects nothing until it has run once. The uncovered report is how you see that.
+**rtdd is a test selector for coding agents.** Running every test after every edit is slow.
+rtdd runs every test that executed the code you changed, directly or deep in a call chain.
 
 ## Install
 
@@ -94,6 +53,9 @@ tier T0: 2 selected (tests whose recorded coverage intersects the changed set)
 never edits outside its own markers. With no matching adapter it writes nothing and exits 2;
 `--force` installs anyway.
 
+It is a context provider, not a gate. `rtdd run` exits non-zero when a test fails, and for
+no other reason.
+
 ## It runs more than the test you touched
 
 Real code shares things. A small app might have `api.py` calling `auth.py`, both leaning on
@@ -138,6 +100,10 @@ The map and the selection are the real output of `rtdd seed` and `rtdd which` on
 app, committed under [`docs/results/worked-example/`](docs/results/worked-example/) and
 read directly by the figure — including its captions, which are computed from the map
 rather than written beside it.
+
+One limit: this works from what the seed run recorded. A path no test has ever executed
+is not in the map, so new code selects nothing until it has run once — which is what the
+uncovered report tells you.
 
 ## Does it work?
 
