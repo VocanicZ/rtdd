@@ -232,3 +232,73 @@ def test_render_all_covers_both_palettes_of_every_figure():
     for figure in chart.FIGURES:
         for palette in (chart.LIGHT, chart.DARK):
             assert f"{figure}-{palette.name}.svg" in chart.figure_names()
+
+
+# --- the head-to-head: RTDD against running everything, and nothing else -----------
+#
+# This figure answers the project's own question rather than the pre-registered one, and
+# it is the figure a reader sees first. Its whole value is that there is no third bar to
+# compare against: the moment a cheaper baseline appears beside RTDD and the full suite,
+# the picture stops answering "is this better than running everything" and starts
+# answering "is the map worth building", which the axis2 figures already answer in full.
+# These tests are what stops that drift.
+
+
+@pytest.fixture
+def paired() -> dict:
+    return json.loads((RESULTS / "paired" / "flask" / "summary.json").read_text())
+
+
+@pytest.fixture
+def session() -> dict:
+    return json.loads((RESULTS / "agent-session" / "flask.json").read_text())
+
+
+def test_head_to_head_draws_only_rtdd_and_the_full_suite(paired, session):
+    svg = chart.head_to_head_svg(paired, session, chart.LIGHT)
+    drawn = {strategy for strategy, _ in marks(svg)}
+    assert drawn == {"rtdd", "full"}, (
+        f"the head-to-head figure drew {sorted(drawn)}; it may only ever draw "
+        f"{sorted(chart.HEAD_TO_HEAD)} — every other selector belongs in the axis2 figures"
+    )
+
+
+def test_head_to_head_never_plots_a_baseline_even_when_the_summary_carries_one(paired, session):
+    # The summary really does carry testmon, path, lf, importgraph and random. A figure
+    # that iterated `summary["strategies"]` would quietly pick them all up on the next
+    # re-render, which is exactly the regression this asserts against.
+    assert len(paired["strategies"]) > len(chart.HEAD_TO_HEAD)
+    svg = chart.head_to_head_svg(paired, session, chart.LIGHT)
+    for baseline in set(paired["strategies"]) - set(chart.HEAD_TO_HEAD):
+        assert f'data-strategy="{baseline}"' not in svg
+
+
+def test_head_to_head_bars_are_the_committed_values_not_literals(paired, session):
+    svg = chart.head_to_head_svg(paired, session, chart.LIGHT)
+    got = marks(svg)
+    for name in chart.HEAD_TO_HEAD:
+        row = paired["strategies"][name]
+        assert got[(name, "change_level_recall")] == f"{row['change_level_recall']['value']:.3f}"
+        assert got[(name, "selected_duration_fraction")] == (
+            f"{row['selected_duration_fraction']['value']:.3f}"
+        )
+    for label, key in (("full suite", "full"), ("rtdd run", "always"), ("--record=auto", "auto")):
+        strategy = "full" if key == "full" else "rtdd"
+        assert got[(strategy, f"session_ms/{label}")] == f"{session['session_ms'][key]} ms"
+
+
+def test_head_to_head_carries_its_own_limits(paired, session):
+    # A figure this favourable travels without its table — screenshotted into an issue,
+    # pasted into a slide — so the limits have to be inside the image.
+    svg = chart.head_to_head_svg(paired, session, chart.LIGHT)
+    assert "upper bound" in svg
+    assert "Parity is the ceiling" in svg
+    detecting = paired["strategies"]["full"]["change_level_recall"]["den"]
+    assert f"{detecting} detecting commits" in svg
+
+
+def test_head_to_head_refuses_a_summary_missing_an_arm(paired, session):
+    stripped = copy.deepcopy(paired)
+    del stripped["strategies"]["full"]
+    with pytest.raises(chart.ChartError, match="full"):
+        chart.head_to_head_svg(stripped, session, chart.LIGHT)

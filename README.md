@@ -143,6 +143,15 @@ quality alone.
 Three axes, in the order that decides whether to use it. Each states what is measured,
 what is not, and the committed record every figure is read from.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/results/figures/rtdd-vs-full-dark.svg">
+  <img alt="RTDD against running the whole suite. The agent's loop over 10 edits to one module: the full suite costs 28390 ms, rtdd run 19962 ms (1.42x faster), rtdd run --record=auto 10127 ms (2.80x faster). On flask's paired population of 5 detecting commits, rtdd and the full suite both catch 1.000 (5/5) of the changes and both catch 1.000 (4/4) where exactly one test fails, with rtdd spending 0.757 of the suite's test time against the full suite's 1.000." src="docs/results/figures/rtdd-vs-full-light.svg">
+</picture>
+
+Regenerate with `uv run python -m replay chart` from `bench/`; every mark carries the
+value it was read from, and [`bench/tests/test_chart.py`](bench/tests/test_chart.py)
+re-renders the file and fails if a byte differs.
+
 ### Does it save the agent time? — yes, measured
 
 Ten edits to one module in a real `flask` clone, no commits between them — the loop
@@ -201,30 +210,31 @@ does not reach it.
 On that population, from
 [`bench/results/paired/flask/summary.md`](bench/results/paired/flask/summary.md):
 
-| strategy | change recall | recall where exactly one test fails | share of suite time |
+| | caught the change | …where exactly one test fails | share of suite time |
 |---|---|---|---|
-| **rtdd** | **1.000 (5/5)** | **1.000 (4/4)** | 0.757 |
-| testmon | 1.000 (5/5) | 1.000 (4/4) | 0.603 |
-| random | 0.800 (4/5) | 0.750 (3/4) | 0.690 |
-| lf | 0.600 (3/5) | 0.750 (3/4) | 0.699 |
-| path | 0.400 (2/5) | 0.250 (1/4) | 0.027 |
-| importgraph | 0.000 (0/5) | 0.000 (0/4) | 0.000 |
+| run the whole suite | 1.000 (5/5) | 1.000 (4/4) | 1.000 |
+| **rtdd** | **1.000 (5/5)** | **1.000 (4/4)** | **0.757** |
 
 The middle column is the one that matters: the `|F_full| == 1` stratum, where a single
 failing test is all that stands between a selection and a missed regression. RTDD catches
-every one. **On this population RTDD loses nothing a full run would have caught.**
+every one. **On this population RTDD loses nothing a full run would have caught, and
+spends three quarters of its time doing it.**
+
+Parity is the ceiling here, not a contest RTDD won: a full run catches what it catches by
+definition, so matching it is the best available outcome and beating it is not a thing
+that can happen.
 
 **What that does not license.** Five detecting commits, one repository, on a population
 biased by construction toward commits that changed code and tests together, and `probe`
-remains an explicit upper bound — every map-based strategy is seeded at the child commit,
-so RTDD and testmon both know about code an agent would not yet have recorded. It is
-enough to make recall computable for the first time. It is not a general result, and
-`testmon` reaches the same recall for less time.
+remains an explicit upper bound — the map is seeded at the child commit, so RTDD knows
+about code an agent would not yet have recorded. It is enough to make recall computable
+for the first time. It is not a general result.
 
-The pre-registered criterion is still **not met**, and for the same reason it was not met
-before: it asks for better recall than the naive `path` heuristic *at equal or better
-selected duration*, and RTDD spends 0.757 of the suite's test time against `path`'s 0.027.
-`summary.md`'s verdict line says so verbatim, win or lose.
+RTDD is also not the only tool that narrows a suite, and this section does not pretend
+otherwise — it just is not the question this section asks. The pre-registered comparison
+against `pytest-testmon`, a naive path heuristic and four other baselines is
+[below](#axis-2--selection-quality-on-real-commits), unabridged and including the result
+that goes against RTDD.
 
 **One safety-adjacent thing is separately measured, and it is clean.** The uncovered
 report — which of the lines you just changed no test executes — fired on 12 cycles across
@@ -248,11 +258,22 @@ on the population that can measure it, including the stratum where one failing t
 all that is at stake.
 
 What is missing is not a win but a *sample*: five detecting commits on one repository, on
-an upper-bound population, is where this evidence begins rather than ends. And on cost
-against recall, `testmon` still matches RTDD for less time. What follows is every number
-those answers are read from, win or lose.
+an upper-bound population, is where this evidence begins rather than ends. Replaying
+`--commit-selection=paired` across httpie and sqlfluff, and deeper into each history, is
+what would turn this from a measurement into a result.
+
+What follows is every number those answers are read from, win or lose — including the
+pre-registered comparison against the other selectors, which asks a different question
+and which RTDD does not currently win.
 
 ## The measurements
+
+Everything above compares RTDD to running the whole suite, because that is the baseline
+RTDD exists to replace. This section is the other question, and it is deliberately
+unflattering: **against the cheap baselines a reviewer will name, is building a coverage
+map justified at all?** It is pre-registered, it is not the project's own claim, and RTDD
+does not currently win it. Both results are published because dropping the second one
+would make the first one worth less.
 
 ### Axis 1 — agent regression rate on SWE-bench Verified
 
