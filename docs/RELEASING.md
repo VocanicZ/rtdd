@@ -2,7 +2,7 @@
 
 This document is the human release sequence for `VocanicZ/rtdd`. It exists because the
 three steps below have to happen **in this order**, and because the third one is easy to
-skip — skipping it looks exactly like a bug in `install.sh`.
+skip — skipping it looks exactly like a bug in the installer.
 
 The sequence, in order:
 
@@ -53,7 +53,7 @@ Two decisions are open and neither belongs to an agent:
 
 ## Step 1 — flip the repository's visibility to public (#10)
 
-**Why first:** `install.sh` is fetched from `raw.githubusercontent.com`, and that URL
+**Why first:** the installer is fetched from GitHub by `npx`, and that source
 returns 404 while the repository is private. Every later step produces artifacts nobody
 outside the repo can reach until this one is done. Doing it last would mean shipping a
 release that no stranger can install.
@@ -98,7 +98,7 @@ so the release GoReleaser creates in step 2 is a **draft**. A draft release is i
 the release API. Until a human opens the release on GitHub and clicks **Publish release**:
 
 - `https://api.github.com/repos/VocanicZ/rtdd/releases/latest` returns **404**;
-- `install.sh`, which resolves the version from exactly that URL, dies with
+- the installer, which resolves the version from exactly that URL, dies with
   `could not resolve the latest release version from
   https://api.github.com/repos/VocanicZ/rtdd/releases/latest`;
 - the README's `curl | sh` line therefore cannot work, even though the workflow was green

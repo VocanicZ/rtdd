@@ -88,7 +88,7 @@ Stated as hypotheses, because a losing arm does not license a confident post-hoc
 
 **There is no installer, and there will not be one.** No release is published, no tag is
 pushed, and the binaries stay unreleased on this branch — spec §15 says do not ship a
-competitor to a tool that beat you, so the one-line `install.sh` route the positive branch
+competitor to a tool that beat you, so the one-line `npx` route the positive branch
 would have offered does not exist here and nothing is served for it to fetch.
 
 What is left is source. If you want to run the harness above for yourself, or reuse the

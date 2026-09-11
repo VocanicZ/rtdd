@@ -1,4 +1,4 @@
-// Package installtest exercises install.sh end to end: it serves a GoReleaser-shaped
+// Package installtest exercises the installer end to end: it serves a GoReleaser-shaped
 // fixture (an archive plus checksums.txt) over a local HTTP server, runs the script
 // against an isolated PATH prefix and HOME, and asserts the installed binary works and
 // that a corrupted checksum aborts the install cleanly.
@@ -21,7 +21,7 @@ import (
 	"testing"
 )
 
-// testVersion is the release tag install.sh is told to install. Its numeric form (no
+// testVersion is the release tag the installer is told to install. Its numeric form (no
 // leading "v") appears in the archive name, matching .goreleaser.yaml's name_template.
 const testVersion = "v0.0.0-test"
 
@@ -45,7 +45,7 @@ func buildFixtureBinary(t *testing.T, dir string) string {
 }
 
 // buildArchive tars the given binary as "rtdd" and gzips it, matching the layout
-// install.sh expects to extract a single named member from.
+// the installer expects to extract a single named member from.
 func buildArchive(t *testing.T, binPath string) []byte {
 	t.Helper()
 	bin, err := os.ReadFile(binPath)
@@ -106,44 +106,26 @@ func serveFixture(t *testing.T, archiveFilename string, archive []byte, checksum
 	return srv.URL
 }
 
-// isolatedPATH symlinks exactly the external commands install.sh can call into a fresh
-// directory and returns it: the child process gets an "empty PATH prefix" carrying
-// nothing except what the script itself checks for up front.
-func isolatedPATH(t *testing.T) string {
-	t.Helper()
-	bin := t.TempDir()
-	tools := []string{
-		"uname", "tar", "gzip", "mktemp", "curl", "wget", "sha256sum", "shasum",
-		"grep", "awk", "sed", "chmod", "mv", "mkdir", "rm",
-	}
-	for _, name := range tools {
-		p, err := exec.LookPath(name)
-		if err != nil {
-			continue // optional: only one of curl/wget and one of sha256sum/shasum must exist
-		}
-		if err := os.Symlink(p, filepath.Join(bin, name)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return bin
-}
-
-// runInstall runs install.sh with an isolated PATH and HOME plus the given env overrides,
+// runInstaller runs the Node installer with an isolated HOME plus the given env overrides,
 // and reports its exit code, combined output, and the install directory it was told to use.
-func runInstall(t *testing.T, extraEnv ...string) (code int, output, installDir string) {
+//
+// It replaced a runner that invoked the installer. There is no shell installer any more: no
+// single `curl … | sh` or `irm … | iex` line runs on all three operating systems, and
+// `npx github:VocanicZ/rtdd` does, because npx is a program rather than shell syntax.
+func runInstaller(t *testing.T, extraEnv ...string) (code int, output, installDir string) {
 	t.Helper()
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	shPath, err := exec.LookPath("sh")
+	nodePath, err := exec.LookPath("node")
 	if err != nil {
-		t.Skip("sh not found on PATH")
+		t.Skip("node not found on PATH")
 	}
 	installDir = filepath.Join(t.TempDir(), "bin")
 
 	env := []string{
-		"PATH=" + isolatedPATH(t),
+		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + t.TempDir(),
 		"TMPDIR=" + t.TempDir(),
 		"RTDD_VERSION=" + testVersion,
@@ -151,29 +133,32 @@ func runInstall(t *testing.T, extraEnv ...string) (code int, output, installDir 
 	}
 	env = append(env, extraEnv...)
 
-	cmd := exec.Command(shPath, filepath.Join(wd, "install.sh"))
+	cmd := exec.Command(nodePath, filepath.Join(wd, "installer", "index.js"))
 	cmd.Env = env
 	out, runErr := cmd.CombinedOutput()
 	if runErr != nil {
 		if ee, ok := runErr.(*exec.ExitError); ok {
 			return ee.ExitCode(), string(out), installDir
 		}
-		t.Fatalf("running install.sh: %v", runErr)
+		t.Fatalf("running the installer: %v", runErr)
 	}
 	return 0, string(out), installDir
 }
 
-// fixtureOSArch skips the test on a host install.sh does not support, so this file only
-// asserts what install.sh actually claims to do (AC4: linux/darwin, amd64/arm64).
+// fixtureOSArch skips the test on a host the release matrix does not build for, so this
+// file only asserts what the installer actually claims to do.
 func fixtureOSArch(t *testing.T) (osName, arch string) {
 	t.Helper()
 	osName = runtime.GOOS
-	if osName != "linux" && osName != "darwin" {
-		t.Skip("install.sh only supports linux/darwin")
+	if osName != "linux" && osName != "darwin" && osName != "windows" {
+		t.Skip("rtdd ships linux, darwin and windows binaries only")
 	}
 	arch = runtime.GOARCH
 	if arch != "amd64" && arch != "arm64" {
-		t.Skip("install.sh only supports amd64/arm64")
+		t.Skip("rtdd ships amd64 and arm64 binaries only")
+	}
+	if osName == "windows" && arch == "arm64" {
+		t.Skip("the release matrix ignores windows/arm64")
 	}
 	return osName, arch
 }
@@ -187,9 +172,9 @@ func TestInstallOnACleanPath(t *testing.T) {
 
 	baseURL := serveFixture(t, archiveFilename, archive, checksums)
 
-	code, output, installDir := runInstall(t, "RTDD_BASE_URL="+baseURL)
+	code, output, installDir := runInstaller(t, "RTDD_BASE_URL="+baseURL)
 	if code != 0 {
-		t.Fatalf("install.sh exited %d:\n%s", code, output)
+		t.Fatalf("the installer exited %d:\n%s", code, output)
 	}
 
 	installed := filepath.Join(installDir, "rtdd")
@@ -216,9 +201,9 @@ func TestInstallAbortsOnACorruptedChecksum(t *testing.T) {
 
 	baseURL := serveFixture(t, archiveFilename, archive, checksums)
 
-	code, output, installDir := runInstall(t, "RTDD_BASE_URL="+baseURL)
+	code, output, installDir := runInstaller(t, "RTDD_BASE_URL="+baseURL)
 	if code == 0 {
-		t.Fatalf("install.sh exited 0 on a corrupted checksum:\n%s", output)
+		t.Fatalf("the installer exited 0 on a corrupted checksum:\n%s", output)
 	}
 	if !strings.Contains(output, "checksum mismatch") {
 		t.Errorf("output = %q, want it to name a checksum mismatch", output)
@@ -228,7 +213,7 @@ func TestInstallAbortsOnACorruptedChecksum(t *testing.T) {
 	}
 }
 
-// runUnpinnedInstall drives install.sh down the latest-release resolution branch: it serves
+// runUnpinnedInstall drives the installer down the latest-release resolution branch: it serves
 // the given API payload alongside the archive fixture and clears RTDD_VERSION, which the
 // script's "${RTDD_VERSION:-}" treats as unset. exec.Cmd keeps the last value for a
 // duplicate key, so this overrides runInstall's pinned default.
@@ -242,7 +227,7 @@ func runUnpinnedInstall(t *testing.T, apiBody string) (code int, output, install
 
 	baseURL := serveFixture(t, archiveFilename, archive, checksums, apiBody)
 
-	code, output, installDir = runInstall(t,
+	code, output, installDir = runInstaller(t,
 		"RTDD_BASE_URL="+baseURL,
 		"RTDD_API_URL="+baseURL+apiPath,
 		"RTDD_VERSION=",
@@ -251,7 +236,7 @@ func runUnpinnedInstall(t *testing.T, apiBody string) (code int, output, install
 }
 
 // TestInstallResolvesTheLatestReleaseWhenVersionIsUnset covers the branch every real
-// "curl … | sh" user takes: no RTDD_VERSION, so install.sh must read the tag off the
+// "curl … | sh" user takes: no RTDD_VERSION, so the installer must read the tag off the
 // releases API and install that. Both of GitHub's JSON spacings must resolve identically.
 func TestInstallResolvesTheLatestReleaseWhenVersionIsUnset(t *testing.T) {
 	for _, tc := range []struct {
@@ -270,7 +255,7 @@ func TestInstallResolvesTheLatestReleaseWhenVersionIsUnset(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			code, output, installDir, archiveFilename := runUnpinnedInstall(t, tc.apiBody)
 			if code != 0 {
-				t.Fatalf("install.sh exited %d:\n%s", code, output)
+				t.Fatalf("the installer exited %d:\n%s", code, output)
 			}
 			if !strings.Contains(output, "resolving the latest rtdd release") {
 				t.Errorf("output = %q, want it to report resolving the latest release", output)
@@ -295,22 +280,27 @@ func TestInstallResolvesTheLatestReleaseWhenVersionIsUnset(t *testing.T) {
 
 // TestInstallFailsWhenTheLatestReleaseCannotBeResolved asserts the unpinned path dies with
 // the documented message, and installs nothing, for every API payload it cannot get a tag
-// out of -- including one that contains "tag_name" but does not match the extraction
-// pattern, which used to fall through with the raw JSON line as VERSION and only die later
-// on a malformed download URL.
+// out of.
+//
+// The guard this protects is that no download is ever attempted with a garbage version. It
+// used to also cover a payload carrying "tag_name" in a shape install.sh's sed pattern
+// missed, which fell through with the raw JSON line as VERSION; the installer parses JSON
+// now, so that payload resolves correctly and is pinned as such by the test below rather
+// than asserted to fail.
 func TestInstallFailsWhenTheLatestReleaseCannotBeResolved(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		apiBody string
 	}{
 		{name: "no tag_name field", apiBody: `{"message":"Not Found","status":"404"}`},
-		{name: "tag_name present but unparseable", apiBody: `{"id":1,"tag_name" : "v0.1.0"}`},
+		{name: "tag_name is null", apiBody: `{"id":1,"tag_name":null}`},
+		{name: "not json at all", apiBody: `<html>502 Bad Gateway</html>`},
 		{name: "empty body", apiBody: ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			code, output, installDir, _ := runUnpinnedInstall(t, tc.apiBody)
 			if code == 0 {
-				t.Fatalf("install.sh exited 0 on an unresolvable latest release:\n%s", output)
+				t.Fatalf("the installer exited 0 on an unresolvable latest release:\n%s", output)
 			}
 			if !strings.Contains(output, "could not resolve the latest release version") {
 				t.Errorf("output = %q, want it to report that the latest release version could not be resolved", output)
@@ -327,7 +317,7 @@ func TestInstallFailsWhenTheLatestReleaseCannotBeResolved(t *testing.T) {
 }
 
 // buildArchiveAs is buildArchive with the member name spelled out: the Windows archives
-// carry `rtdd.exe`, and install.sh extracts one named member rather than the whole tree.
+// carry `rtdd.exe`, and the installer extracts one named member rather than the whole tree.
 func buildArchiveAs(t *testing.T, binPath, member string) []byte {
 	t.Helper()
 	bin, err := os.ReadFile(binPath)
@@ -363,5 +353,19 @@ func fakeUname(t *testing.T, binDir, system, machine string) {
 	script := "#!/bin/sh\ncase \"$1\" in\n-s) echo " + system + " ;;\n-m) echo " + machine + " ;;\n*) echo " + system + " ;;\nesac\n"
 	if err := os.WriteFile(p, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A real JSON parser reads a payload whatever the whitespace around its punctuation, which
+// install.sh's line-oriented sed pattern could not: `"tag_name" : "v0.1.0"` slipped past it
+// and left the raw JSON line standing in for the version. GitHub is free to reformat its
+// responses, so the tolerance is pinned rather than left as an accident of implementation.
+func TestInstallResolvesATagRegardlessOfJSONWhitespace(t *testing.T) {
+	code, output, installDir, _ := runUnpinnedInstall(t, `{"id":1,"tag_name" : "`+testVersion+`"}`)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 for a valid payload with unusual spacing:\n%s", code, output)
+	}
+	if _, err := os.Stat(filepath.Join(installDir, "rtdd")); err != nil {
+		t.Errorf("rtdd was not installed from a resolvable payload: %v\n%s", err, output)
 	}
 }

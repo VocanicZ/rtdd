@@ -1,5 +1,5 @@
 // release_preflight_test.go exercises scripts/release-preflight.sh (issue #201, plan Task 24's
-// agent half) end to end, the way install_test.go exercises install.sh: by running the real
+// agent half) end to end, the way install_test.go exercises the installer: by running the real
 // script as a subprocess against a fixture repo. go/uv/gh are replaced by tiny stubs on PATH so
 // every branch is reachable without a real toolchain, network, or a nested `go test ./...` (the
 // script runs `go test ./...` as one of its own steps, so a real `go` there would make this test

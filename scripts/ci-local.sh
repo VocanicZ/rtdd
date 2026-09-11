@@ -24,6 +24,9 @@ fi
 echo "==> go test ./... -count=1"
 go test ./... -count=1
 
+echo "==> node --test installer/"
+node --test installer/
+
 echo "==> rtdd-gen check"
 go run ./cmd/rtdd-gen check
 
@@ -110,7 +113,7 @@ case "$listed" in
 esac
 go test -count=1 -run '^TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippedPath$' .
 
-echo "==> install.sh end to end against the real snapshot archives (#368 AC8)"
+echo "==> installer end to end against the real snapshot archives (#368 AC8)"
 listed="$(go test -list '^TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion$' .)"
 case "$listed" in
   *TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion*) ;;

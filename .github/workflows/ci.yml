@@ -18,6 +18,13 @@ jobs:
           go-version: '1.24'
           check-latest: true
 
+      # The installer is Node, and so is the drift guard that executes it from a Go test.
+      # Runners ship a Node, but pinning it keeps the installer's floor (>=18, for the
+      # built-in test runner and global fetch) an explicit claim rather than a runner detail.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: build
         run: go build ./...
 
@@ -35,6 +42,11 @@ jobs:
 
       - name: test
         run: go test ./... -count=1
+
+      # The installer is the one part of the product that is not Go. Its unit tests use
+      # Node's built-in runner, so there is nothing to npm install first.
+      - name: installer tests
+        run: node --test installer/
 
       - name: rtdd-gen check
         run: go run ./cmd/rtdd-gen check
@@ -112,7 +124,7 @@ jobs:
           esac
           go test -count=1 -run '^TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippedPath$' .
 
-      - name: install.sh end to end against the real snapshot archives
+      - name: installer end to end against the real snapshot archives
         run: |
           listed="$(go test -list '^TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion$' .)"
           case "$listed" in

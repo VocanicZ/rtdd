@@ -1,12 +1,12 @@
 // install_snapshot_test.go closes the last gap in the install story. install_test.go
-// already drives install.sh end to end against an httptest server, but every byte it
+// already drives the installer end to end against an httptest server, but every byte it
 // serves is a fixture this repo tarred itself: a hand-rolled archive holding one `go
 // build` binary. Nothing has ever proven the script installs an archive the *release
 // pipeline* produced. That is the "fresh machine" path - `curl … | sh` against real
 // GitHub release assets - and the difference is not cosmetic. The real archive is built
 // by GoReleaser with its own ldflags, carries five extra documents next to the binary,
 // is named by .goreleaser.yaml's name_template, and is listed in a checksums.txt
-// GoReleaser wrote. Any one of those could drift out from under install.sh's
+// GoReleaser wrote. Any one of those could drift out from under the installer's
 // `rtdd_${VERSION_NUM}_${OS}_${ARCH}.tar.gz`, its single-member `tar -xzf … rtdd`, or its
 // `grep " ${ARCHIVE}$" checksums.txt` and the fixture tests would stay green.
 //
@@ -17,7 +17,7 @@
 // install_test.go uses, and installs from them into a temp dir.
 //
 // Nothing is tagged, released or published: --snapshot makes GoReleaser refuse to
-// publish, and every URL install.sh is handed points at 127.0.0.1, so no fetch reaches
+// publish, and every URL the installer is handed points at 127.0.0.1, so no fetch reaches
 // github.com. The assertions below prove that last part rather than assuming it - the
 // server records every path it is asked for.
 //
@@ -61,7 +61,7 @@ type snapshotRelease struct {
 // releaseTag is the directory a real GitHub release serves its assets under. GoReleaser
 // names archives from .Version (no leading v) but publishes them beneath the tag (with
 // one), so a real download URL reads …/releases/download/v1.2.3/rtdd_1.2.3_linux_amd64.tar.gz.
-// The fixture server reproduces that shape rather than a flattened one, because install.sh
+// The fixture server reproduces that shape rather than a flattened one, because the installer
 // builds the two halves of that URL from the same string and a test that served both
 // halves identically would not notice if it stopped.
 func (r snapshotRelease) releaseTag() string { return "v" + r.meta.Version }
@@ -137,7 +137,7 @@ func buildSnapshotRelease(root string) (*snapshotRelease, error) {
 }
 
 // snapshotFixtureServer serves the real archives over HTTP in GitHub's asset layout and
-// records every path it is asked for, so the tests can prove install.sh talked to nobody
+// records every path it is asked for, so the tests can prove the installer talked to nobody
 // else.
 type snapshotFixtureServer struct {
 	url string
@@ -214,7 +214,7 @@ func serveSnapshotRelease(t *testing.T, rel *snapshotRelease, checksums, apiBody
 }
 
 // goreleaserChecksums is the checksums.txt GoReleaser wrote for this build, read from disk
-// rather than recomputed: the point of the checksum assertions is that install.sh agrees
+// rather than recomputed: the point of the checksum assertions is that the installer agrees
 // with the release pipeline's file, so recomputing it here would test nothing.
 func goreleaserChecksums(t *testing.T, rel *snapshotRelease) string {
 	t.Helper()
@@ -266,7 +266,7 @@ func assertInstalledSnapshotBinary(t *testing.T, installDir string, rel *snapsho
 
 // assertOnlyTheFixtureServerWasAsked proves the install fetched the archive and the
 // checksums from the local server, which is the only evidence available in-process that no
-// request went to github.com - install.sh is handed 127.0.0.1 URLs and its PATH carries
+// request went to github.com - the installer is handed 127.0.0.1 URLs and its PATH carries
 // nothing that could reach the network on its own.
 func assertOnlyTheFixtureServerWasAsked(t *testing.T, fx *snapshotFixtureServer, tag, archive string) {
 	t.Helper()
@@ -278,7 +278,7 @@ func assertOnlyTheFixtureServerWasAsked(t *testing.T, fx *snapshotFixtureServer,
 }
 
 // TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion is the fresh-machine path
-// with a version pinned: install.sh is pointed at the archives `goreleaser release
+// with a version pinned: the installer is pointed at the archives `goreleaser release
 // --snapshot` just produced and must install the one for this host.
 func TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion(t *testing.T) {
 	osName, arch := fixtureOSArch(t)
@@ -290,12 +290,12 @@ func TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion(t *testing.T
 	}
 	fx := serveSnapshotRelease(t, rel, goreleaserChecksums(t, rel), "")
 
-	code, output, installDir := runInstall(t,
+	code, output, installDir := runInstaller(t,
 		"RTDD_BASE_URL="+fx.url,
 		"RTDD_VERSION="+rel.releaseTag(),
 	)
 	if code != 0 {
-		t.Fatalf("install.sh exited %d installing the real snapshot archive:\n%s", code, output)
+		t.Fatalf("the installer exited %d installing the real snapshot archive:\n%s", code, output)
 	}
 	if !strings.Contains(output, "downloading "+archive) {
 		t.Errorf("output = %q, want it to download the GoReleaser-named archive %q", output, archive)
@@ -306,7 +306,7 @@ func TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion(t *testing.T
 }
 
 // TestInstallFromRealSnapshotArchivesResolvesTheLatestRelease is the same path every real
-// `curl … | sh` user takes: no RTDD_VERSION, so install.sh reads the tag off the releases
+// `curl … | sh` user takes: no RTDD_VERSION, so the installer reads the tag off the releases
 // API and installs that release's archive. The API body is GitHub's shape, carrying the
 // tag the snapshot archives are named for.
 func TestInstallFromRealSnapshotArchivesResolvesTheLatestRelease(t *testing.T) {
@@ -318,19 +318,19 @@ func TestInstallFromRealSnapshotArchivesResolvesTheLatestRelease(t *testing.T) {
 	apiBody := fmt.Sprintf("{\n  \"id\": 1,\n  \"tag_name\": %q,\n  \"name\": %q\n}\n", tag, tag)
 	fx := serveSnapshotRelease(t, rel, goreleaserChecksums(t, rel), apiBody)
 
-	code, output, installDir := runInstall(t,
+	code, output, installDir := runInstaller(t,
 		"RTDD_BASE_URL="+fx.url,
 		"RTDD_API_URL="+fx.url+apiPath,
 		"RTDD_VERSION=",
 	)
 	if code != 0 {
-		t.Fatalf("install.sh exited %d resolving and installing the latest release:\n%s", code, output)
+		t.Fatalf("the installer exited %d resolving and installing the latest release:\n%s", code, output)
 	}
 	if !strings.Contains(output, "resolving the latest rtdd release") {
 		t.Errorf("output = %q, want it to report resolving the latest release", output)
 	}
 	// The archive name is derived from the resolved tag, so naming it proves which
-	// version was resolved without re-implementing install.sh's parser here.
+	// version was resolved without re-implementing the installer's parser here.
 	if !strings.Contains(output, "downloading "+archive+" ("+tag+")") {
 		t.Errorf("output = %q, want it to download %q for resolved tag %q", output, archive, tag)
 	}
@@ -343,8 +343,8 @@ func TestInstallFromRealSnapshotArchivesResolvesTheLatestRelease(t *testing.T) {
 }
 
 // TestInstallFromRealSnapshotArchivesAbortsOnACorruptedChecksum is the other half of the
-// checksum claim. The pinned test above proves install.sh accepts the digest GoReleaser
-// wrote; without this one that would be indistinguishable from install.sh not checking at
+// checksum claim. The pinned test above proves the installer accepts the digest GoReleaser
+// wrote; without this one that would be indistinguishable from the installer not checking at
 // all. Same real archive, same real checksums.txt with this host's entry corrupted.
 func TestInstallFromRealSnapshotArchivesAbortsOnACorruptedChecksum(t *testing.T) {
 	osName, arch := fixtureOSArch(t)
@@ -354,12 +354,12 @@ func TestInstallFromRealSnapshotArchivesAbortsOnACorruptedChecksum(t *testing.T)
 	corrupted := corruptChecksumFor(t, goreleaserChecksums(t, rel), archive)
 	fx := serveSnapshotRelease(t, rel, corrupted, "")
 
-	code, output, installDir := runInstall(t,
+	code, output, installDir := runInstaller(t,
 		"RTDD_BASE_URL="+fx.url,
 		"RTDD_VERSION="+rel.releaseTag(),
 	)
 	if code == 0 {
-		t.Fatalf("install.sh exited 0 on a corrupted checksum for the real archive:\n%s", output)
+		t.Fatalf("the installer exited 0 on a corrupted checksum for the real archive:\n%s", output)
 	}
 	if !strings.Contains(output, "checksum mismatch") {
 		t.Errorf("output = %q, want it to name a checksum mismatch", output)
@@ -372,7 +372,7 @@ func TestInstallFromRealSnapshotArchivesAbortsOnACorruptedChecksum(t *testing.T)
 
 // assertNothingLeakedOutsideTheTempInstallDir pins the blast radius of a test that runs a
 // real installer: the binary must land in a temp dir, never in the repo working tree and
-// never anywhere under the developer's own $HOME. runInstall already hands install.sh a
+// never anywhere under the developer's own $HOME. runInstall already hands the installer a
 // throwaway HOME and TMPDIR; this checks the destination it was given is as disposable as
 // those, so a future edit to the env cannot quietly start writing to ~/.local/bin.
 func assertNothingLeakedOutsideTheTempInstallDir(t *testing.T, installDir string) {
@@ -383,11 +383,11 @@ func assertNothingLeakedOutsideTheTempInstallDir(t *testing.T, installDir string
 	}
 	root := findRepoRootForTest(t)
 	if rel, err := filepath.Rel(root, abs); err == nil && !strings.HasPrefix(rel, "..") {
-		t.Errorf("install.sh installed into %s, which is inside the repo working tree at %s", abs, root)
+		t.Errorf("the installer installed into %s, which is inside the repo working tree at %s", abs, root)
 	}
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		if rel, err := filepath.Rel(home, abs); err == nil && !strings.HasPrefix(rel, "..") {
-			t.Errorf("install.sh installed into %s, which is inside the real $HOME at %s", abs, home)
+			t.Errorf("the installer installed into %s, which is inside the real $HOME at %s", abs, home)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(abs, "rtdd")); err != nil {

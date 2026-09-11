@@ -1,10 +1,10 @@
 // readme_install_test.go guards the README's Install block against promising a route
 // that 404s (#374). The repository is private, there are zero tags and zero releases, so
-// an anonymous `curl -fsSL .../install.sh | sh` and the releases/latest API it calls both
-// fail today. The Install block therefore has to document the build-from-source route
-// beside the one-liner and say which route applies when — and the negative outcome README,
-// whose whole premise is that no release is shipped, has to say that in its own prose
-// instead of copying the positive text.
+// the one-line installer and the releases/latest API it calls both fail today. The Install
+// block therefore has to document the build-from-source route beside the one-liner and say
+// which route applies when — and the negative outcome README, whose whole premise is that
+// no release is shipped, has to say that in its own prose instead of copying the positive
+// text.
 package installtest
 
 import (
@@ -14,9 +14,12 @@ import (
 	"testing"
 )
 
-// The one-line installer the README has always offered. It stays — it is the shorter
-// route the moment a release exists — but it is no longer offered alone.
-const curlInstallLine = "curl -fsSL https://raw.githubusercontent.com/VocanicZ/rtdd/main/install.sh | sh"
+// The one-line installer. There is exactly one, and it is the same string on every
+// operating system: no `curl … | sh` runs on stock Windows and no `irm … | iex` runs on
+// Linux or macOS, but `npx` is a program rather than shell syntax, so one line covers all
+// three. It stays — it is the shorter route the moment a release exists — but it is no
+// longer offered alone.
+const installLine = "npx github:VocanicZ/rtdd"
 
 // The root README and the positive outcome file are byte-identical by construction
 // (outcomes_test.go); both are listed so a divergence names the file that broke.
@@ -63,7 +66,7 @@ func TestEveryREADMEDocumentsTheBuildFromSourceRoute(t *testing.T) {
 // than offering a one-liner that can never work on that branch.
 func TestNegativeREADMEOffersNoInstallerItWillNeverPublish(t *testing.T) {
 	text := readREADME(t, negativeREADME)
-	if strings.Contains(text, curlInstallLine) {
+	if strings.Contains(text, installLine) {
 		t.Errorf("%s offers the one-line installer, but the negative branch publishes no release for it to fetch", negativeREADME)
 	}
 	if !strings.Contains(text, "## Install") {
@@ -108,27 +111,25 @@ func TestInstallEditLeavesTheProductClaimsAlone(t *testing.T) {
 	}
 }
 
-// The PowerShell one-liner, for a Windows shell with no POSIX sh behind it.
-const ps1InstallLine = "irm https://raw.githubusercontent.com/VocanicZ/rtdd/main/install.ps1 | iex"
-
-// A Windows developer following a README that offers only `curl | sh` either has no shell
-// to run it in, or runs it in Git Bash and — before this change — was told "unsupported
-// OS" by a project that ships a windows/amd64 binary. Both routes have to be on the page.
-func TestReleaseShippingREADMEsDocumentTheWindowsRoute(t *testing.T) {
+// One command, one code path. A README that split Windows onto its own line would be
+// documenting two installers again, which is the thing the npx route exists to avoid.
+func TestReleaseShippingREADMEsOfferExactlyOneInstallCommand(t *testing.T) {
 	for _, name := range releaseShippingREADMEs {
 		text := readREADME(t, name)
-		if !strings.Contains(text, ps1InstallLine) {
-			t.Errorf("%s does not offer the PowerShell installer %q", name, ps1InstallLine)
+		if !strings.Contains(text, installLine) {
+			t.Errorf("%s does not offer the installer %q", name, installLine)
 		}
-		if !strings.Contains(text, curlInstallLine) {
-			t.Errorf("%s no longer offers the sh installer %q", name, curlInstallLine)
+		for _, gone := range []string{"install.sh | sh", "install.ps1 | iex"} {
+			if strings.Contains(text, gone) {
+				t.Errorf("%s still offers the removed shell installer %q", name, gone)
+			}
 		}
 	}
 }
 
-// The installer now writes into the user's home directory, which is a side effect outside
-// the install directory. A README that documents the install but not that side effect, or
-// not how to decline it, is hiding it.
+// The installer writes into the user's home directory, which is a side effect outside the
+// install directory. A README that documents the install but not that side effect, or not
+// how to decline it, is hiding it.
 func TestReleaseShippingREADMEsDocumentTheSkillInstallAndItsOptOut(t *testing.T) {
 	for _, name := range releaseShippingREADMEs {
 		text := readREADME(t, name)
@@ -136,6 +137,16 @@ func TestReleaseShippingREADMEsDocumentTheSkillInstallAndItsOptOut(t *testing.T)
 			if !strings.Contains(text, needle) {
 				t.Errorf("%s does not document %q", name, needle)
 			}
+		}
+	}
+}
+
+// npx needs Node. rtdd is a Go binary, so a reader is owed that prerequisite up front
+// rather than discovering it when the command is not found.
+func TestReleaseShippingREADMEsStateTheNodeRequirement(t *testing.T) {
+	for _, name := range releaseShippingREADMEs {
+		if !strings.Contains(readREADME(t, name), "Node") {
+			t.Errorf("%s does not say the one-line installer needs Node", name)
 		}
 	}
 }

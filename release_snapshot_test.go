@@ -95,9 +95,9 @@ func binaryNameFor(binary, goos string) string {
 // format_overrides: zip for Windows, the default tarball everywhere else.
 func archiveExtensionsFor(goos string) []string {
 	if goos == "windows" {
-		// Both, because the two Windows install routes need different ones: install.ps1
-		// uses Expand-Archive (zip), while install.sh under Git Bash / MSYS2 / Cygwin has
-		// GNU tar but not necessarily unzip.
+		// The installer fetches the .tar.gz on every platform, extracting it in pure Node;
+		// the .zip is for a human downloading from the releases page on Windows, where
+		// Explorer cannot open a .tar.gz.
 		return []string{".zip", ".tar.gz"}
 	}
 	return []string{".tar.gz"}

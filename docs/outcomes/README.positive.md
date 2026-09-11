@@ -5,31 +5,32 @@ rtdd runs every test that executed the code you changed, directly or deep in a c
 
 ## Install
 
-Linux and macOS — also works in Git Bash, MSYS2 and Cygwin on Windows:
-
 ```
-curl -fsSL https://raw.githubusercontent.com/VocanicZ/rtdd/main/install.sh | sh
+npx github:VocanicZ/rtdd
 ```
 
-Windows, in PowerShell:
+One command, the same on Linux, macOS and Windows. It needs Node 18 or newer — `npx` is what
+makes a single line work in bash, PowerShell and `cmd` alike, where no shell script can:
+stock Windows has no POSIX `sh`, and Linux and macOS have no PowerShell.
 
-```
-irm https://raw.githubusercontent.com/VocanicZ/rtdd/main/install.ps1 | iex
-```
+It downloads the release binary for your platform, checks it against the published
+`checksums.txt`, puts it on your PATH, and installs the agent skill below. `--version=<tag>`
+pins a release, `--install-dir=<path>` chooses where the binary goes.
 
-Or build from source, with Go 1.24 or newer:
+Or build from source, with Go 1.24 or newer, if you would rather not involve Node:
 
 ```
 git clone https://github.com/VocanicZ/rtdd && cd rtdd
 go build ./cmd/rtdd
 ```
 
-Both installers also install a **machine-wide agent skill**, so your coding agent knows rtdd
+The installer also installs a **machine-wide agent skill**, so your coding agent knows rtdd
 exists in every repository — including ones where rtdd has not been set up yet, where the
 skill tells it to run `rtdd init` first. It is written only for agents you already have: it
 lands in `~/.claude/skills/rtdd/`, and as a marker-delimited block in `~/.codex/AGENTS.md`
 and `~/.gemini/GEMINI.md`, and any of those directories that does not exist is skipped
-rather than created. Set `RTDD_NO_SKILL=1` to install the binary alone.
+rather than created. Pass `--no-skill`, or set `RTDD_NO_SKILL=1`, to install the binary
+alone.
 
 For any other agent — Cursor, whose user rules live in its settings rather than in a file,
 or anything else — `rtdd skill prompt` prints a self-contained document to hand it.

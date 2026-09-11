@@ -37,9 +37,10 @@ archives:
     ids: [rtdd]
     name_template: "rtdd_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
-      # Both, because the two Windows install routes need different ones: install.ps1 uses
-      # Expand-Archive (zip), while install.sh under Git Bash / MSYS2 / Cygwin has GNU tar
-      # but not necessarily unzip. Publishing one would 404 the other route.
+      # The installer fetches the .tar.gz on every platform, because it extracts in pure
+      # Node and tar is the one format it can read without depending on what the OS ships.
+      # The .zip is for a human downloading from the releases page on Windows, where
+      # Explorer cannot open a .tar.gz.
       - goos: windows
         formats: [zip, tar.gz]
     files:

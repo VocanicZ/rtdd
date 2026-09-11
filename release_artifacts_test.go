@@ -453,10 +453,10 @@ func TestReleaseArchivesShipTheLicenseAndReadme(t *testing.T) {
 	}
 }
 
-// install.sh's Windows branch (Git Bash / MSYS2 / Cygwin) fetches a .tar.gz, because those
-// environments ship GNU tar and not necessarily unzip; install.ps1 fetches the .zip, which
-// Expand-Archive handles natively. Both assets therefore have to be published, or one of the
-// two documented Windows routes 404s.
+// The installer always fetches a .tar.gz, on every platform, because it extracts in pure
+// Node and tar is the format it can read without depending on anything the OS ships. The
+// .zip exists for a human downloading from the releases page on Windows, where Explorer
+// cannot open a .tar.gz. Both are published, so neither audience is stranded.
 func TestReleaseShipsBothWindowsArchiveFormats(t *testing.T) {
 	cfg := loadGoreleaserConfig(t)
 	for _, a := range cfg.Archives {
