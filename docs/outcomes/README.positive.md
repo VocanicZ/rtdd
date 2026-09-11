@@ -19,6 +19,10 @@ git clone https://github.com/VocanicZ/rtdd && cd rtdd
 go build ./cmd/rtdd
 ```
 
+`rtdd update` replaces the binary with the latest release, and only if it is newer;
+`rtdd update --check` asks without installing. `rtdd uninstall` removes what `rtdd init`
+wrote into a repository, leaving the recorded map unless you add `--state`.
+
 ## Usage
 
 ```

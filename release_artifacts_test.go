@@ -136,6 +136,28 @@ func buildReleaseArtifact(t *testing.T, dir string, tg releaseTarget) string {
 var baseSystemDylibs = map[string]bool{
 	"/usr/lib/libSystem.B.dylib": true,
 	"/usr/lib/libresolv.9.dylib": true,
+	// CoreFoundation and Security arrive with crypto/x509, which `rtdd update` reaches
+	// through net/http: on darwin the standard library verifies a server certificate
+	// against the system trust store, and the trust store is those two frameworks. They
+	// are in the same category as libresolv above - Apple ships them inside macOS, in
+	// /System/Library/Frameworks, and no user installs or can remove them. A binary
+	// loading them still depends on nothing beyond the base system, which is the property
+	// PRD #6 criterion 5 is actually after.
+	"/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation": true,
+	"/System/Library/Frameworks/Security.framework/Versions/A/Security":             true,
+}
+
+// foreignDylibs returns the entries of libs that macOS does not ship. It is separate from
+// the Mach-O reader so the classification can be tested against a synthetic list, which is
+// what keeps the allowlist above from being widened into meaninglessness.
+func foreignDylibs(libs []string) []string {
+	var foreign []string
+	for _, lib := range libs {
+		if !baseSystemDylibs[lib] {
+			foreign = append(foreign, lib)
+		}
+	}
+	return foreign
 }
 
 // baseSystemDLLs are Windows DLLs shipped with the OS. A Go binary built without cgo
@@ -228,13 +250,7 @@ func verifyMachOUsesOnlyBaseSystemDylibs(path string) error {
 	if err != nil {
 		return fmt.Errorf("read load commands: %w", err)
 	}
-	var foreign []string
-	for _, lib := range libs {
-		if !baseSystemDylibs[lib] {
-			foreign = append(foreign, lib)
-		}
-	}
-	if len(foreign) > 0 {
+	if foreign := foreignDylibs(libs); len(foreign) > 0 {
 		sort.Strings(foreign)
 		return fmt.Errorf("loads non-base-system dylibs %v: the artifact is not self-contained", foreign)
 	}

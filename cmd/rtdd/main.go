@@ -23,6 +23,8 @@ usage:
   rtdd which  [--base <ref>] [--json] [--adapter <path>]
   rtdd explain <file>
   rtdd doctor [--limit <n>]
+  rtdd update [--check] [--version <tag>]
+  rtdd uninstall [--dry-run] [--state] [--binary]
   rtdd --version
 
 exit codes:
@@ -56,6 +58,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdExplain(args[1:], stdout, stderr)
 	case "doctor":
 		return cmdDoctor(args[1:], stdout, stderr)
+	case "update":
+		return cmdUpdate(args[1:], stdout, stderr)
+	case "uninstall":
+		return cmdUninstall(args[1:], stdout, stderr)
 	case "-h", "--help", "help":
 		fmt.Fprint(stdout, usage)
 		return 0
