@@ -257,12 +257,12 @@ path, and a property is only kept by something that fails when it stops being tr
 
 Two consequences worth knowing before you touch this package:
 
-- **It is a second implementation of `install.sh`'s protocol.** The installer cannot be Go,
-  because it runs before Go is on the machine, so the duplication is unavoidable. What
-  keeps it honest is `internal/selfupdate/drift_test.go`, which feeds the Go functions the
-  shell's own variable names (`archiveName("${VERSION_NUM}", "${OS}", "${ARCH}")`) and
-  asserts `install.sh` contains the literal that comes back. It compares derivation rules
-  rather than one version's answer, so releasing cannot break it.
+- **It is a second implementation of the installer's protocol.** The installer cannot be Go,
+  because it runs before any rtdd binary is on the machine, so the duplication is
+  unavoidable. What keeps it honest is `internal/selfupdate/drift_test.go`, which *executes*
+  `installer/platform.js` and `installer/release.js` and compares what they return against
+  what this package computes. It compares behaviour rather than source text, so a refactor
+  that keeps an old literal in a comment while computing something else still fails it.
 - **`net/http` costs the darwin artifacts two framework links.** `crypto/x509` verifies
   server certificates against the macOS trust store, which is `CoreFoundation` and
   `Security`. Both are in `baseSystemDylibs` (`release_artifacts_test.go`) for the same

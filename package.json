@@ -1,0 +1,19 @@
+{
+  "name": "rtdd",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Cross-platform installer for rtdd, a test selector for coding agents",
+  "type": "module",
+  "bin": {
+    "rtdd": "./installer/index.js"
+  },
+  "files": [
+    "installer"
+  ],
+  "scripts": {
+    "test": "node --test installer/"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

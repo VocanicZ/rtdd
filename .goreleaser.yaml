@@ -37,8 +37,12 @@ archives:
     ids: [rtdd]
     name_template: "rtdd_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
+      # The installer fetches the .tar.gz on every platform, because it extracts in pure
+      # Node and tar is the one format it can read without depending on what the OS ships.
+      # The .zip is for a human downloading from the releases page on Windows, where
+      # Explorer cannot open a .tar.gz.
       - goos: windows
-        formats: [zip]
+        formats: [zip, tar.gz]
     files:
       # Plan Task 20: the tarball ships the license and the README alongside the
       # generated front-ends. Without LICENSE the redistribution terms travel nowhere.
@@ -47,6 +51,9 @@ archives:
       - dist/SKILL.md
       - dist/AGENTS.md
       - dist/cursor/rules/rtdd.mdc
+      # The machine-wide pair `rtdd skill install` writes into the user's home directory.
+      - dist/GLOBAL-SKILL.md
+      - dist/GLOBAL-AGENTS.md
 
 checksum:
   name_template: "checksums.txt"

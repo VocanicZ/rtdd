@@ -49,7 +49,7 @@ func withinBudget(t Target, out string) error {
 func requiredBodiesPresent(d *Doc, t Target, out string) error {
 	bodies := map[string]string{}
 	for _, s := range d.For(t.Name) {
-		bodies[s.ID] = s.BodyFor(t.Name)
+		bodies[s.ID] = t.BodyOf(s)
 	}
 	var missing []string
 	for _, id := range t.Required {

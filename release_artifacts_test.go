@@ -58,8 +58,12 @@ type goreleaserConfig struct {
 		} `yaml:"ignore"`
 	} `yaml:"builds"`
 	Archives []struct {
-		ID    string   `yaml:"id"`
-		Files []string `yaml:"files"`
+		ID              string   `yaml:"id"`
+		Files           []string `yaml:"files"`
+		FormatOverrides []struct {
+			Goos    string   `yaml:"goos"`
+			Formats []string `yaml:"formats"`
+		} `yaml:"format_overrides"`
 	} `yaml:"archives"`
 }
 
@@ -433,6 +437,8 @@ func TestReleaseArchivesShipTheLicenseAndReadme(t *testing.T) {
 		"dist/SKILL.md",
 		"dist/AGENTS.md",
 		"dist/cursor/rules/rtdd.mdc",
+		"dist/GLOBAL-SKILL.md",
+		"dist/GLOBAL-AGENTS.md",
 	}
 	for _, a := range cfg.Archives {
 		have := map[string]bool{}
@@ -442,6 +448,36 @@ func TestReleaseArchivesShipTheLicenseAndReadme(t *testing.T) {
 		for _, w := range want {
 			if !have[w] {
 				t.Errorf("archive %q must ship %q, has %v", a.ID, w, a.Files)
+			}
+		}
+	}
+}
+
+// The installer always fetches a .tar.gz, on every platform, because it extracts in pure
+// Node and tar is the format it can read without depending on anything the OS ships. The
+// .zip exists for a human downloading from the releases page on Windows, where Explorer
+// cannot open a .tar.gz. Both are published, so neither audience is stranded.
+func TestReleaseShipsBothWindowsArchiveFormats(t *testing.T) {
+	cfg := loadGoreleaserConfig(t)
+	for _, a := range cfg.Archives {
+		var windows []string
+		for _, o := range a.FormatOverrides {
+			if o.Goos == "windows" {
+				windows = o.Formats
+			}
+		}
+		if windows == nil {
+			t.Fatalf("archive %q declares no windows format_overrides", a.ID)
+		}
+		for _, want := range []string{"zip", "tar.gz"} {
+			found := false
+			for _, f := range windows {
+				if f == want {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("archive %q: windows formats = %v, must include %q", a.ID, windows, want)
 			}
 		}
 	}

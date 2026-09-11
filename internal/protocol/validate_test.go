@@ -36,7 +36,7 @@ func mdcTarget(t *testing.T) Target {
 func TestValidateSkillPassesOnItsOwnRender(t *testing.T) {
 	d := sampleDoc(t)
 	tgt := skillTarget(t)
-	out, err := tgt.Render(d)
+	out, err := tgt.Render(d, tgt)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestValidateSkillPassesOnItsOwnRender(t *testing.T) {
 func TestValidateSkillFailsWhenFrontmatterMissing(t *testing.T) {
 	d := sampleDoc(t)
 	tgt := skillTarget(t)
-	out, err := tgt.Render(d)
+	out, err := tgt.Render(d, tgt)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestValidateSkillFailsWhenFrontmatterMissing(t *testing.T) {
 func TestValidateSkillFailsWhenRequiredSectionHeadingMissing(t *testing.T) {
 	d := sampleDoc(t)
 	tgt := skillTarget(t)
-	out, err := tgt.Render(d)
+	out, err := tgt.Render(d, tgt)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestValidateSkillFailsWhenRequiredSectionHeadingMissing(t *testing.T) {
 func TestValidateMDCPassesOnItsOwnRender(t *testing.T) {
 	d := sampleDoc(t)
 	tgt := mdcTarget(t)
-	out, err := tgt.Render(d)
+	out, err := tgt.Render(d, tgt)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestValidateMDCPassesOnItsOwnRender(t *testing.T) {
 func TestValidateMDCFailsWhenFrontmatterStripped(t *testing.T) {
 	d := sampleDoc(t)
 	tgt := mdcTarget(t)
-	out, err := tgt.Render(d)
+	out, err := tgt.Render(d, tgt)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestValidateMDCFailsWhenFrontmatterStripped(t *testing.T) {
 func TestValidateMDCFailsWhenGlobsMissing(t *testing.T) {
 	d := sampleDoc(t)
 	tgt := mdcTarget(t)
-	out, err := tgt.Render(d)
+	out, err := tgt.Render(d, tgt)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestValidateMDCFailsWhenGlobsMissing(t *testing.T) {
 func TestValidateMDCFailsWhenAlwaysApplyMissing(t *testing.T) {
 	d := sampleDoc(t)
 	tgt := mdcTarget(t)
-	out, err := tgt.Render(d)
+	out, err := tgt.Render(d, tgt)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestValidateMDCFailsWhenAlwaysApplyMissing(t *testing.T) {
 func TestValidateAgentsPassesOnItsOwnRender(t *testing.T) {
 	d := sampleDoc(t)
 	tgt := agentsTarget(t)
-	out, err := tgt.Render(d)
+	out, err := tgt.Render(d, tgt)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -150,19 +150,23 @@ func TestValidateAgentsFailsWhenOverBudget(t *testing.T) {
 func TestValidateAgentsFailsWhenItSwallowsTheSkillBody(t *testing.T) {
 	d := sampleDoc(t)
 	tgt := agentsTarget(t)
-	out, err := tgt.Render(d)
+	out, err := tgt.Render(d, tgt)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+	// A section the skill renders and agents does not. The test is about AGENTS.md
+	// carrying content that is not its own, so what matters is that the section is
+	// foreign to `agents` — not that it is unique to `skill`, which stopped being true
+	// once the machine-wide skill started sharing these sections.
 	var skillOnlyBody string
 	for _, s := range d.Sections {
-		if len(s.Targets) == 1 && s.Targets[0] == "skill" {
+		if s.HasTarget("skill") && !s.HasTarget("agents") {
 			skillOnlyBody = s.BodyFor("skill")
 			break
 		}
 	}
 	if skillOnlyBody == "" {
-		t.Fatal("test fixture has no skill-only section to swallow")
+		t.Fatal("test fixture has no skill section outside agents to swallow")
 	}
 	corrupted := out + skillOnlyBody + "\n"
 	if err := validateAgents(d, tgt, corrupted); err == nil {
@@ -176,7 +180,7 @@ func TestValidateAgentsFailsWhenItSwallowsTheSkillBody(t *testing.T) {
 func TestValidateSkillFailsWhenOverBudget(t *testing.T) {
 	d := sampleDoc(t)
 	tgt := skillTarget(t)
-	out, err := tgt.Render(d)
+	out, err := tgt.Render(d, tgt)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -196,7 +200,7 @@ func TestValidateSkillFailsWhenOverBudget(t *testing.T) {
 func TestValidateMDCFailsWhenOverBudget(t *testing.T) {
 	d := sampleDoc(t)
 	tgt := mdcTarget(t)
-	out, err := tgt.Render(d)
+	out, err := tgt.Render(d, tgt)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -228,7 +232,7 @@ func TestValidateAgentsFailsWhenOverBudgetWrapsErrOverBudget(t *testing.T) {
 func TestValidateAgentsFailsWhenBeginMarkerMissing(t *testing.T) {
 	d := sampleDoc(t)
 	tgt := agentsTarget(t)
-	out, err := tgt.Render(d)
+	out, err := tgt.Render(d, tgt)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -241,7 +245,7 @@ func TestValidateAgentsFailsWhenBeginMarkerMissing(t *testing.T) {
 func TestValidateAgentsFailsWhenEndMarkerMissing(t *testing.T) {
 	d := sampleDoc(t)
 	tgt := agentsTarget(t)
-	out, err := tgt.Render(d)
+	out, err := tgt.Render(d, tgt)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -283,7 +287,7 @@ func TestValidateAgentsFailsWhenRequiredSectionContentMissing(t *testing.T) {
 func TestValidateAgentsFailsWhenItSwallowsASharedSection(t *testing.T) {
 	d := sampleDoc(t)
 	tgt := agentsTarget(t)
-	out, err := tgt.Render(d)
+	out, err := tgt.Render(d, tgt)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -321,7 +325,7 @@ func guttedBodies(d *Doc, t Target, out string) string {
 func TestValidateSkillFailsWhenRequiredSectionBodyMissing(t *testing.T) {
 	d := sampleDoc(t)
 	tgt := skillTarget(t)
-	out, err := tgt.Render(d)
+	out, err := tgt.Render(d, tgt)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -340,7 +344,7 @@ func TestValidateSkillFailsWhenRequiredSectionBodyMissing(t *testing.T) {
 func TestValidateMDCFailsWhenRequiredSectionBodyMissing(t *testing.T) {
 	d := sampleDoc(t)
 	tgt := mdcTarget(t)
-	out, err := tgt.Render(d)
+	out, err := tgt.Render(d, tgt)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -361,7 +365,7 @@ func TestValidateMDCFailsWhenRequiredSectionBodyMissing(t *testing.T) {
 func TestValidateMDCFailsWhenItSwallowsASkillOnlySection(t *testing.T) {
 	d := sampleDoc(t)
 	tgt := mdcTarget(t)
-	out, err := tgt.Render(d)
+	out, err := tgt.Render(d, tgt)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -404,7 +408,7 @@ func TestValidateSkillFailsWhenItSwallowsAnMDCOnlySection(t *testing.T) {
 		t.Fatalf("Parse: %v", err)
 	}
 	tgt := skillTarget(t)
-	out, err := tgt.Render(d)
+	out, err := tgt.Render(d, tgt)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}

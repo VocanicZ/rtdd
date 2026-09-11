@@ -17,7 +17,16 @@ import (
 
 // KnownTargets is closed on purpose: a typo in a targets= list must fail the
 // build rather than silently drop a section from one front-end.
-var KnownTargets = map[string]bool{"skill": true, "agents": true, "mdc": true}
+//
+// The `global` pair are the machine-wide front-ends `rtdd skill install` writes into the
+// user's home directory. They are separate targets rather than copies of the repo-scoped
+// ones because they are read in repositories rtdd has never touched: they must carry the
+// `setup` section, and the repo-scoped front-ends must not, having been written by the
+// very command `setup` tells the agent to run.
+var KnownTargets = map[string]bool{
+	"skill": true, "agents": true, "mdc": true,
+	"global": true, "global-agents": true,
+}
 
 type Section struct {
 	ID       string
@@ -36,6 +45,23 @@ type Doc struct {
 func (s Section) BodyFor(target string) string {
 	if v, ok := s.Variants[target]; ok {
 		return v
+	}
+	return s.Body
+}
+
+// BodyForAny returns the first variant among keys that this section declares, falling back
+// to the default body when it declares none of them.
+//
+// It exists because a target's SECTION SET and its BODY STYLE are independent. `global-agents`
+// selects its own sections — it needs `setup`, which the repo AGENTS.md must never carry —
+// but wants the short `agents` bodies, because it lands in a file that is in context on
+// every turn. Looking up only its own name would fall back to the long default bodies and
+// blow the byte budget.
+func (s Section) BodyForAny(keys ...string) string {
+	for _, k := range keys {
+		if v, ok := s.Variants[k]; ok {
+			return v
+		}
 	}
 	return s.Body
 }

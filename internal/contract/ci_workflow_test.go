@@ -157,7 +157,7 @@ func TestCIWorkflowPrimesNoBenchCache(t *testing.T) {
 // checks each against a `func Test…` that actually exists, because a gate step naming a
 // test that is gone passes silently: `go test -run` on a pattern matching nothing exits 0.
 var snapshotGateGates = []struct{ what, name string }{
-	{"the archive-contents gate", "TestGoreleaserSnapshotShipsFiveArchivesWithEveryShippedPath"},
+	{"the archive-contents gate", "TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippedPath"},
 	{"the end-to-end install gate", "TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion"},
 }
 

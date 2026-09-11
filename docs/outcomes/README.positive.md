@@ -6,19 +6,45 @@ rtdd runs every test that executed the code you changed, directly or deep in a c
 ## Install
 
 ```
-curl -fsSL https://raw.githubusercontent.com/VocanicZ/rtdd/main/install.sh | sh
+npx github:VocanicZ/rtdd
 ```
 
-Or build from source, with Go 1.24 or newer:
+One command, the same on Linux, macOS and Windows. It needs Node 18 or newer — `npx` is what
+makes a single line work in bash, PowerShell and `cmd` alike, where no shell script can:
+stock Windows has no POSIX `sh`, and Linux and macOS have no PowerShell.
+
+It downloads the release binary for your platform, checks it against the published
+`checksums.txt`, puts it on your PATH, and installs the agent skill below. `--version=<tag>`
+pins a release, `--install-dir=<path>` chooses where the binary goes.
+
+Or build from source, with Go 1.24 or newer, if you would rather not involve Node:
 
 ```
 git clone https://github.com/VocanicZ/rtdd && cd rtdd
 go build ./cmd/rtdd
 ```
 
-`rtdd update` replaces the binary with the latest release, and only if it is newer;
-`rtdd update --check` asks without installing. `rtdd uninstall` removes what `rtdd init`
-wrote into a repository, leaving the recorded map unless you add `--state`.
+The installer also installs a **machine-wide agent skill**, so your coding agent knows rtdd
+exists in every repository — including ones where rtdd has not been set up yet, where the
+skill tells it to run `rtdd init` first. It is written only for agents you already have: it
+lands in `~/.claude/skills/rtdd/`, and as a marker-delimited block in `~/.codex/AGENTS.md`
+and `~/.gemini/GEMINI.md`, and any of those directories that does not exist is skipped
+rather than created. Pass `--no-skill`, or set `RTDD_NO_SKILL=1`, to install the binary
+alone.
+
+For any other agent — Cursor, whose user rules live in its settings rather than in a file,
+or anything else — `rtdd skill prompt` prints a self-contained document to hand it.
+
+```
+rtdd skill install     # (re)install the machine-wide front-ends
+rtdd skill prompt      # print a copy to paste into any other agent
+rtdd skill uninstall   # remove them
+```
+
+`rtdd update` replaces the binary with the latest release, and only if it is newer, then
+refreshes the machine-wide skill to match; `rtdd update --check` asks without installing.
+`rtdd uninstall` removes what `rtdd init` wrote into a repository, leaving the recorded map
+unless you add `--state`, and the machine-wide front-ends unless you add `--global`.
 
 ## Usage
 

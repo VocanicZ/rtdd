@@ -188,7 +188,7 @@ Two irreversible actions need your explicit go-ahead, separately:
      prior-art section once more before saying yes — it names other people's work.
 
   2. Push a v* tag, which triggers GoReleaser and publishes binaries plus the
-     curl | sh install path.
+     one-line install path.
      <If the negative branch was taken, action 2 is off the table: releases are
      disabled and spec §15 says do not ship a competitor.>
 

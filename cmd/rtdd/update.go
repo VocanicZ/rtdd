@@ -71,5 +71,11 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 		return 3
 	}
 	fmt.Fprint(stdout, renderUpdate(res))
+	// The front-ends are embedded in the binary, so a replaced binary makes whatever is in
+	// the home directory stale. Only on an actual replacement: --check writes nothing, and
+	// an already-current install has nothing to refresh.
+	if res.Updated {
+		refreshGlobalSkill(stdout, stderr)
+	}
 	return 0
 }

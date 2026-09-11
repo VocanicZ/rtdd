@@ -166,7 +166,7 @@ func TestNoOtherScriptInvokesGoreleaser(t *testing.T) {
 }
 
 // goreleaserDependentTests are the two files whose assertions only mean anything if a
-// GoReleaser run actually happened: the archive gate, and install.sh proven against the
+// GoReleaser run actually happened: the archive gate, and the installer proven against the
 // archives that run produced.
 var goreleaserDependentTests = []string{"release_snapshot_test.go", "install_snapshot_test.go"}
 

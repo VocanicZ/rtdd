@@ -24,6 +24,9 @@ fi
 echo "==> go test ./... -count=1"
 go test ./... -count=1
 
+echo "==> node --test installer/"
+node --test installer/
+
 echo "==> rtdd-gen check"
 go run ./cmd/rtdd-gen check
 
@@ -103,14 +106,14 @@ scripts/release-snapshot.sh --skip=before
 # here: `go test -run` on a pattern that matches nothing exits 0, so a deleted or renamed
 # gate would sail through as a pass over zero executed tests.
 echo "==> release archives ship every shipped path (#368 AC7)"
-listed="$(go test -list '^TestGoreleaserSnapshotShipsFiveArchivesWithEveryShippedPath$' .)"
+listed="$(go test -list '^TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippedPath$' .)"
 case "$listed" in
-  *TestGoreleaserSnapshotShipsFiveArchivesWithEveryShippedPath*) ;;
+  *TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippedPath*) ;;
   *) echo "the release-archive contents gate is gone from the root package"; exit 1 ;;
 esac
-go test -count=1 -run '^TestGoreleaserSnapshotShipsFiveArchivesWithEveryShippedPath$' .
+go test -count=1 -run '^TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippedPath$' .
 
-echo "==> install.sh end to end against the real snapshot archives (#368 AC8)"
+echo "==> installer end to end against the real snapshot archives (#368 AC8)"
 listed="$(go test -list '^TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion$' .)"
 case "$listed" in
   *TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion*) ;;

@@ -8,43 +8,47 @@ import (
 
 const renderSample = `<!-- rtdd:meta version=1 -->
 
-<!-- rtdd:section id=what title="What rtdd reports" targets=skill,agents,mdc order=10 -->
+<!-- rtdd:section id=setup title="Setting up a repository" targets=global,global-agents order=5 -->
+setup body
+<!-- rtdd:endsection -->
+
+<!-- rtdd:section id=what title="What rtdd reports" targets=skill,agents,mdc,global,global-agents order=10 -->
 what body
 <!-- rtdd:endsection -->
 
-<!-- rtdd:section id=which title="rtdd which" targets=skill,agents,mdc order=20 -->
+<!-- rtdd:section id=which title="rtdd which" targets=skill,agents,mdc,global,global-agents order=20 -->
 which body
 <!-- rtdd:endsection -->
 
-<!-- rtdd:section id=run title="rtdd run" targets=skill,agents,mdc order=30 -->
+<!-- rtdd:section id=run title="rtdd run" targets=skill,agents,mdc,global,global-agents order=30 -->
 run body
 <!-- rtdd:endsection -->
 
-<!-- rtdd:section id=uncovered title="The uncovered report" targets=skill,agents,mdc order=40 -->
+<!-- rtdd:section id=uncovered title="The uncovered report" targets=skill,agents,mdc,global,global-agents order=40 -->
 uncovered body
 <!-- rtdd:endsection -->
 
-<!-- rtdd:section id=empty title="An empty selection" targets=skill,agents,mdc order=50 -->
+<!-- rtdd:section id=empty title="An empty selection" targets=skill,agents,mdc,global,global-agents order=50 -->
 empty body
 <!-- rtdd:endsection -->
 
-<!-- rtdd:section id=fidelity title="Selection fidelity" targets=skill,agents,mdc order=55 -->
+<!-- rtdd:section id=fidelity title="Selection fidelity" targets=skill,agents,mdc,global,global-agents order=55 -->
 fidelity body
 <!-- rtdd:endsection -->
 
-<!-- rtdd:section id=json title="JSON output" targets=skill order=60 -->
+<!-- rtdd:section id=json title="JSON output" targets=skill,global order=60 -->
 json body
 <!-- rtdd:endsection -->
 
-<!-- rtdd:section id=commands title="The rest of the commands" targets=skill order=70 -->
+<!-- rtdd:section id=commands title="The rest of the commands" targets=skill,global order=70 -->
 commands body
 <!-- rtdd:endsection -->
 
-<!-- rtdd:section id=limits title="What it cannot see" targets=skill,mdc order=80 -->
+<!-- rtdd:section id=limits title="What it cannot see" targets=skill,mdc,global order=80 -->
 limits body
 <!-- rtdd:endsection -->
 
-<!-- rtdd:section id=map title="The map file" targets=skill order=90 -->
+<!-- rtdd:section id=map title="The map file" targets=skill,global order=90 -->
 map body
 <!-- rtdd:endsection -->
 `
