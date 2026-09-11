@@ -94,10 +94,22 @@ def test_aggregate_spans_the_whole_corpus() -> None:
 #: Axis 2 tables. `outcomes_test.go` keeps the two byte-identical; this keeps
 #: both honest about the wall-clock spread.
 PUBLISHED_DOCS = (
-    "README.md",
-    "docs/outcomes/README.positive.md",
+    "docs/results/axis2-selection-baselines.md",
     "bench/results/replay/tables.md",
 )
+
+#: The README used to be in the tuple above. It was cut back to the one comparison the
+#: project exists to make — RTDD against running the whole suite — and the Axis 2
+#: baseline tables moved to their own page, which is now the doc the wall-clock guard
+#: holds. Dropping the README from a guard is exactly the move that quietly removes a
+#: check, so the invariant that replaces it is stricter: the README may not carry those
+#: tables at all. If Axis 2 ever comes back to the front page, this fails and the doc
+#: goes back in PUBLISHED_DOCS with it.
+README_DOCS = ("README.md", "docs/outcomes/README.positive.md")
+
+#: The selectors the baseline comparison ranks RTDD against. `full` is deliberately
+#: absent: it is the thing the README *does* compare against.
+BASELINE_SELECTORS = ("testmon", "importgraph", "xdist", "random")
 
 
 @pytest.mark.parametrize("repo_id", corpus_ids())
@@ -134,3 +146,24 @@ def test_the_local_ci_gate_runs_the_bench_replay_suite() -> None:
     through both gates while breaking every table."""
     gate = (BENCH.parent / "scripts" / "ci-local.sh").read_text(encoding="utf-8")
     assert "bench replay gate" in gate
+
+
+@pytest.mark.parametrize("rel", README_DOCS)
+def test_the_readme_carries_no_baseline_comparison(rel: str) -> None:
+    """The README compares RTDD to running the whole suite, and to nothing else.
+
+    Not a style rule. Every baseline sits in the same `summary.json` the head-to-head
+    figure already reads, so a table or a figure that iterates strategies picks all six
+    back up on the next regeneration — which is how the one comparison the project exists
+    to make ended up as a single row inside a table answering a different question.
+    """
+    text = (BENCH.parent / rel).read_text(encoding="utf-8")
+    for line in text.splitlines():
+        if not line.lstrip().startswith("|"):
+            continue
+        for selector in BASELINE_SELECTORS:
+            assert selector not in line.lower(), (
+                f"{rel} has a table row naming {selector!r}: {line.strip()!r}. The "
+                f"baseline comparison belongs in docs/results/axis2-selection-baselines.md; "
+                f"the README compares RTDD against the full suite only."
+            )

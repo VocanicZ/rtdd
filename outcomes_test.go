@@ -192,15 +192,20 @@ func TestREADMEStaticVerdictMatchesTheCommittedSummaries(t *testing.T) {
 		}
 	}
 
-	// Every figure the comparison turns on is quoted, so a regeneration that moves a
-	// number cannot leave the README's table describing the previous run.
-	root, err := os.ReadFile("README.md")
+	// Every figure the comparison turns on is quoted wherever the comparison is
+	// published, so a regeneration that moves a number cannot leave a table describing
+	// the previous run. That page is no longer the README: the README was cut back to the
+	// one comparison the project exists to make — RTDD against running the whole suite —
+	// and states this verdict with its sources rather than its arithmetic. The guarantee
+	// is unchanged, only the file it is enforced against.
+	page := filepath.Join("docs", "results", "axis2-selection-baselines.md")
+	root, err := os.ReadFile(page)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("read %s: %v", page, err)
 	}
 	for _, q := range quoted {
 		if !strings.Contains(string(root), q) {
-			t.Errorf("README.md does not quote %q from the committed summaries", q)
+			t.Errorf("%s does not quote %q from the committed summaries", page, q)
 		}
 	}
 }
