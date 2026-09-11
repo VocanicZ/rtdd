@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import dataclasses
 import html
+import json
 import pathlib
 from collections.abc import Sequence
 
@@ -52,8 +53,28 @@ BAR_HEIGHT = 9
 NOT_COMPUTABLE = "not computable — the population detected nothing, so recall has no denominator"
 NOT_MEASURED = report.NOT_MEASURED
 
-#: Order is fixed so a re-render cannot churn the diff.
-FIGURES: tuple[str, ...] = ("axis2-savings", "axis2-safety", "axis2-wallclock")
+#: Order is fixed so a re-render cannot churn the diff. `rtdd-vs-full` leads because it
+#: is the only figure that answers the project's own question rather than the
+#: pre-registered one; the `axis2-*` figures answer the baselines a reviewer will ask for.
+FIGURES: tuple[str, ...] = ("rtdd-vs-full", "axis2-savings", "axis2-safety", "axis2-wallclock")
+
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+
+#: The head-to-head, baseline first so the bars read grey-then-blue. No third strategy
+#: may enter this tuple: the moment a cheaper baseline appears beside them, the figure
+#: stops answering "is RTDD better than running everything" and starts answering
+#: "is the map worth building", which is what the axis2 figures are for.
+HEAD_TO_HEAD: tuple[str, ...] = ("full", "rtdd")
+
+HEAD_TO_HEAD_SUMMARY = REPO_ROOT / "bench" / "results" / "paired" / "flask" / "summary.json"
+AGENT_SESSION = REPO_ROOT / "bench" / "results" / "agent-session" / "flask.json"
+
+#: Drawn under the head-to-head figure, because a figure this favourable travels without
+#: its table and must carry its own limits.
+HEAD_TO_HEAD_CAVEATS: tuple[str, ...] = (
+    "Parity is the ceiling, not a tie broken in RTDD's favour: a full run catches what it catches by definition.",
+    "Five detecting commits, one repository, and `probe` seeds the map at the child commit — an upper bound, not a general result.",
+)
 
 #: The one population in the corpus with any ground truth at all (flask, 3 detecting
 #: commits). It is an upper bound and the figure says so on its face.
@@ -585,10 +606,160 @@ def wallclock_svg(summaries: Sequence[dict], palette: Palette) -> str:
     return _svg(WIDTH, int(y + 20), body, palette)
 
 
+# --- figure 0: the head-to-head the README leads with ------------------------------
+
+
+def _ms(value: float) -> str:
+    return f"{int(round(value))} ms"
+
+
+def load_head_to_head() -> tuple[dict, dict]:
+    """The two committed records this figure is drawn from, and nothing else.
+
+    Kept separate from the corpus summaries `cmd_chart` collects: the paired population
+    lives under its own results subtree (it is a different commit selection, not a
+    different repo) and the agent-session record is not a replay at all — it is the
+    shipped binary driven against a real clone, which is the only measurement that
+    includes RTDD's own cost.
+    """
+    try:
+        summary = json.loads(HEAD_TO_HEAD_SUMMARY.read_text(encoding="utf-8"))
+        session = json.loads(AGENT_SESSION.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise ChartError(f"the head-to-head figure needs {exc.filename}") from exc
+    return summary, session
+
+
+def head_to_head_svg(summary: dict, session: dict, palette: Palette) -> str:
+    """RTDD against running the whole suite. No third strategy appears here.
+
+    Every other figure in this directory answers the pre-registered question — is a
+    coverage map worth building, against the cheap baselines a reviewer will name. This
+    one answers the project's own question: does an agent that runs RTDD spend less time
+    than an agent that runs everything, and does it still catch what everything catches.
+    Those are different questions, and mixing the baselines into this figure is what made
+    the earlier ones unreadable for it.
+    """
+    rows = summary["strategies"]
+    for name in HEAD_TO_HEAD:
+        if name not in rows:
+            raise ChartError(f"the head-to-head figure needs the {name!r} row")
+
+    x0 = MARGIN + LABEL_WIDTH
+    body: list[str] = [
+        _text(MARGIN, MARGIN + 4, "RTDD against running the whole suite", fill=palette.ink, size=17, weight="700"),
+        _text(
+            MARGIN,
+            MARGIN + 24,
+            "The only comparison drawn here. Grey = run every test after every change. Blue = RTDD.",
+            fill=palette.muted,
+            size=11.5,
+        ),
+    ]
+    y = MARGIN + 52
+
+    # --- panel 1: the loop RTDD exists for, shipped binary, its own cost included ---
+    body.append(
+        _text(MARGIN, y, "The agent's loop — 10 edits to one module, real flask clone", fill=palette.ink, size=13, weight="600")
+    )
+    y += 12
+    body.append(
+        _text(
+            MARGIN,
+            y,
+            f"{session['suite_tests']} tests in the suite, {session['selected_tests']} selected · shorter is better",
+            fill=palette.muted,
+            size=10.5,
+        )
+    )
+    y += 20
+
+    ms = session["session_ms"]
+    baseline = float(ms["full"])
+    loop = (
+        ("full suite", "full", baseline, "baseline"),
+        ("rtdd run", "rtdd", float(ms["always"]), f"{baseline / float(ms['always']):.2f}× faster"),
+        ("  --record=auto", "rtdd", float(ms["auto"]), f"{baseline / float(ms['auto']):.2f}× faster"),
+    )
+    for label, strategy, value, note in loop:
+        colour = _colour(strategy, palette)
+        weight = "700" if strategy == "rtdd" else "normal"
+        body.append(_text(MARGIN, y + 12, label, fill=palette.ink, size=11.5, mono=True, weight=weight))
+        body.append(
+            f'<rect x="{x0:.1f}" y="{y + 3:.1f}" width="{PLOT_WIDTH * (value / baseline):.1f}" '
+            f'height="{BAR_HEIGHT + 3}" rx="2" fill="{colour}" '
+            f"{_data(strategy, f'session_ms/{label.strip()}', _ms(value))}/>"
+        )
+        body.append(
+            _text(x0 + PLOT_WIDTH + 12, y + 14, f"{_ms(value)}   {note}", fill=palette.muted, size=10.5, mono=True)
+        )
+        y += ROW_HEIGHT
+    y += 20
+
+    # --- panel 2: the parity claim, on the only population that can measure it ------
+    detecting = rows["full"]["change_level_recall"]["den"]
+    body.append(
+        _text(MARGIN, y, "What it catches, against what a full run catches", fill=palette.ink, size=13, weight="600")
+    )
+    y += 12
+    body.append(
+        _text(
+            MARGIN,
+            y,
+            f"flask, paired population, {detecting} detecting commits · taller is better, except the last row",
+            fill=palette.muted,
+            size=10.5,
+        )
+    )
+    y += 20
+
+    stratum_of = {name: rows[name].get("strata", {}).get("1", {}) for name in HEAD_TO_HEAD}
+    measures = (
+        ("caught the change", "change_level_recall", lambda n: rows[n]["change_level_recall"], False),
+        ("…where one test fails", "strata/1/change_level_recall", lambda n: stratum_of[n].get("change_level_recall"), False),
+        ("share of suite time", "selected_duration_fraction", lambda n: rows[n]["selected_duration_fraction"], True),
+    )
+    for label, metric, pick, lower_is_better in measures:
+        body.append(_text(MARGIN, y + 16, label, fill=palette.ink, size=11.5))
+        for index, name in enumerate(HEAD_TO_HEAD):
+            cell = pick(name)
+            if cell is None or cell.get("value") is None:
+                body.append(
+                    _text(x0, y + 16 + index * 13, f"{name}: {NOT_COMPUTABLE}", fill=palette.warn, size=10, mono=True)
+                )
+                continue
+            value = float(cell["value"])
+            colour = _colour(name, palette)
+            offset = 2 + index * (BAR_HEIGHT + 3)
+            body.append(
+                f'<rect x="{x0:.1f}" y="{y + offset:.1f}" width="{PLOT_WIDTH * value:.1f}" '
+                f'height="{BAR_HEIGHT}" rx="2" fill="{colour}" '
+                f"{_data(name, metric, _frac(value))}/>"
+            )
+            shown = f"{_frac(value)}"
+            if cell.get("den") is not None and not lower_is_better:
+                shown += f" ({cell['num']}/{cell['den']})"
+            body.append(
+                _text(x0 + PLOT_WIDTH + 12, y + offset + 8, f"{name}  {shown}", fill=palette.muted, size=10, mono=True)
+            )
+        y += ROW_HEIGHT + 6
+
+    y += 6
+    footer = [
+        _source_note(y, palette, f"source: {HEAD_TO_HEAD_SUMMARY.relative_to(REPO_ROOT).as_posix()} · {AGENT_SESSION.relative_to(REPO_ROOT).as_posix()}"),
+    ]
+    for offset, line in enumerate(HEAD_TO_HEAD_CAVEATS):
+        footer.append(_text(MARGIN, y + 16 + offset * 13, line, fill=palette.muted, size=10.5))
+    return _svg(WIDTH, int(y + 20 + 13 * len(HEAD_TO_HEAD_CAVEATS)), body + footer, palette)
+
+
 # --- emission ----------------------------------------------------------------------
 
 
 def render_figure(figure: str, summaries: Sequence[dict], palette: Palette) -> str:
+    if figure == "rtdd-vs-full":
+        summary, session = load_head_to_head()
+        return head_to_head_svg(summary, session, palette)
     if figure == "axis2-savings":
         return savings_svg(summaries, palette)
     if figure == "axis2-wallclock":
