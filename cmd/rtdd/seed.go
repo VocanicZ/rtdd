@@ -54,12 +54,17 @@ func cmdSeed(args []string, stdout, stderr io.Writer) int {
 	// A run that fails outright still returns here rather than folding a per-adapter code:
 	// seed writes the map once, at the end, and a half-written map is worse than none.
 	// Decision 5's fold is about `run`, which has a result per adapter to keep.
+	files, err := gitctx.ListFiles(root)
+	if err != nil {
+		fmt.Fprintln(stderr, "rtdd:", err)
+		return 3
+	}
 	m := mapstore.New()
 	code := 0
 	var failed []string
 	for _, ad := range detected {
 		fmt.Fprintf(stdout, "seeding with the %s adapter (every unit, instrumented)\n", ad.Name)
-		res, err := runner.Seed(ad, root)
+		res, err := runner.SeedIn(ad, root, files)
 		if err != nil {
 			return reportRunErr(err)
 		}

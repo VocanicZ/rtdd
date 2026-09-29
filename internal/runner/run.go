@@ -1,11 +1,13 @@
 package runner
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/VocanicZ/rtdd/internal/adapter"
 	"github.com/VocanicZ/rtdd/internal/coverage"
+	"github.com/VocanicZ/rtdd/internal/gitctx"
 )
 
 // Outcome is one unit's result.
@@ -30,14 +32,24 @@ func Run(a *adapter.Adapter, repoRoot string, tests []string, failFast bool) (*R
 	return RunUnits(a, repoRoot, tests, failFast)
 }
 
+// RunIn is Run over the repo file list the caller already has from gitctx.ListFiles.
+func RunIn(a *adapter.Adapter, repoRoot string, tests, repoFiles []string, failFast bool) (*RunResult, error) {
+	return RunUnitsIn(a, repoRoot, tests, repoFiles, failFast)
+}
+
 // Seed runs every unit the adapter claims. It is the only operation that may shrink a
 // map row, so every condition Run treats as fatal is fatal here too.
 func Seed(a *adapter.Adapter, repoRoot string) (*RunResult, error) {
-	units, err := Units(a, repoRoot)
+	files, err := gitctx.ListFiles(repoRoot)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("runner: enumerate units: %w", err)
 	}
-	return RunUnits(a, repoRoot, units, false)
+	return SeedIn(a, repoRoot, files)
+}
+
+// SeedIn is Seed over the repo file list the caller already has.
+func SeedIn(a *adapter.Adapter, repoRoot string, repoFiles []string) (*RunResult, error) {
+	return RunUnitsIn(a, repoRoot, UnitsIn(a, repoFiles), repoFiles, false)
 }
 
 // mergeEnv returns base with overrides applied, replacing rather than appending so an

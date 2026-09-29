@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/VocanicZ/rtdd/internal/adapter"
+	"github.com/VocanicZ/rtdd/internal/covfmt"
 	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
 )
 
@@ -201,7 +202,7 @@ func TestUnitFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := runUnit(a, dir, "calc/unitfile_test.go", []string{"calc/calc.go", "calc/unitfile_test.go"})
+	r := runUnit(a, dir, "calc/unitfile_test.go", covfmt.NewResolver(dir, []string{"calc/calc.go", "calc/unitfile_test.go"}))
 	if r.fatal != nil || r.outcome.Status != "pass" {
 		t.Fatalf("status %q fatal %v\n%s", r.outcome.Status, r.fatal, r.output)
 	}
@@ -211,7 +212,7 @@ func TestAnUnwritableUnitFileIsAnErrorUnit(t *testing.T) {
 	dir, a := gofixRepo(t)
 	// "x" is both a file and a parent directory: the second write cannot succeed.
 	a.UnitFiles = map[string]string{"x": "a", "x/y": "b"}
-	r := runUnit(a, dir, "calc/calc_test.go", nil)
+	r := runUnit(a, dir, "calc/calc_test.go", covfmt.NewResolver(dir, nil))
 	if r.outcome.Status != "error" || !strings.Contains(r.output, "unit_files") {
 		t.Fatalf("status %q output %q, want error naming unit_files", r.outcome.Status, r.output)
 	}

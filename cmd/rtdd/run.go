@@ -91,6 +91,7 @@ func cmdRun(args []string) int {
 		EscalateDigest:           escalateNow,
 		EscalateDigestAtLastFull: mt.EscalateDigest,
 		Distance:                 memoDistance(root),
+		Files:                    files,
 	})
 	if err != nil {
 		return reportRunErr(err)
@@ -193,7 +194,7 @@ func cmdRun(args []string) int {
 		if selectionIsEmpty(blk.Selection) {
 			continue
 		}
-		res, err := runSelection(blk, root, *failFast)
+		res, err := runSelection(blk, root, files, *failFast)
 		if err != nil {
 			code, hints := runErrClass(err)
 			runs = append(runs, AdapterRun{Adapter: blk.Adapter, Err: err, Code: code, Hints: hints})

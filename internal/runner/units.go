@@ -24,13 +24,18 @@ func Units(a *adapter.Adapter, repoRoot string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("runner: enumerate units: %w", err)
 	}
+	return UnitsIn(a, files), nil
+}
+
+// UnitsIn is Units over a file list the caller already has from gitctx.ListFiles.
+func UnitsIn(a *adapter.Adapter, files []string) []string {
 	var out []string
 	for _, f := range files {
 		if a.IsTestFile(f) {
 			out = append(out, f)
 		}
 	}
-	return out, nil
+	return out
 }
 
 type unitResult struct {
@@ -46,6 +51,12 @@ func RunUnits(a *adapter.Adapter, repoRoot string, units []string, failFast bool
 	if err != nil {
 		return nil, fmt.Errorf("runner: %w", err)
 	}
+	return RunUnitsIn(a, repoRoot, units, repoFiles, failFast)
+}
+
+// RunUnitsIn is RunUnits over the repo file list the caller already has.
+func RunUnitsIn(a *adapter.Adapter, repoRoot string, units, repoFiles []string, failFast bool) (*RunResult, error) {
+	res := covfmt.NewResolver(repoRoot, repoFiles)
 	jobs := a.Jobs
 	if jobs <= 0 {
 		jobs = runtime.NumCPU()
@@ -70,7 +81,7 @@ func RunUnits(a *adapter.Adapter, repoRoot string, units []string, failFast bool
 		go func(i int, u string) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			r := runUnit(a, repoRoot, u, repoFiles)
+			r := runUnit(a, repoRoot, u, res)
 			results[i] = r
 			if r.fatal != nil || (failFast && (r.outcome.Status == "fail" || r.outcome.Status == "error")) {
 				mu.Lock()
@@ -81,7 +92,7 @@ func RunUnits(a *adapter.Adapter, repoRoot string, units []string, failFast bool
 	}
 	wg.Wait()
 
-	res := &RunResult{Coverage: &coverage.Result{}, Output: map[string]string{}}
+	out := &RunResult{Coverage: &coverage.Result{}, Output: map[string]string{}}
 	for _, r := range results {
 		if r.outcome.Test == "" {
 			continue // never scheduled (fail-fast)
@@ -89,22 +100,22 @@ func RunUnits(a *adapter.Adapter, repoRoot string, units []string, failFast bool
 		if r.fatal != nil {
 			return nil, r.fatal
 		}
-		res.Outcomes = append(res.Outcomes, r.outcome)
+		out.Outcomes = append(out.Outcomes, r.outcome)
 		if r.files != nil {
-			res.Coverage.PerTest = append(res.Coverage.PerTest, coverage.TestCoverage{Test: r.outcome.Test, Files: r.files})
+			out.Coverage.PerTest = append(out.Coverage.PerTest, coverage.TestCoverage{Test: r.outcome.Test, Files: r.files})
 		}
 		switch r.outcome.Status {
 		case "fail", "error":
-			res.Failed = append(res.Failed, r.outcome.Test)
-			res.Output[r.outcome.Test] = r.output
-			res.ExitCode = 1
+			out.Failed = append(out.Failed, r.outcome.Test)
+			out.Output[r.outcome.Test] = r.output
+			out.ExitCode = 1
 		}
 	}
-	sort.Slice(res.Coverage.PerTest, func(i, j int) bool { return res.Coverage.PerTest[i].Test < res.Coverage.PerTest[j].Test })
-	return res, nil
+	sort.Slice(out.Coverage.PerTest, func(i, j int) bool { return out.Coverage.PerTest[i].Test < out.Coverage.PerTest[j].Test })
+	return out, nil
 }
 
-func runUnit(a *adapter.Adapter, repoRoot, unit string, repoFiles []string) unitResult {
+func runUnit(a *adapter.Adapter, repoRoot, unit string, res *covfmt.Resolver) unitResult {
 	r := unitResult{outcome: Outcome{Test: unit}}
 	body, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(unit)))
 	if err != nil {
@@ -197,7 +208,7 @@ func runUnit(a *adapter.Adapter, repoRoot, unit string, repoFiles []string) unit
 		return r
 	}
 	kept := map[string][]int{}
-	for p, ls := range covfmt.Resolve(repoRoot, raw, repoFiles) {
+	for p, ls := range res.Resolve(raw) {
 		if a.IsInstrumentable(p) || a.IsTestFile(p) {
 			kept[p] = ls
 		}

@@ -7,31 +7,48 @@ import (
 	"strings"
 )
 
-// Resolve maps each reported path onto a repo-relative path from repoFiles, merging lines
-// that arrive under two spellings. For relative paths: exact match, then unique suffix match,
-// then consensus prefix (if support >= 2 distinct reported paths). Absolute paths: rel-to-root
-// exact match only. Paths that escape the repo (..) or resolve to nothing/ambiguously are dropped.
-func Resolve(root string, raw Lines, repoFiles []string) map[string][]int {
-	var err error
-	root, err = filepath.Abs(root)
+// Resolver maps reported paths onto repo files. Build it once per run (NewResolver) and
+// call Resolve per unit: the repo-file index is the expensive part.
+type Resolver struct {
+	root   string
+	set    map[string]bool
+	byBase map[string][]string
+}
+
+// NewResolver indexes repoFiles under root. A root that cannot be made absolute resolves
+// nothing.
+func NewResolver(root string, repoFiles []string) *Resolver {
+	r := &Resolver{set: make(map[string]bool, len(repoFiles)), byBase: map[string][]string{}}
+	abs, err := filepath.Abs(root)
 	if err != nil {
-		return map[string][]int{}
+		return r
 	}
-	root = filepath.ToSlash(filepath.Clean(root))
-
-	set := make(map[string]bool, len(repoFiles))
-	byBase := map[string][]string{}
+	r.root = filepath.ToSlash(filepath.Clean(abs))
 	for _, f := range repoFiles {
-		set[f] = true
-		byBase[path.Base(f)] = append(byBase[path.Base(f)], f)
+		r.set[f] = true
+		r.byBase[path.Base(f)] = append(r.byBase[path.Base(f)], f)
 	}
+	return r
+}
 
-	// Compute consensus prefix: the most common prefix to strip across relative non-exact paths.
-	consensusPrefix := computeConsensusPrefix(raw, set)
+// Resolve is NewResolver(root, repoFiles).Resolve(raw).
+func Resolve(root string, raw Lines, repoFiles []string) map[string][]int {
+	return NewResolver(root, repoFiles).Resolve(raw)
+}
 
+// Resolve maps each reported path onto a repo-relative path, merging lines that arrive
+// under two spellings. For relative paths: exact match, then unique suffix match, then
+// consensus prefix (if support >= 2 distinct reported paths). Absolute paths: rel-to-root
+// exact match only. Paths that escape the repo (..) or resolve to nothing/ambiguously are
+// dropped.
+func (r *Resolver) Resolve(raw Lines) map[string][]int {
 	out := map[string][]int{}
+	if r.root == "" {
+		return out
+	}
+	consensusPrefix := computeConsensusPrefix(raw, r.set)
 	for p, lines := range raw {
-		rel, ok := resolveOne(root, p, set, byBase, consensusPrefix)
+		rel, ok := resolveOne(r.root, p, r.set, r.byBase, consensusPrefix)
 		if !ok {
 			continue
 		}

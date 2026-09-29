@@ -52,6 +52,9 @@ type selectionContext struct {
 	// tier rule stops re-escalating on an edit that is still in an uncommitted diff.
 	EscalateDigest           string
 	EscalateDigestAtLastFull string
+
+	// Files is gitctx.ListFiles for the root, listed once per command. Nil means list it here.
+	Files []string
 }
 
 // selectPerAdapter runs the existing pure selector once per detected adapter, each over
@@ -64,6 +67,13 @@ func selectPerAdapter(root string, ads []*adapter.Adapter, m *mapstore.Map, mt m
 	ctx selectionContext) ([]AdapterSelection, error) {
 	if len(ads) == 0 {
 		ads = []*adapter.Adapter{nil}
+	}
+	if ctx.Files == nil {
+		files, err := gitctx.ListFiles(root)
+		if err != nil {
+			return nil, err
+		}
+		ctx.Files = files
 	}
 	out := make([]AdapterSelection, 0, len(ads))
 	for _, ad := range ads {
@@ -95,10 +105,7 @@ func selectFor(root string, ad *adapter.Adapter, ads []*adapter.Adapter, m *maps
 		Map:              sub,
 	})
 
-	units, err := runner.Units(ad, root)
-	if err != nil {
-		return blk, err
-	}
+	units := runner.UnitsIn(ad, ctx.Files)
 	blk.Selection = selector.Select(selector.Inputs{
 		Map:                      sub,
 		Changes:                  ctx.Changes,
@@ -379,10 +386,10 @@ func renderAdapterRuns(runs []AdapterRun) string {
 }
 
 // runSubset is the subset invocation, as a variable so a test can count how often the
-// suite is actually invoked. It is runner.Run and nothing else.
-var runSubset = runner.Run
+// suite is actually invoked. It is runner.RunIn and nothing else.
+var runSubset = runner.RunIn
 
-// runSelection executes one adapter's selection.
-func runSelection(blk AdapterSelection, root string, failFast bool) (*runner.RunResult, error) {
-	return runSubset(blk.Ad, root, blk.Selection.Tests, failFast)
+// runSelection executes one adapter's selection; files is the command's one ListFiles.
+func runSelection(blk AdapterSelection, root string, files []string, failFast bool) (*runner.RunResult, error) {
+	return runSubset(blk.Ad, root, blk.Selection.Tests, files, failFast)
 }
