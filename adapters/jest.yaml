@@ -10,9 +10,10 @@
 # suite-wide threshold, and jest would exit 1 on a unit whose tests passed.
 # --runTestsByPath: {unit} is an exact path; without it jest reads it as a regex and also runs
 # every file whose path contains it (lib/src/api.test.js for src/api.test.js).
+# npx --no-install: a missing jest fails the unit instead of downloading one.
 name: jest
 detect: ["jest.config.js", "jest.config.ts", "jest.config.mjs", "jest.config.cjs", "jest.config.json"]
-unit_cmd: "npx jest --ci --coverage --coverageReporters=lcovonly --coverageDirectory={tmp} --coverageThreshold={} --runTestsByPath {unit}"
+unit_cmd: "npx --no-install jest --ci --coverage --coverageReporters=lcovonly --coverageDirectory={tmp} --coverageThreshold={} --runTestsByPath {unit}"
 coverage_file: "{tmp}/lcov.info"
 coverage_format: lcov
 requires:
