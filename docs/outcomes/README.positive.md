@@ -160,16 +160,15 @@ RTDD is built for one loop: an agent edits, runs tests, edits again, dozens of t
 single task. Without it the agent runs the whole suite every time. So there are two
 questions — does RTDD save time, and does it miss anything the full suite would catch.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/results/figures/rtdd-vs-full-dark.svg">
-  <img alt="RTDD against running the whole suite. Ten edits to one module: the full suite costs 28390 ms, rtdd run 19962 ms (1.42x faster). On five flask commits that break something, rtdd and the full suite both catch 5 of 5, and both catch 4 of 4 where exactly one test fails, with rtdd running 0.757 of the suite's test time against the full suite's 1.000." src="docs/results/figures/rtdd-vs-full-light.svg">
-</picture>
+**Every number in this section was measured on the release before the one-pipeline change**
+(per-test-case Python coverage): the time table, 4 of 4, the 0.757 fraction, the 12 uncovered
+reports with 0 wrong, 486 tests with 16 selected, and 167 ms for `rtdd which`. Re-measurement
+on the one pipeline is pending.
 
 ### It saves time
 
 Ten edits to one module in a real `flask` clone, tests run after each edit. Same machine,
-same edits, two copies of the same repository. This was measured on the Python pipeline as it
-was before every language moved to one process per test file, so treat it as indicative:
+same edits, two copies of the same repository:
 
 | after every change | 10 edits | |
 |---|---|---|

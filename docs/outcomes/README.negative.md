@@ -1,3 +1,5 @@
+> **Not selectable as is:** this text describes the pre-one-pipeline static tier and must be rewritten before it could be selected.
+
 # rtdd — a negative result
 
 **This repository is a published measurement, not a tool to install.**

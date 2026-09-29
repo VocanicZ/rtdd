@@ -48,10 +48,6 @@ func TestBothOutcomeFilesExist(t *testing.T) {
 	}
 }
 
-// PRD #233 AC11: "It is Python only." was true before the static tier and is not true
-// after it. The replacement is the two-tier statement, not a deletion — the Python-only
-// LIMIT is still real for execution-derived selection, and dropping the bullet would
-// quietly upgrade every non-Python repository's evidence.
 // --- the time axis is derived from the committed record, never hand-typed ---------
 //
 // The README's answer to "does it save the agent time?" is the agent-session measurement

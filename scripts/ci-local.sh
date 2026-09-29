@@ -80,7 +80,6 @@ case "$listed" in
   *TestPipelinePython*) ;;
   *) echo "the TestPipeline* gates are gone from ./cmd/rtdd/"; exit 1 ;;
 esac
-go test -count=1 -v -run '^TestPipeline' ./cmd/rtdd/ | grep -E '^(--- |ok|FAIL|PASS)' || true
 go test -count=1 -run '^TestPipeline' ./cmd/rtdd/
 
 # PRD #368 AC11 (#380): the archives a release would publish, and install.sh driven

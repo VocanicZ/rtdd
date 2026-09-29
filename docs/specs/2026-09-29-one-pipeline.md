@@ -192,7 +192,7 @@ Exact commands are settled per adapter in the plan, against a real toolchain.
   (`jobs: 1`). The edit loop runs few units, but a T2 cycle or seed on a large suite is slow.
   Measured on rtdd-bench and published either way.
 - **Coverage tools must be installed** (pytest-cov, cargo-llvm-cov, JaCoCo via Maven,
-  coverlet collector, pcov/xdebug for PHP, simplecov for Ruby). `requires` names them;
+  coverlet.msbuild, pcov/xdebug for PHP, simplecov for Ruby). `requires` names them;
   doctor and init report what is missing.
 - **Test files that depend on each other** (shared state set up by another file) fail in
   isolation. That is reported as the unit's failure, never hidden.

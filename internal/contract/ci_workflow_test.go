@@ -235,3 +235,19 @@ func repoDeclaresTestFunc(t *testing.T, name string) bool {
 	}
 	return found
 }
+
+// `go test | tee` only fails the step under pipefail; `shell: bash` implies it, and the
+// default shell for a bare `run:` does not.
+func TestCIPipelineStepRunsUnderPipefail(t *testing.T) {
+	src := readRepoFile(t, ".github/workflows/ci.yml")
+	if !strings.Contains(src, "- name: pipeline tests\n        shell: bash\n") {
+		t.Error("the ci.yml pipeline tests step must set `shell: bash` so a failing go test | tee fails the step")
+	}
+}
+
+// The README links the baseline comparison; a deleted page is a dead link nothing else catches.
+func TestREADMEBaselineComparisonPageExists(t *testing.T) {
+	if strings.Contains(readRepoFile(t, "README.md"), "docs/results/axis2-selection-baselines.md") {
+		readRepoFile(t, "docs/results/axis2-selection-baselines.md")
+	}
+}

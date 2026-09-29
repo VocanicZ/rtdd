@@ -115,6 +115,7 @@ jobs:
       # The one pipeline on every adapter's real toolchain. gradle is the one allowed skip:
       # it needs a wrapper the fixture cannot ship, and that adapter is unverified.
       - name: pipeline tests
+        shell: bash
         run: |
           listed="$(go test -list '^TestPipeline' ./cmd/rtdd/)"
           case "$listed" in
