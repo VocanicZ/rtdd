@@ -1,17 +1,34 @@
 # The .NET adapter on contract v3: one test class per process via --filter, coverage from
-# the coverlet collector ("XPlat Code Coverage"). jobs: 1 because every unit shares bin/ obj/.
-# unverified — settled in Task 11 (coverlet writes {tmp}/<guid>/coverage.cobertura.xml;
-# coverage_file needs one * glob segment). The collector is named by URI because
-# "XPlat Code Coverage" holds spaces and unit_cmd is split on whitespace.
+# the coverlet.msbuild package, which the test project must reference (PackageReference
+# coverlet.msbuild; requires xunit/nunit/mstest with Microsoft.NET.Test.Sdk as usual).
+# jobs: 1 because every unit shares bin/ obj/.
+#
+# Unit = test file; {name} = its base name, which by convention is the test class name
+# (CalcTests.cs holds class CalcTests). The filter is FullyQualifiedName~{name}, a substring
+# match, so a class name that contains another unit's name also runs under that unit.
+#
+# Tried by hand on SDK 8.0.422:
+#  - --collect datacollector://Microsoft/CoverletCodeCoverage/1.0: rejected. vstest resolves
+#    --collect by friendly name ("Unable to find a datacollector"), so the run passes with no
+#    coverage; and the friendly name "XPlat Code Coverage" has spaces (unit_cmd is split on
+#    whitespace). Even when it works, coverlet.collector writes {tmp}/<guid>/coverage.cobertura.xml
+#    and coverage_file has no glob support.
+#  - coverlet.msbuild with -p:CoverletOutput={tmp}/: chosen. Fixed output path, no spaces,
+#    no GUID dir. Cost: the test project references coverlet.msbuild.
+#  - a runsettings file via unit_files: not needed, and it would still need a fixed path.
+#
+# Limits: only the test project should reference coverlet.msbuild; two referencing projects
+# would both write {tmp}/coverage.cobertura.xml and the last one wins.
+# Verified on dotnet SDK 8.0 against the dotnet fixture.
 name: dotnet
 detect: ["*.sln", "*.csproj", "*.fsproj"]
-unit_cmd: "dotnet test --collect datacollector://Microsoft/CoverletCodeCoverage/1.0 --results-directory {tmp} --filter FullyQualifiedName~{name}"
-coverage_file: "{tmp}/*/coverage.cobertura.xml"
+unit_cmd: "dotnet test -p:CollectCoverage=true -p:CoverletOutputFormat=cobertura -p:CoverletOutput={tmp}/ --filter FullyQualifiedName~{name}"
+coverage_file: "{tmp}/coverage.cobertura.xml"
 coverage_format: cobertura
 jobs: 1
 requires:
   - bin: dotnet
-    reason: "the dotnet adapter runs dotnet test with the coverlet.collector package referenced by the test project"
+    reason: "the dotnet adapter runs dotnet test with the coverlet.msbuild package referenced by the test project (first run needs network for NuGet)"
 test_globs: ["**/*Tests.cs", "**/*Test.cs", "tests/**/*.cs", "test/**/*.cs"]
 source_globs: ["**/*.cs", "**/*.fs"]
 opaque: ["**/*.json", "**/*.resx", "**/*.xml", "**/TestData/**"]
