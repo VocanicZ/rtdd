@@ -69,26 +69,19 @@ case "$listed" in
 esac
 go test -count=1 -run '^TestEveryShippedAdapterIsFullySpecified$' ./internal/contract/
 
-echo "==> shipped id_template round-trip over real captured output (#315)"
-listed="$(go test -list 'RoundTrip' ./internal/report/)"
+# The one pipeline: every adapter's real toolchain, one test file per process, on a fixture
+# repo (cmd/rtdd/testdata/fixtures/). Each test skips when its toolchain is absent, so a
+# local run only exercises what this machine has; ci.yml installs the toolchains and fails
+# on a skip. The `-list` line is this repo's idiom: `go test -run` on a pattern that matches
+# nothing exits 0, so a deleted gate would pass silently.
+echo "==> one-pipeline adapter tests"
+listed="$(go test -list '^TestPipeline' ./cmd/rtdd/)"
 case "$listed" in
-  *RoundTrip*) ;;
-  *) echo "./internal/report/ has no id round-trip test left"; exit 1 ;;
+  *TestPipelinePython*) ;;
+  *) echo "the TestPipeline* gates are gone from ./cmd/rtdd/"; exit 1 ;;
 esac
-go test -count=1 -run 'RoundTrip' ./internal/report/
-
-# Issue #334 AC2: the TS tier names test FILES and six shipped runners select by test NAME.
-# The gate below is the only thing standing between that mismatch and a green run over zero
-# executed tests, so it gets its own step — with the `-list` line in front, because
-# `go test -run` on a pattern that matches nothing exits 0 and a deleted gate would pass
-# silently.
-echo "==> every shipped adapter's TS selection matches its own subset selector (#334)"
-listed="$(go test -list '^TestEveryShippedAdapterSelectionMatchesItsSubsetSelector$' ./cmd/rtdd/)"
-case "$listed" in
-  *TestEveryShippedAdapterSelectionMatchesItsSubsetSelector*) ;;
-  *) echo "the selection/selector gate is gone from ./cmd/rtdd/"; exit 1 ;;
-esac
-go test -count=1 -run '^TestEveryShippedAdapterSelectionMatchesItsSubsetSelector$|^TestEveryStaticShippedAdapterHasASelectorCase$|^TestEveryStaticShippedAdapterDeclaresATestSelector$|^TestGoFixtureSelectionActuallyExecutesTestAdd$' ./cmd/rtdd/
+go test -count=1 -v -run '^TestPipeline' ./cmd/rtdd/ | grep -E '^(--- |ok|FAIL|PASS)' || true
+go test -count=1 -run '^TestPipeline' ./cmd/rtdd/
 
 # PRD #368 AC11 (#380): the archives a release would publish, and install.sh driven
 # against them. Both tests below read build/dist, which .gitignore ignores — on a clean

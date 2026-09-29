@@ -25,6 +25,35 @@ jobs:
         with:
           node-version: '20'
 
+      # The one-pipeline tests (cmd/rtdd/pipeline_*_test.go) run each adapter's real
+      # coverage tool and SKIP when it is missing, so a runner without the toolchain would
+      # report green over zero coverage. Provision every toolchain the runner image does
+      # not already carry (node, java/maven, dotnet, cargo, gradle come with it), and the
+      # "pipeline tests" step below fails on any skip. pytest and pytest-cov are what the
+      # python adapter needs; phpunit and rspec install their own packages per test.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install pytest pytest-cov
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - uses: taiki-e/install-action@cargo-llvm-cov
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pcov
+          coverage: pcov
+          tools: composer
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+
       - name: build
         run: go build ./...
 
@@ -83,25 +112,20 @@ jobs:
           esac
           go test -count=1 -run '^TestEveryShippedAdapterIsFullySpecified$' ./internal/contract/
 
-      - name: shipped id_template round-trip
+      # The one pipeline on every adapter's real toolchain. gradle is the one allowed skip:
+      # it needs a wrapper the fixture cannot ship, and that adapter is unverified.
+      - name: pipeline tests
         run: |
-          listed="$(go test -list 'RoundTrip' ./internal/report/)"
+          listed="$(go test -list '^TestPipeline' ./cmd/rtdd/)"
           case "$listed" in
-            *RoundTrip*) ;;
-            *) echo "./internal/report/ has no id round-trip test left"; exit 1 ;;
+            *TestPipelinePython*) ;;
+            *) echo "the TestPipeline* gates are gone from ./cmd/rtdd/"; exit 1 ;;
           esac
-          go test -count=1 -run 'RoundTrip' ./internal/report/
-
-      # Issue #334 AC2: the TS tier names test FILES and six shipped runners select by
-      # test NAME. Without this gate the mismatch is a green run over zero executed tests.
-      - name: TS selection matches each adapter's own subset selector
-        run: |
-          listed="$(go test -list '^TestEveryShippedAdapterSelectionMatchesItsSubsetSelector$' ./cmd/rtdd/)"
-          case "$listed" in
-            *TestEveryShippedAdapterSelectionMatchesItsSubsetSelector*) ;;
-            *) echo "the selection/selector gate is gone from ./cmd/rtdd/"; exit 1 ;;
-          esac
-          go test -count=1 -run '^TestEveryShippedAdapterSelectionMatchesItsSubsetSelector$|^TestEveryStaticShippedAdapterHasASelectorCase$|^TestEveryStaticShippedAdapterDeclaresATestSelector$|^TestGoFixtureSelectionActuallyExecutesTestAdd$' ./cmd/rtdd/
+          go test -count=1 -v -run '^TestPipeline' ./cmd/rtdd/ | tee pipeline.log
+          if grep -E -- '--- SKIP: TestPipeline(Python|Go|Jest|Vitest|Cargo|Maven|Dotnet|PHPUnit|RSpec)' pipeline.log; then
+            echo "a pipeline test skipped: its toolchain is missing on this runner"
+            exit 1
+          fi
 
       # PRD #368 AC11 (#380): the archives a release would publish, and install.sh
       # driven against them. Both tests below read build/dist, which .gitignore ignores —
