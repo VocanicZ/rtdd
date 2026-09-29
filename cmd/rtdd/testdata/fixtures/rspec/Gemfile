@@ -1,4 +1,5 @@
 source "https://rubygems.org"
 
 gem "rspec"
-gem "rspec_junit_formatter"
+gem "simplecov", require: false
+gem "simplecov-lcov", require: false
