@@ -49,7 +49,7 @@ unless you add `--state`, and the machine-wide front-ends unless you add `--glob
 ## Usage
 
 ```
-cd your-python-repo
+cd your-repo
 rtdd init      # front-ends, .gitattributes merge=union, config
 rtdd seed      # one full instrumented run to build the map
 rtdd which     # what covers your current changes
@@ -60,19 +60,42 @@ $ rtdd which
 base:     HEAD
 changed:  1 files
   modified  src/calc.py
-  tier: T0  (2 tests selected, ranked)
+  tier: T0  (1 test selected, ranked)
   reason: tests whose recorded coverage intersects the changed set
-    tests/test_calc.py::test_sub
-    tests/test_calc.py::test_add
+    tests/test_calc.py
 
 $ rtdd run
-tier T0: 2 selected (tests whose recorded coverage intersects the changed set)
-2 ran, 0 failed, 2 rows in the map
+tier T0: 1 selected (tests whose recorded coverage intersects the changed set)
+1 ran, 0 failed, 1 rows in the map
 
   UNCOVERED: src/calc.py:3-4  (2 changed lines, no executing test)
-  import-time: src/calc.py:1  (executed during collection, not attributed)
-  import-time: src/calc.py:5  (executed during collection, not attributed)
 ```
+
+## One pipeline, every language
+
+Every language works the same way. `rtdd seed` runs each test file in its own process under
+the language's stock coverage tool, and the map records what each of those runs executed.
+`rtdd which` and `rtdd run` then select from that map. Nothing is inferred from names or
+imports.
+
+| adapter | coverage tool it needs |
+|---|---|
+| python | `pytest` with `pytest-cov` |
+| go | `go test` (built in) |
+| jest | `jest` (its own lcov reporter) |
+| vitest | `vitest` with `@vitest/coverage-v8` |
+| cargo | `cargo-llvm-cov` |
+| maven | JaCoCo, fetched by Maven on first run |
+| gradle | JaCoCo, applied by an init script (not yet verified on a real toolchain) |
+| dotnet | the `coverlet.msbuild` package in the test project |
+| phpunit | `pcov` or `xdebug` (not yet verified on a real toolchain) |
+| rspec | `simplecov` and `simplecov-lcov` (not yet verified on a real toolchain) |
+
+`rtdd doctor` lists which adapters matched and what each is missing.
+
+The cost is one process per test file. That is cheap for Python, Go and Node and slow where
+a process start is slow, such as the JVM and .NET. Selection is file-level on both sides:
+a changed file selects every test file that executed any of it.
 
 `rtdd init` writes a Claude Code skill at `.claude/skills/rtdd/SKILL.md`, a Cursor rule at
 `.cursor/rules/rtdd.mdc`, and a marker-delimited block in `AGENTS.md` and `CLAUDE.md`. It
@@ -139,25 +162,22 @@ questions — does RTDD save time, and does it miss anything the full suite woul
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/results/figures/rtdd-vs-full-dark.svg">
-  <img alt="RTDD against running the whole suite. Ten edits to one module: the full suite costs 28390 ms, rtdd run 19962 ms (1.42x faster), rtdd run --record=auto 10127 ms (2.80x faster). On five flask commits that break something, rtdd and the full suite both catch 5 of 5, and both catch 4 of 4 where exactly one test fails, with rtdd running 0.757 of the suite's test time against the full suite's 1.000." src="docs/results/figures/rtdd-vs-full-light.svg">
+  <img alt="RTDD against running the whole suite. Ten edits to one module: the full suite costs 28390 ms, rtdd run 19962 ms (1.42x faster). On five flask commits that break something, rtdd and the full suite both catch 5 of 5, and both catch 4 of 4 where exactly one test fails, with rtdd running 0.757 of the suite's test time against the full suite's 1.000." src="docs/results/figures/rtdd-vs-full-light.svg">
 </picture>
 
 ### It saves time
 
 Ten edits to one module in a real `flask` clone, tests run after each edit. Same machine,
-same edits, three copies of the same repository:
+same edits, two copies of the same repository. This was measured on the Python pipeline as it
+was before every language moved to one process per test file, so treat it as indicative:
 
 | after every change | 10 edits | |
 |---|---|---|
 | run the whole suite | 28390 ms | |
 | `rtdd run` | 19962 ms | **1.42× faster** |
-| `rtdd run --record=auto` | 10127 ms | **2.80× faster** |
 
 486 tests in the suite, 16 selected. Reproduce with
 [`scripts/agent-session-bench.sh`](scripts/agent-session-bench.sh) against a seeded clone.
-
-`--record=auto` skips re-recording coverage on cycles where the map has nothing new to
-learn. You give up that cycle's uncovered report, and it tells you when it does.
 
 RTDD's own cost is inside those numbers. `rtdd which` answers in **167 ms** on this clone,
 down from **9774 ms** before its staleness scan was memoised — which was slower than just
@@ -201,8 +221,8 @@ about this.
 
 ## Documentation
 
-- [Limitations](docs/LIMITATIONS.md) — where selection can be wrong, which languages get
-  the weaker tier, and the coverage internals that constrain it.
+- [Limitations](docs/LIMITATIONS.md) — where selection can be wrong, what one process per
+  test file costs, and the coverage internals that constrain it.
 - [Prior art](docs/PRIOR-ART.md) — pytest-testmon, TDAD, and the rest of the field RTDD
   builds on, with what each of them already does better.
 - [Baseline comparison](docs/results/axis2-selection-baselines.md) — RTDD against

@@ -14,9 +14,9 @@
 #   scripts/agent-session-bench.sh <clone-dir> <cycles>
 #
 # The clone must already have a working virtualenv on PATH and a seeded .rtdd (see
-# DEVELOPMENT.md). Three sessions run in sequence over three copies of it, each applying
+# DEVELOPMENT.md). Two sessions run in sequence over two copies of it, each applying
 # the IDENTICAL edits to the same module: the full suite, `rtdd run` at its shipped
-# default, and `rtdd run --record=auto`.
+# default.
 #
 # What it does NOT measure: whether the selection caught what a full run would have. The
 # edits are additive no-ops, so nothing fails in any arm — this is a cost measurement and
@@ -41,7 +41,7 @@ run_session() {
     if [ "$mode" = full ]; then
       pytest -q -p no:cacheprovider >/dev/null 2>&1 || true
     else
-      rtdd run --record="$mode" >/dev/null 2>&1 || true
+      rtdd run >/dev/null 2>&1 || true
     fi
     e=$(date +%s%N)
     ms=$(( (e - s) / 1000000 ))
@@ -51,7 +51,7 @@ run_session() {
   printf '%s: %d ms over %d cycles\n' "$mode" "$total" "$CYCLES"
 }
 
-for mode in full always auto; do
+for mode in full rtdd; do
   cp -a "$SRC" "$WORK/$mode"
   echo "=== $mode ==="
   ( run_session "$WORK/$mode" "$mode" )
