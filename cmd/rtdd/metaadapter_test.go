@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/VocanicZ/rtdd/internal/adapter"
+	"github.com/VocanicZ/rtdd/internal/mapstore"
 	"github.com/VocanicZ/rtdd/internal/selector"
 )
 
@@ -25,23 +26,34 @@ func legacyRepoAdapters() []*adapter.Adapter {
 // of an existing map are, and a repository that gains a second toolchain must not have
 // that answer changed underneath it.
 func TestRunLeavesAnAlreadyNamedAdapterAlone(t *testing.T) {
-	got := metaAfterRun(meta{V: 1, Adapter: "python"}, legacyRepoAdapters(), selector.TierT0, "")
+	got := metaAfterRun(meta{V: 1, Adapter: "python"}, legacyRepoAdapters(), selector.TierT0, "", false)
 	if got.Adapter != "python" {
 		t.Errorf("meta.adapter = %q, want the name already recorded", got.Adapter)
 	}
 }
 
-// A meta written before `v` existed still gets one; the run must not write a versionless
-// document back.
-func TestRunStampsTheSchemaVersionOnAVersionlessMeta(t *testing.T) {
-	if got := metaAfterRun(meta{}, legacyRepoAdapters(), selector.TierT0, "").V; got != 1 {
-		t.Errorf("meta.v after run = %d, want 1", got)
+// A complete T2 run (no --fail-fast) recorded every unit, so the meta it writes names the
+// current map version; the next run then selects from that map instead of escalating
+// as "unseeded" forever.
+func TestRunStampsTheMapVersionAfterACompleteT2Run(t *testing.T) {
+	for _, in := range []meta{{}, {V: 1}} {
+		if got := metaAfterRun(in, legacyRepoAdapters(), selector.TierT2, "", false).V; got != mapstore.MapVersion {
+			t.Errorf("meta.v after a complete T2 run from v%d = %d, want %d", in.V, got, mapstore.MapVersion)
+		}
+	}
+}
+
+// A T2 run cut short by --fail-fast left units unrecorded: the map is not complete, so the
+// version stays below MapVersion — but a versionless meta still gets a version.
+func TestRunDoesNotStampTheMapVersionAfterAFailFastT2Run(t *testing.T) {
+	if got := metaAfterRun(meta{}, legacyRepoAdapters(), selector.TierT2, "", true).V; got != 1 {
+		t.Errorf("meta.v after a fail-fast T2 run = %d, want 1 (below MapVersion)", got)
 	}
 }
 
 // meta.json's singular `adapter` is the first detected adapter when meta names none.
 func TestRunNamesTheFirstDetectedAdapterWhenMetaNamesNone(t *testing.T) {
-	if got := metaAfterRun(meta{V: 2}, legacyRepoAdapters(), selector.TierT0, "").Adapter; got != "maven" {
+	if got := metaAfterRun(meta{V: 2}, legacyRepoAdapters(), selector.TierT0, "", false).Adapter; got != "maven" {
 		t.Errorf("meta.adapter after run = %q, want maven", got)
 	}
 }

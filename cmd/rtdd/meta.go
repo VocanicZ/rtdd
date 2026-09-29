@@ -58,11 +58,18 @@ func coverageAdapterName(detected []*adapter.Adapter) string {
 // rows of an existing map are, so a repository that gains a second toolchain must not have
 // that answer rewritten underneath it — and a repository that never had one gets the
 // coverage adapter, not whichever name detection happened to return first.
-func metaAfterRun(mt meta, detected []*adapter.Adapter, tier selector.Tier, escalateNow string) meta {
+//
+// A T2 run that was not cut short by --fail-fast ran every unit, so the map it saved is a
+// complete current map and gets MapVersion — otherwise an unseeded repository would read
+// as unseeded, and escalate to T2, forever. A cut-short run leaves an older version below
+// MapVersion, so the next run still escalates.
+func metaAfterRun(mt meta, detected []*adapter.Adapter, tier selector.Tier, escalateNow string, failFast bool) meta {
 	if mt.Adapter == "" {
 		mt.Adapter = coverageAdapterName(detected)
 	}
-	if mt.V == 0 {
+	if tier == selector.TierT2 && !failFast {
+		mt.V = mapstore.MapVersion
+	} else if mt.V == 0 {
 		mt.V = 1
 	}
 	// Only a T2 run covers the whole suite, so only a T2 run can retire the config

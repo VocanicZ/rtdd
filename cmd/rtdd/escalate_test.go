@@ -81,10 +81,10 @@ func TestADeletedConfigFileIsNotTheSameStateAsAnEmptyOne(t *testing.T) {
 func TestOnlyAFullRunRecordsTheConfigStateItCovered(t *testing.T) {
 	ads := escalateAdapters()
 
-	if got := metaAfterRun(meta{V: 1}, ads, selector.TierT0, "sha256:cfg").EscalateDigest; got != "" {
+	if got := metaAfterRun(meta{V: 1}, ads, selector.TierT0, "sha256:cfg", false).EscalateDigest; got != "" {
 		t.Fatalf("EscalateDigest = %q after a T0 run; only a full suite retires the escalation", got)
 	}
-	if got := metaAfterRun(meta{V: 1}, ads, selector.TierT2, "sha256:cfg").EscalateDigest; got != "sha256:cfg" {
+	if got := metaAfterRun(meta{V: 1}, ads, selector.TierT2, "sha256:cfg", false).EscalateDigest; got != "sha256:cfg" {
 		t.Fatalf("EscalateDigest = %q after a T2 run, want the state it covered", got)
 	}
 }

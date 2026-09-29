@@ -272,7 +272,7 @@ func cmdRun(args []string) int {
 	// The detected set, NOT the blocks: blocks are ordered by adapter name, and the
 	// singular `adapter` names the coverage adapter that produced the map rather than
 	// whichever name sorts first. See coverageAdapterName.
-	mt = metaAfterRun(mt, ads, sel.Tier, escalateNow)
+	mt = metaAfterRun(mt, ads, sel.Tier, escalateNow, *failFast)
 
 	if *asJSON {
 		out := BuildOutput(OutputInput{

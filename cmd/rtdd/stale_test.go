@@ -92,3 +92,31 @@ func TestDeletedTestFileIsNeverSelectedAndItsRowIsPruned(t *testing.T) {
 		t.Errorf("map still holds a row for the deleted api/api_test.go after run\n%s", runOut)
 	}
 }
+
+// A completed T2 run on an unseeded repository records every unit, so the map it saves is
+// a current map: the next run must select from it, not escalate as "unseeded" again.
+func TestRunOnAnUnseededRepoLeavesACurrentMap(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go not on PATH")
+	}
+	dir := t.TempDir()
+	if err := os.CopyFS(dir, os.DirFS("../../internal/runner/testdata/gofix")); err != nil {
+		t.Fatal(err)
+	}
+	gittest.Write(t, dir, ".gitignore", ".rtdd/\n")
+	if err := gittest.InitRepo(dir, "init"); err != nil {
+		t.Fatal(err)
+	}
+	chdir(t, dir)
+	var out, errb strings.Builder
+	var code int
+	runOut := captureStdout(t, func() { code = run([]string{"run"}, &out, &errb) })
+	if code != 0 || !strings.Contains(runOut, "tier T2") {
+		t.Fatalf("first run = %d, want 0 at T2\n%s", code, runOut)
+	}
+	appendTo(t, filepath.Join(dir, "store", "store.go"), "\nfunc Extra() int { return 1 }\n")
+	runOut = captureStdout(t, func() { code = run([]string{"run"}, &out, &errb) })
+	if strings.Contains(runOut, "unseeded") || !strings.Contains(runOut, "tier T0") {
+		t.Fatalf("second run is not T0 from the map the first run saved:\n%s", runOut)
+	}
+}
