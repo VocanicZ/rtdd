@@ -79,6 +79,14 @@ type Adapter struct {
 	Opaque       []string       `yaml:"opaque"`
 	FullEscalate []string       `yaml:"full_escalate"`
 
+	// Contract v3 (docs/specs/2026-09-29-one-pipeline.md §6). One test file runs per
+	// process; UnitCmd writes its coverage to CoverageFile under {tmp}.
+	UnitCmd        string `yaml:"unit_cmd"`
+	UnitNames      string `yaml:"unit_names"`
+	CoverageFile   string `yaml:"coverage_file"`
+	CoverageFormat string `yaml:"coverage_format"`
+	Jobs           int    `yaml:"jobs"`
+
 	// Selection is contract v2 (spec §4.2). It is optional: an omitted key defaults to
 	// SelectionCoverage, which is what every v1 adapter already means.
 	Selection string `yaml:"selection"`
@@ -267,6 +275,15 @@ func parse(b []byte, src string) (*Adapter, error) {
 func (a *Adapter) validate() error {
 	if err := a.validateGlobs(); err != nil {
 		return err
+	}
+	if a.UnitCmd != "" {
+		if a.Name == "" {
+			return fmt.Errorf("name is required")
+		}
+		if len(a.Detect) == 0 {
+			return fmt.Errorf("detect is required")
+		}
+		return a.validateV3()
 	}
 	switch {
 	case a.Name == "":
