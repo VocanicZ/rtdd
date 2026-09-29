@@ -8,6 +8,10 @@
   package filtered to that file's own `Test` functions.
 - **Selection is file-level on both sides.** A change to one function selects every test file
   that executed any part of its file, and the smallest unit selected is a test file.
+- **Rust inline tests are never units.** Only integration test files (`tests/*.rs`, in the
+  root package or any workspace member) are units; `#[cfg(test)]` modules inside `src/` are
+  not run by rtdd at all. Two workspace members with a test file of the same name both run
+  for either unit.
 - **Vitest runs a unit by substring.** `vitest run src/api.test.ts` also runs any test file
   whose path contains that string (`lib/src/api.test.ts`), so that unit's row records both
   files' coverage and over-selects. Jest is given `--runTestsByPath` and runs exactly the file.

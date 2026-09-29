@@ -84,7 +84,7 @@ imports.
 | go | `go test` (built in) |
 | jest | `jest` (its own lcov reporter) |
 | vitest | `vitest` with `@vitest/coverage-v8` |
-| cargo | `cargo-llvm-cov` |
+| cargo | `cargo-llvm-cov`; units are integration tests in `tests/*.rs` (workspace members' too); `#[cfg(test)]` inline tests are never units |
 | maven | JaCoCo, fetched by Maven on first run |
 | gradle | JaCoCo, applied by an init script (not yet verified on a real toolchain) |
 | dotnet | the `coverlet.msbuild` package in the test project |
