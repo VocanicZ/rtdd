@@ -63,12 +63,17 @@ func TestCaveatNamesEveryOncePerProcessMechanism(t *testing.T) {
 		"module singleton",
 		"DI container",
 		"session-scoped fixture",
-		"fan-out of 1",
-		"most coupled",
-		"cleanest",
+		"every test file",
+		"inflates fan-out",
 	} {
 		if !strings.Contains(Caveat, needle) {
 			t.Fatalf("Caveat is missing %q; spec §9 requires the limitation be stated in the tool's own output.\nCaveat = %q", needle, Caveat)
+		}
+	}
+	// Each unit is its own process now; the first-test-gets-it claim is false.
+	for _, stale := range []string{"whichever test", "fan-out of 1", "cleanest"} {
+		if strings.Contains(Caveat, stale) {
+			t.Fatalf("Caveat still carries the pre-one-pipeline claim %q", stale)
 		}
 	}
 }

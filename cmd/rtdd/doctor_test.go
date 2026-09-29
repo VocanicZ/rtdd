@@ -45,7 +45,7 @@ func TestRenderDoctorAlwaysPrintsTheCaveat(t *testing.T) {
 			if !strings.Contains(got, doctor.Caveat) {
 				t.Fatalf("doctor output is missing the §9 caveat:\n%s", got)
 			}
-			for _, needle := range []string{"lru_cache", "session-scoped fixture", "fan-out of 1", "cleanest"} {
+			for _, needle := range []string{"lru_cache", "session-scoped fixture", "every test file", "inflates fan-out"} {
 				if !strings.Contains(got, needle) {
 					t.Fatalf("doctor output is missing %q:\n%s", needle, got)
 				}

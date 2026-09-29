@@ -10,13 +10,15 @@ import (
 )
 
 // Caveat is the limitation rtdd doctor MUST print alongside its table (spec §9).
-// Anything executed once per process is attributed to whichever test happened to run
-// first, so the repo's most coupled file can be reported as its cleanest.
-const Caveat = "CAVEAT: anything executed once per process — @lru_cache results, " +
-	"module singletons, DI container wiring, session-scoped fixtures — runs during " +
-	"whichever test happened to go first and therefore gets a fan-out of 1. The most " +
-	"coupled file in the repo can appear here as the cleanest. Fan-out is a diagnostic " +
-	"only; RTDD never escalates selection on it."
+// Every test file runs in its own process, so anything executed once per process is
+// attributed to every test file that runs it, which inflates the fan-out of the code that
+// setup reaches.
+const Caveat = "CAVEAT: each test file runs in its own process, so anything executed once " +
+	"per process — @lru_cache results, module singletons, DI container wiring, " +
+	"session-scoped fixtures — is attributed to every test file that runs it. That " +
+	"inflates fan-out: code reached only through shared setup looks coupled to every " +
+	"test file that does the setup. Fan-out is a diagnostic only; RTDD never " +
+	"escalates selection on it."
 
 // Hub is one file's fan-out.
 type Hub struct {
