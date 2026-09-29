@@ -35,11 +35,15 @@ func hasSysmonWarning(combined []byte) bool {
 // one silently turns a subset run into "no tests failed".
 type FatalExitError struct {
 	Chunk int
+	Unit  string // set by the v3 unit runner, which has no chunks
 	Code  int
 	Label string
 }
 
 func (e *FatalExitError) Error() string {
+	if e.Unit != "" {
+		return fmt.Sprintf("runner: %s exited %d (%s); this is a fatal error, not a test failure", e.Unit, e.Code, e.Label)
+	}
 	return fmt.Sprintf("runner: chunk %d exited %d (%s); this is a fatal error, not a test failure",
 		e.Chunk, e.Code, e.Label)
 }

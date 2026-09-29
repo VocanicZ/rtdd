@@ -15,12 +15,17 @@ import (
 	"github.com/VocanicZ/rtdd/internal/report"
 )
 
+// Outcome is one test's result; report.Outcome stays an alias until the v2 path is deleted.
+type Outcome = report.Outcome
+
 // RunResult is one complete execution: what ran, what it covered, and what failed.
 type RunResult struct {
 	Outcomes []report.Outcome
 	Coverage *coverage.Result
 	Failed   []string
 	ExitCode int
+	// Output is the tail of each failed or errored unit's combined output (v3 only).
+	Output map[string]string
 }
 
 // Run executes the adapter's subset command over tests.
@@ -42,6 +47,9 @@ type RunResult struct {
 // collapse before a chunk boundary can separate them. An adapter declaring no
 // test_selector renders the identity, which is every coverage-tier adapter unchanged.
 func Run(a *adapter.Adapter, repoRoot string, tests []string, failFast bool) (*RunResult, error) {
+	if a.IsV3() {
+		return RunUnits(a, repoRoot, tests, failFast)
+	}
 	if len(tests) == 0 {
 		return &RunResult{Coverage: &coverage.Result{ImportTime: map[string][]int{}}}, nil
 	}
@@ -355,6 +363,13 @@ func tail(b []byte, n int) string {
 // seed template that names {tests} fails in Expand rather than running the suite
 // with the ids dropped.
 func Seed(a *adapter.Adapter, repoRoot string) (*RunResult, error) {
+	if a.IsV3() {
+		units, err := Units(a, repoRoot)
+		if err != nil {
+			return nil, err
+		}
+		return RunUnits(a, repoRoot, units, false)
+	}
 	return execute(a, repoRoot, a.Seed, nil, false, true)
 }
 
