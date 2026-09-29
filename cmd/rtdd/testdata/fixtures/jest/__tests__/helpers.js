@@ -1,2 +1,2 @@
-// Shared helper, not a test: matches the adapter's test_globs but holds no tests.
+// Exists to prove a helper under a test dir is not a unit: it holds no tests and test_globs no longer match it.
 module.exports = { fixtureKey: "a" };
