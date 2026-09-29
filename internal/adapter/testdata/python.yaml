@@ -1,35 +1,24 @@
-# The Python adapter.
-#
-# COVERAGE_CORE=ctrace is FORCED. Under sysmon coverage.py silently drops dynamic
-# contexts and emits only a CoverageWarning (no-sysmon-context) while exiting 0 —
-# measured at 1 context recorded out of 4 tests run. See spec §4 / audit A7.
-#
-# COVERAGE_FILE pins the data file so a host `[run] data_file = ...` cannot hide the
-# database from the runner. Measured: the environment variable wins.
-#
-# `--cov` is passed BARE, with no value. `--cov=<guess>` makes seed and subset disagree
-# on coverage scope, and `--cov=` (empty) makes pytest exit 1 and record nothing. Bare
-# --cov defers to the host repo's own [run] source / omit settings for both commands.
-# `--cov-report=` suppresses the terminal report: RTDD reads .coverage directly.
+# The Python adapter on contract v3.
+# name/detect: which repos this adapter claims.
+# unit_cmd: one test file per process under pytest-cov. --cov-report writes the lcov rtdd reads.
+# env: COVERAGE_FILE keeps parallel units off each other's .coverage.
+# coverage_file/coverage_format: where that lcov lands and how to parse it.
+# exit_codes: pytest exits that mean "unit had nothing to run", not "failed".
+# requires: binaries doctor checks for.
+# test_globs: a unit must be a file pytest can run on its own (no tests/__init__.py or helpers).
+# source_globs/opaque/full_escalate: what counts as source, what coverage cannot see into,
+# and which changes force the whole suite.
 name: python
 detect: ["pytest.ini", "pyproject.toml", "setup.cfg"]
-env:
-  COVERAGE_CORE: ctrace
-  COVERAGE_FILE: .coverage
-seed: "pytest --cov --cov-context=test --cov-report= --report-log={log}"
-subset: "pytest {tests} --cov --cov-context=test --cov-report= --report-log={log}"
-# The same selection with the coverage flags dropped, for the cycles where the map has
-# nothing to learn (`rtdd run --record=auto`). --report-log stays: outcomes are how a run
-# reports pass/fail, and a plain cycle that could not say what happened would be worse
-# than a slow one. No --cov means no .coverage write, so a plain cycle cannot corrupt the
-# map -- it leaves it exactly as the last recording cycle wrote it.
-subset_plain: "pytest {tests} --report-log={log}"
-list: "pytest --collect-only -q"
-coverage: sqlite
-report: pytest-reportlog
-failfast_flag: "-x"
-test_globs: ["tests/**/*.py", "**/test_*.py", "**/*_test.py"]
-source_globs: ["**/*.py"]
+unit_cmd: "pytest -q -p no:cacheprovider --cov=. --cov-report=lcov:{tmp}/lcov.info {unit}"
+env: { COVERAGE_FILE: "{tmp}/.coverage" }
+coverage_file: "{tmp}/lcov.info"
+coverage_format: lcov
 exit_codes: { 4: bad-selector, 5: no-tests-collected }
+requires:
+  - bin: pytest
+    reason: "the python adapter runs pytest with the pytest-cov plugin"
+test_globs: ["**/test_*.py", "**/*_test.py"]
+source_globs: ["**/*.py"]
 opaque: ["**/*.yaml", "**/*.yml", "**/*.sql", "**/*.html", "**/*.j2", "**/*.json", "**/fixtures/**"]
 full_escalate: ["requirements.txt", "pyproject.toml", "setup.cfg", "pytest.ini", "tox.ini", "poetry.lock", "uv.lock", "**/conftest.py"]

@@ -1,42 +1,15 @@
-# The Go adapter.
-#
-# `report_cmd` is DECISION 9, and Go is the only shipped adapter that declares it.
-# `go test -json` writes JSON to STDOUT and go-junit-report reads STDIN; the engine builds
-# argv and never hands a shell a string, and a `sh -c` template does not rescue it because
-# command templates are whitespace-split before substitution. So the runner writes the
-# chunk's captured output to {log} and converts it into {report} after the subset
-# invocation and before the report is read. A non-zero exit is fatal, never a silent
-# empty report.
-#
-# `test_selector` is DECISION 13, and it is why `-run` is gone from `subset`. The TS tier
-# names a test FILE, and `-run` takes a regex over test NAMES — a file path spliced there
-# matches nothing and `go test` exits 0 with "no tests to run" (#334). What a test file
-# does tell us is its PACKAGE, and a package is a selector `go test` takes: the directory
-# holding `calc/calc_test.go` is `./calc`, and two test files in one package render one
-# selector rather than running it twice.
-#
-# `test_join` is gone with it: package patterns are separate argv elements, and joining
-# them with `|` would produce one nonexistent package.
-#
-# `id_template` stays CASE-granular. It is the REPORTING vocabulary — `FAILED TestAdd` is
-# what an agent needs from a report that has already been written — and decision 13 is the
-# statement that reporting and selection are two vocabularies, not one.
+# The Go adapter on contract v3.
+# go test cannot take a file, so a unit is its package filtered to the file's own Test
+# functions (unit_names). -coverpkg=./... records every package the test reaches, not only its own.
 name: go
 detect: ["go.mod"]
-selection: static
-coverage: none
-subset: "go test -json {tests}"
-test_selector: "./{dir}"
-report_cmd: "go-junit-report -parser gojson -in {log} -out {report}"
-list: "go test -json ./..."
-report: junit-xml
-report_path: ".rtdd/junit.xml"
-id_template: "{name}"
-failfast_flag: "-failfast"
+unit_cmd: "go test -count=1 -coverpkg=./... -coverprofile={tmp}/cover.out -run {names} ./{dir}"
+unit_names: '^func (Test\w+)\('
+coverage_file: "{tmp}/cover.out"
+coverage_format: gocover
 requires:
-  - bin: go-junit-report
-    reason: "go emits no JUnit XML natively; go test -json is converted by go-junit-report"
-test_for: ["{dir}/{name}_test.go"]
+  - bin: go
+    reason: "the go adapter runs go test"
 test_globs: ["**/*_test.go"]
 source_globs: ["**/*.go"]
 opaque: ["**/testdata/**", "**/*.golden", "**/*.json", "**/*.yaml", "**/*.tmpl"]
