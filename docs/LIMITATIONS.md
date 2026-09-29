@@ -8,6 +8,9 @@
   package filtered to that file's own `Test` functions.
 - **Selection is file-level on both sides.** A change to one function selects every test file
   that executed any part of its file, and the smallest unit selected is a test file.
+- **Vitest runs a unit by substring.** `vitest run src/api.test.ts` also runs any test file
+  whose path contains that string (`lib/src/api.test.ts`), so that unit's row records both
+  files' coverage and over-selects. Jest is given `--runTestsByPath` and runs exactly the file.
 - **Test files that depend on each other can behave differently.** Shared state on disk,
   ordering, a fixed port: run one per process, they may pass or fail differently than in the
   full suite, and the map records only what each did alone.
