@@ -1,40 +1,17 @@
-# The Rust (cargo-nextest) adapter.
-#
-# JUnit output is configured in `.config/nextest.toml`, NOT by a CLI flag: nextest has no
-# `--junit` switch, it writes the report because the [profile.rtdd.junit] block says to,
-# and `--profile rtdd` selects that block. `report_path` is therefore nextest's own
-# conventional store dir for that profile — target/nextest/<profile>/.
-#
-# That same config file is the `detect` marker. Cargo.toml is deliberately NOT one: it
-# announces a Rust repo, not a nextest one, and a repo without the profile block would
-# detect an adapter whose report never appears. A Rust repo with no nextest config detects
-# nothing and gets the §5 refusal naming Cargo.toml (decision 1).
-#
-# The id is CASE-granular: nextest positionals are substring filters over test names and
-# repeat, so bare {tests} splicing is right and neither test_flag nor test_join applies.
+# The Rust adapter on contract v3: one integration test file (tests/{name}.rs) per
+# process under cargo-llvm-cov. Unit tests inside src/ are not units: "a .rs file holding
+# #[cfg(test)]" is not expressible as a glob. jobs: 1 because every unit shares target/.
+# unverified — settled in Task 9 (renamed to `cargo`, detected by Cargo.toml).
 name: cargo-nextest
 detect: [".config/nextest.toml"]
-selection: static
-coverage: none
-# `test_selector` is DECISION 13. The TS tier names a test FILE, and nextest's positional
-# filters are substrings of test NAMES — `tests/calc.rs` matches nothing. What the file name
-# does say is which target it compiles into: `tests/calc.rs` is the integration binary
-# `calc`, and `{dir}/{name}/tests.rs` is the `<module>::tests` module inside the lib. One
-# filterset covers both — `binary(calc) | test(/calc::/)` — and `-E` is repeatable, so each
-# selected file contributes its own expression and the union is what runs.
-subset: "cargo nextest run --profile rtdd {tests}"
-test_flag: "-E"
-test_selector: "binary({name}) | test(/{name}::/)"
-list: "cargo nextest run --profile rtdd"
-report: junit-xml
-report_path: "target/nextest/rtdd/junit.xml"
-id_template: "{name}"
-failfast_flag: "--fail-fast"
+unit_cmd: "cargo llvm-cov --lcov --output-path {tmp}/lcov.info --test {name}"
+coverage_file: "{tmp}/lcov.info"
+coverage_format: lcov
+jobs: 1
 requires:
-  - bin: cargo-nextest
-    reason: "cargo test emits no JUnit XML; nextest writes it from the [profile.rtdd.junit] block in .config/nextest.toml, which is a config file and not a CLI flag"
-test_for: ["tests/{name}.rs", "{dir}/{name}/tests.rs"]
-test_globs: ["tests/**/*.rs", "**/tests.rs"]
+  - bin: cargo-llvm-cov
+    reason: "the cargo adapter records coverage with cargo llvm-cov (cargo install cargo-llvm-cov)"
+test_globs: ["tests/*.rs"]
 source_globs: ["src/**/*.rs", "tests/**/*.rs", "benches/**/*.rs"]
 opaque: ["**/*.toml", "**/*.json", "**/testdata/**", "**/snapshots/**"]
 full_escalate: ["Cargo.toml", "Cargo.lock", ".config/nextest.toml", "rust-toolchain.toml", "build.rs"]

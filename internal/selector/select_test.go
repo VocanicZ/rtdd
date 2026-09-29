@@ -458,14 +458,11 @@ func TestSelectStaleReasonNamesTheSameRowEveryRun(t *testing.T) {
 	}
 }
 
-// A seeded map that covers nothing in the changed set is an honest empty. Turning it into
-// a speculative static selection would replace a true "nothing is related" with a guess:
-// TS is for a map that CANNOT answer, not for one that answered zero.
+// A seeded map that covers nothing in the changed set is an honest empty, never a guess.
 func TestSelectASeededMapSelectingNothingStaysEmpty(t *testing.T) {
 	in := baseInputs()
 	in.Changes = []gitctx.Change{mod("src/untouched.py")}
 	in.Adapter = fixtureAdapter()
-	in.Adapter.TestFor = []string{"tests/test_{name}.py"}
 
 	got := Select(in)
 

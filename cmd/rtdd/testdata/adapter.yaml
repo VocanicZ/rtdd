@@ -1,12 +1,9 @@
 name: python
 detect: ["pyproject.toml"]
-env: { COVERAGE_CORE: ctrace }
-seed: "pytest --cov --cov-context=test --report-log={log}"
-subset: "pytest {tests} --cov --cov-context=test --report-log={log}"
-list: "pytest --collect-only -q"
-coverage: sqlite
-report: pytest-reportlog
-failfast_flag: "-x"
+unit_cmd: "pytest -q -p no:cacheprovider --cov=. --cov-report=lcov:{tmp}/lcov.info {unit}"
+env: { COVERAGE_FILE: "{tmp}/.coverage" }
+coverage_file: "{tmp}/lcov.info"
+coverage_format: lcov
 test_globs: ["tests/**/*.py", "**/test_*.py"]
 source_globs: ["src/**/*.py"]
 exit_codes: { 4: bad-selector, 5: no-tests-collected }

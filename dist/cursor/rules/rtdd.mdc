@@ -48,14 +48,13 @@ fails. An empty selection and a non-empty uncovered report are both exit 0.
 
 ## The uncovered report
 
-The report classifies your changed lines into three classes, and the distinction matters:
+The report classifies your changed lines into two classes:
 
-- **covered** — an executing test touched these changed lines.
-- **uncovered** — no test executed them.
-- **import-time** — executed during collection and attributed to no test. Reported
-  separately and never counted as uncovered. Dataclasses, enums, config modules, ORM model
-  definitions, route decorators, and `__init__.py` re-exports land here routinely while
-  being correctly tested.
+- **covered** — a test file's own run executed these changed lines this cycle.
+- **uncovered** — no test file's run executed them.
+
+Each test file runs in its own process, so a line executed while importing a module is
+executed by that test file and counts as covered.
 
 An uncovered range is information about the suite, not a verdict on the patch.
 
@@ -64,16 +63,6 @@ An uncovered range is information about the suite, not a verdict on the patch.
 When nothing is selected, `rtdd` says so explicitly. An empty selection is a distinct
 outcome from "all selected tests passed", because every under-selection path terminates
 there. Treat it as "the map has nothing to say about this change", not as a pass.
-
-## Selection fidelity
-
-`--json` carries `selection_fidelity`, which says what the selection was derived from:
-`execution-derived` (tests chosen from coverage recorded by a real run), `static` (chosen
-from declared correspondence and imports, because this toolchain records nothing), or
-`none` (nothing narrower than the full suite is available). A static selection can miss a
-test an execution-derived one would have caught, so a passing static selection is
-weaker evidence — read a green `static` run as "the tests I could name passed".
-`rtdd doctor` reports which fidelity this repository can achieve, and why.
 
 ## What it cannot see
 

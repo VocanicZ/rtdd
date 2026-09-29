@@ -34,9 +34,8 @@ func writeVitestAdapter(t *testing.T, dir, extra string) {
 	if err := os.MkdirAll(adir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	yaml := "name: vitest\ndetect: [\"package.json\"]\nsubset: \"npx vitest run {tests}\"\n" +
-		"selection: static\ncoverage: none\nreport: junit-xml\nreport_path: \".rtdd/junit.xml\"\n" +
-		"id_template: \"{file}::{name}\"\ntest_for: [\"{dir}/{name}.test.ts\"]\n" +
+	yaml := "name: vitest\ndetect: [\"package.json\"]\n" +
+		"unit_cmd: \"npx vitest run {unit}\"\ncoverage_file: \"{tmp}/lcov.info\"\ncoverage_format: lcov\n" +
 		"test_globs: [\"**/*.test.ts\"]\nsource_globs: [\"src/**/*.ts\"]\n" + extra
 	if err := os.WriteFile(filepath.Join(adir, "vitest.yaml"), []byte(yaml), 0o644); err != nil {
 		t.Fatalf("write: %v", err)

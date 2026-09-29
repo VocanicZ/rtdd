@@ -17,67 +17,26 @@ import (
 
 	rtddadapters "github.com/VocanicZ/rtdd/adapters"
 	"github.com/VocanicZ/rtdd/internal/paths"
-	"github.com/VocanicZ/rtdd/internal/report"
 )
 
-// Selection and coverage values. `selection` is contract v2's fidelity key: it says
-// whether this toolchain's selection is derived from execution or from declaration.
-const (
-	// SelectionCoverage is the v1 behaviour and the default: tests are chosen from
-	// recorded per-test coverage. An adapter that omits `selection` means this, so
-	// every adapter written against v1 keeps its meaning without being edited.
-	SelectionCoverage = "coverage"
-	// SelectionStatic chooses tests from declared correspondence and imports. Spec §4.2.
-	SelectionStatic = "static"
-	// CoverageNone is the only coverage value permitted under SelectionStatic: an
-	// adapter that records nothing.
-	CoverageNone = "none"
-)
-
-// Importscan is the optional per-language import scanner. It follows the precedent set by
-// internal/importscan: the engine runs a script, it never parses the language itself
-// (decision D8). An adapter that omits the block skips import ranking; that is a narrower
-// static tier, not an error.
-type Importscan struct {
-	Command string `yaml:"command"` // e.g. "node {script}"
-	Script  string `yaml:"script"`  // shipped beside the adapter
-}
-
-// Requirement is one binary this adapter cannot work without, and why. Spec §4.3: Go needs
-// go-junit-report, Jest needs jest-junit, RSpec needs rspec_junit_formatter and dotnet needs
-// JUnitTestLogger before any of them can emit JUnit XML at all. It exists so an unmet
-// prerequisite surfaces at doctor/init time instead of as a mid-run parse failure against a
-// report file that was never written.
+// Requirement is one binary this adapter cannot work without, and why (one-pipeline spec
+// §12: coverage tools must be installed). It exists so an unmet prerequisite surfaces at
+// doctor/init time instead of as a unit that leaves no coverage file.
 type Requirement struct {
 	Bin    string `yaml:"bin"`
 	Reason string `yaml:"reason"`
 }
 
 type Adapter struct {
-	Name   string            `yaml:"name"`
-	Detect []string          `yaml:"detect"`
-	Env    map[string]string `yaml:"env"`
-	Seed   string            `yaml:"seed"`
-	Subset string            `yaml:"subset"`
-	// SubsetPlain runs the same selection WITHOUT recording coverage. It is optional,
-	// and an adapter that omits it simply records on every cycle — which is what every
-	// adapter did before the key existed, so a v1 adapter is unaffected.
-	//
-	// It exists because recording is the expensive half. Per-test coverage contexts cost
-	// roughly an order of magnitude on the corpus repos, so executing a 23% selection
-	// with `subset` costs MORE than running the whole suite plain: a median flask cycle
-	// is 14675 ms against the suite's 3001 ms. `subset_plain` is the same tests without
-	// that cost, for the cycles where the map has nothing to learn.
-	SubsetPlain  string         `yaml:"subset_plain"`
-	List         string         `yaml:"list"`
-	Coverage     string         `yaml:"coverage"` // "sqlite"
-	Report       string         `yaml:"report"`   // "pytest-reportlog"
-	FailFastFlag string         `yaml:"failfast_flag"`
-	TestGlobs    []string       `yaml:"test_globs"`
-	SourceGlobs  []string       `yaml:"source_globs"`
-	ExitCodes    map[int]string `yaml:"exit_codes"`
-	Opaque       []string       `yaml:"opaque"`
-	FullEscalate []string       `yaml:"full_escalate"`
+	Name         string            `yaml:"name"`
+	Detect       []string          `yaml:"detect"`
+	Env          map[string]string `yaml:"env"` // values may use {tmp}
+	TestGlobs    []string          `yaml:"test_globs"`
+	SourceGlobs  []string          `yaml:"source_globs"`
+	ExitCodes    map[int]string    `yaml:"exit_codes"`
+	Opaque       []string          `yaml:"opaque"`
+	FullEscalate []string          `yaml:"full_escalate"`
+	Requires     []Requirement     `yaml:"requires"`
 
 	// Contract v3 (docs/specs/2026-09-29-one-pipeline.md §6). One test file runs per
 	// process; UnitCmd writes its coverage to CoverageFile under {tmp}.
@@ -87,59 +46,6 @@ type Adapter struct {
 	CoverageFormat string `yaml:"coverage_format"`
 	Jobs           int    `yaml:"jobs"`
 
-	// Selection is contract v2 (spec §4.2). It is optional: an omitted key defaults to
-	// SelectionCoverage, which is what every v1 adapter already means.
-	Selection string `yaml:"selection"`
-
-	// The rest of contract v2: how a static-tier adapter finds and names its tests
-	// (spec §4.2), and what its runner needs installed first (spec §4.3). Every one is
-	// optional and none is defaulted, so a v1 adapter is a valid v2 adapter unedited.
-	ReportPath string        `yaml:"report_path"` // where the runner leaves its outcome file
-	IDTemplate string        `yaml:"id_template"` // how a parsed id renders back into a selector
-	TestFor    []string      `yaml:"test_for"`    // path-correspondence templates, tried IN ORDER
-	Importscan *Importscan   `yaml:"importscan"`
-	Requires   []Requirement `yaml:"requires"`
-
-	// How this runner accepts MORE THAN ONE selector. `{tests}` splices one bare argv
-	// element per id, which is pytest's shape and every coverage-tier adapter's shape;
-	// Gradle wants its flag before each id, and Surefire, PHPUnit, `dotnet test` and
-	// `go test -run` each take ONE argument holding every id joined by a separator.
-	// Both are optional and mutually exclusive: declaring neither is bare splicing,
-	// today's rule unchanged (spec §4.2, plan 06-m6d decision 8).
-	TestFlag string `yaml:"test_flag"` // emit "<flag> <id>" for each id
-	TestJoin string `yaml:"test_join"` // join every id into ONE argv token
-
-	// TestSelector is how a selected test FILE PATH becomes the ONE selector token
-	// `subset` splices (spec §4.2, plan 06-m6d decision 13). It exists because the two
-	// halves of a static selection speak different vocabularies: the TS tier names test
-	// FILES — that is what `test_for` correspondence resolves to — while six of the nine
-	// shipped runners select by test NAME. Splicing a path into a name selector matches
-	// nothing and reports a green run over zero executed tests (#334).
-	//
-	// The vocabulary is the test file's own path and nothing else: {file}, {dir} and
-	// {name}. No report has been written when a selection is made, so an id_template
-	// spelling would name an attribute that does not exist yet; Load rejects it.
-	//
-	// It is optional. An omitted key is the identity — the id reaches `subset` exactly as
-	// the tier produced it, which is every v1 adapter's behaviour unchanged — and it is
-	// permitted only under `selection: static`, because a coverage adapter's ids come
-	// from the map and are already selectors, not paths.
-	TestSelector string `yaml:"test_selector"`
-
-	// ReportCmd is an optional command run AFTER the subset invocation and BEFORE
-	// report_path is read. It exists for exactly one shape the argv-only engine cannot
-	// express: a runner that writes its machine-readable output to stdout and a converter
-	// that reads stdin. `go test -json` and `go-junit-report` are that pair, and a `sh -c`
-	// template does not rescue it — expand.go tokenises on whitespace BEFORE substituting,
-	// so a shell string cannot survive as one argv element (spec §4.3, plan 06-m6d
-	// decision 9).
-	//
-	// {log} is the chunk's captured combined output and {report} is the resolved
-	// report_path. A non-zero exit is fatal and names the adapter and the command; it is
-	// never treated as "no report", because an empty report parses as a run in which
-	// nothing failed (#294).
-	ReportCmd string `yaml:"report_cmd"`
-
 	// Src is the file this adapter was read from — an fs path inside the embedded set
 	// ("python.yaml") or an on-disk path for a host-authored one. It is never declared in
 	// YAML: it is how doctor and every error message name the file an adapter came from,
@@ -147,50 +53,11 @@ type Adapter struct {
 	Src string `yaml:"-"`
 }
 
-// The placeholders each template field may use. They are separate vocabularies because the
-// two fields answer different questions: test_for maps a changed SOURCE path to a candidate
-// test path, so it knows only where that file sits; id_template renders a parsed TEST id
-// back into the runner's own selector syntax, so it knows the JUnit <testcase> attributes —
-// classname and name — plus the file the case came from. A placeholder outside its field's
-// vocabulary can never be substituted, so it would survive into a path or a selector as a
-// literal brace; Load rejects it instead (exit 2).
-var (
-	testForPlaceholders = map[string]bool{
-		"{dir}": true, // the changed source file's directory, repo-relative
-		// {subdir} is {dir} or ANY trailing part of it, longest first — see
-		// trailingDirs. It exists because a test tree mirrors a suffix of the source
-		// tree whose length is a property of the repository rather than of the adapter:
-		// src/main/java/calc/Calc.java's test is src/test/java/calc/CalcTest.java, and
-		// no fixed placeholder can name the mirrored "calc".
-		"{subdir}": true,
-		"{name}":   true, // its base name without extension
-	}
-	idTemplatePlaceholders = map[string]bool{
-		"{file}":      true, // the file the test case was parsed from
-		"{classname}": true, // the JUnit <testcase classname=...> attribute
-		"{name}":      true, // the JUnit <testcase name=...> attribute
-	}
-	// test_selector answers a third question — how a selected test FILE becomes a
-	// runner selector — and it is asked BEFORE anything has run, so the only facts it
-	// has are the path's own three parts. Sharing test_for's spellings is deliberate:
-	// both fields talk about a path, and {name} means the same thing in each.
-	testSelectorPlaceholders = map[string]bool{
-		"{file}": true, // the selected test file, repo-relative
-		"{dir}":  true, // its directory, "." for a file at the repo root
-		"{name}": true, // its base name without extension
-	}
-)
-
-// applyDefaults fills the two keys that encode one fact between them. An omitted
-// selection is today's behaviour, and today's behaviour reads sqlite coverage.
-func (a *Adapter) applyDefaults() {
-	if a.Selection == "" {
-		a.Selection = SelectionCoverage
-	}
-	if a.Coverage == "" && a.Selection == SelectionCoverage {
-		a.Coverage = "sqlite"
-	}
-}
+// removedFields are the contract v2 keys (spec §6). Each is rejected by name, so a host
+// adapter written for an older rtdd says what to change instead of "field not found".
+var removedFields = []string{"seed", "subset", "subset_plain", "list", "coverage", "report",
+	"report_path", "report_cmd", "id_template", "failfast_flag", "test_flag", "test_join",
+	"test_selector", "selection", "test_for", "importscan"}
 
 // Load reads one adapter declaration from a file on disk.
 func Load(p string) (*Adapter, error) {
@@ -252,6 +119,15 @@ func Builtin() ([]*Adapter, error) { return LoadFS(rtddadapters.FS, ".") }
 // parse decodes one declaration. Unknown fields are rejected so a typo in a host repo's
 // adapter is a configuration error (exit 2) rather than a silently ignored glob.
 func parse(b []byte, src string) (*Adapter, error) {
+	var raw map[string]any
+	if err := yaml.Unmarshal(b, &raw); err != nil {
+		return nil, fmt.Errorf("adapter: %s: %w", src, err)
+	}
+	for _, key := range removedFields {
+		if _, ok := raw[key]; ok {
+			return nil, fmt.Errorf("adapter: %s: %s: removed in contract v3 (docs/specs/2026-09-29-one-pipeline.md §6)", src, key)
+		}
+	}
 	dec := yaml.NewDecoder(bytes.NewReader(b))
 	dec.KnownFields(true)
 	var a Adapter
@@ -259,7 +135,6 @@ func parse(b []byte, src string) (*Adapter, error) {
 		return nil, fmt.Errorf("adapter: %s: %w", src, err)
 	}
 	a.Src = src
-	a.applyDefaults()
 	if err := a.validate(); err != nil {
 		return nil, fmt.Errorf("adapter: %s: %w", src, err)
 	}
@@ -276,106 +151,21 @@ func (a *Adapter) validate() error {
 	if err := a.validateGlobs(); err != nil {
 		return err
 	}
-	if a.UnitCmd != "" {
-		if a.Name == "" {
-			return fmt.Errorf("name is required")
-		}
-		if len(a.Detect) == 0 {
-			return fmt.Errorf("detect is required")
-		}
-		return a.validateV3()
-	}
 	switch {
 	case a.Name == "":
 		return fmt.Errorf("name is required")
 	case len(a.Detect) == 0:
 		return fmt.Errorf("detect is required")
-	case a.Selection != SelectionCoverage && a.Selection != SelectionStatic:
-		return fmt.Errorf("unsupported selection %q (only %q and %q)", a.Selection, SelectionCoverage, SelectionStatic)
-
-	// selection, coverage and seed encode one fact between them: whether this toolchain
-	// is instrumented. Each message names BOTH offending keys, because either one of the
-	// pair could be the typo. The third case closes the remaining direction, so no
-	// combination of the three can express a static tier that also reads coverage.
-	// All are configuration errors (exit 2). Spec §4.2.
-	case a.Coverage == CoverageNone && a.Selection != SelectionStatic:
-		return fmt.Errorf("coverage: none requires selection: static, got selection %q", a.Selection)
-	case a.Selection == SelectionStatic && a.Seed != "":
-		return fmt.Errorf("selection: static forbids seed, got seed %q", a.Seed)
-	case a.Selection == SelectionStatic && a.Coverage != CoverageNone:
-		return fmt.Errorf("selection: static requires coverage: none, got coverage %q", a.Coverage)
-
-	// A coverage adapter with no seed command can never build a map. Under
-	// SelectionStatic there is nothing to seed, so the field is forbidden above rather
-	// than required here.
-	case a.Selection == SelectionCoverage && a.Seed == "":
-		return fmt.Errorf("seed is required")
-
-	case a.Subset == "":
-		return fmt.Errorf("subset is required")
-	case !strings.Contains(a.Subset, "{tests}"):
-		// Without the placeholder the subset command runs the whole suite, so every
-		// selection would silently become a full run.
-		return fmt.Errorf("subset %q has no {tests} placeholder", a.Subset)
-	// The same trap, and worse for being the fast path: a subset_plain that ran the
-	// whole suite would make --record=auto quietly slower than recording.
-	case a.SubsetPlain != "" && !strings.Contains(a.SubsetPlain, "{tests}"):
-		return fmt.Errorf("subset_plain %q has no {tests} placeholder", a.SubsetPlain)
-	// test_flag and test_join are two answers to one question — how ids reach the
-	// runner — so declaring both is a configuration error (exit 2) rather than a
-	// precedence puzzle nobody could predict from the file. The message names both keys
-	// because either one of the pair could be the line to delete.
-	case a.TestFlag != "" && a.TestJoin != "":
-		return fmt.Errorf("test_flag %q and test_join %q are mutually exclusive; declare one, or neither for bare {tests} splicing", a.TestFlag, a.TestJoin)
-
-	// test_selector translates a test FILE PATH into a selector, and only the static
-	// tier ever hands `subset` a path: a coverage adapter's ids come from the map and are
-	// already the runner's own selectors, so rendering {dir} over a pytest node id would
-	// mangle a selection that was correct (plan 06-m6d decision 13).
-	case a.TestSelector != "" && a.Selection != SelectionStatic:
-		return fmt.Errorf("test_selector %q requires selection: static, got selection %q; under %q the ids are map ids, not test file paths", a.TestSelector, a.Selection, a.Selection)
-
-	case a.Selection == SelectionCoverage && a.Coverage != "sqlite":
-		return fmt.Errorf("unsupported coverage %q (only \"sqlite\" and \"none\")", a.Coverage)
-
-	// junit-xml is accepted by the contract here and has no parser until M6c: an adapter
-	// declaring it loads and validates, and fails at RUN time on the existing unsupported
-	// -report path. Both companion keys are required because a parsed <testcase> that
-	// cannot round-trip into `subset` is worthless (spec §4.3, audit finding A6), and a
-	// report nobody can locate is worse than no report at all.
-	case a.Report == "junit-xml" && a.ReportPath == "":
-		return fmt.Errorf("report: junit-xml requires report_path")
-	case a.Report == "junit-xml" && a.IDTemplate == "":
-		return fmt.Errorf("report: junit-xml requires id_template")
-
-	// A glob is the third shape report_path could have had, and it is rejected: the
-	// engine CLEARS this path before every invocation, and "remove everything matching
-	// this pattern" in a host repo's build output is not a thing an adapter may ask for.
-	// One file, or one directory ending in "/" (plan 06-m6c decision 3).
-	case a.Report == "junit-xml" && strings.ContainsAny(a.ReportPath, "*?["):
-		return fmt.Errorf("report_path %q: globs are not supported; name one file, or a directory ending in %q", a.ReportPath, "/")
-	case a.Report != "pytest-reportlog" && a.Report != "junit-xml":
-		return fmt.Errorf("unsupported report %q (only \"pytest-reportlog\" and \"junit-xml\")", a.Report)
-
-	// report_cmd exists to PRODUCE the declared report, so both refusals below are about
-	// a command whose output nothing would ever read. Under any other report the runner
-	// writes its own outcome file and there is nothing to convert; and a command that
-	// never names {report} writes somewhere else, leaving report_path empty — which #294
-	// forbids being read as a run in which nothing failed. Load time, exit 2, rather than
-	// after `rtdd run` has cleared the report path and executed the whole subset command.
-	case a.ReportCmd != "" && a.Report != "junit-xml":
-		return fmt.Errorf("report_cmd %q requires report: junit-xml, got report %q; there is no other report for it to produce", a.ReportCmd, a.Report)
-	case a.ReportCmd != "" && !strings.Contains(a.ReportCmd, "{report}"):
-		return fmt.Errorf("report_cmd %q has no {report} placeholder; it would write its output where report_path is not", a.ReportCmd)
+	case a.UnitCmd == "":
+		return fmt.Errorf("unit_cmd is required")
+	case a.CoverageFile == "":
+		return fmt.Errorf("coverage_file is required")
+	case a.CoverageFormat == "":
+		return fmt.Errorf("coverage_format is required")
 	}
-
-	if err := a.validateTemplates(); err != nil {
+	if err := a.validateV3(); err != nil {
 		return err
 	}
-	if err := a.validateImportscan(); err != nil {
-		return err
-	}
-
 	// A prerequisite doctor cannot explain is not worth declaring: the reason is printed
 	// verbatim in the finding (spec §4.3, PRD #229 AC9).
 	for i, r := range a.Requires {
@@ -385,87 +175,6 @@ func (a *Adapter) validate() error {
 		case r.Reason == "":
 			return fmt.Errorf("requires[%d] (%s): reason is required", i, r.Bin)
 		}
-	}
-	return nil
-}
-
-// validateTemplates rejects a placeholder the engine could never substitute. The failure
-// it prevents is silent: an unsubstituted {folder} survives into a candidate path, that
-// path matches no file on disk, and the adapter simply selects nothing — indistinguishable
-// from a repository with no corresponding tests. Naming the field and the placeholder makes
-// it a one-line fix instead of a debugging session.
-func (a *Adapter) validateTemplates() error {
-	if a.IDTemplate != "" {
-		if bad := unknownPlaceholder(a.IDTemplate, idTemplatePlaceholders); bad != "" {
-			return fmt.Errorf("id_template %q: unknown placeholder %s", a.IDTemplate, bad)
-		}
-		if err := validateIDTemplateNamesAPlaceholder(a.IDTemplate); err != nil {
-			return err
-		}
-		// Adjacency — "{classname}{name}" — is the last structural rule spec §4.3 puts at
-		// load time. It renders an id nothing can split again, so the round trip PRD #231
-		// AC3 requires cannot hold; left to render time the refusal arrives only after
-		// `rtdd run` has cleared the report path and executed the whole subset command,
-		// which is the mid-run parse failure load-time validation exists to prevent.
-		//
-		// internal/report's own splitter decides it. A second brace parser here could
-		// admit a template the renderer refuses, which is the drift this call rules out.
-		if err := report.ValidateIDTemplate(a.IDTemplate); err != nil {
-			return fmt.Errorf("id_template %q: %w", a.IDTemplate, err)
-		}
-	}
-	for i, tmpl := range a.TestFor {
-		if bad := unknownPlaceholder(tmpl, testForPlaceholders); bad != "" {
-			return fmt.Errorf("test_for[%d] %q: unknown placeholder %s", i, tmpl, bad)
-		}
-	}
-	if a.TestSelector != "" {
-		if bad := unknownPlaceholder(a.TestSelector, testSelectorPlaceholders); bad != "" {
-			return fmt.Errorf("test_selector %q: unknown placeholder %s (only {file}, {dir} and {name}; a selection is made before any report exists)", a.TestSelector, bad)
-		}
-		if !namesAPlaceholder(a.TestSelector) {
-			return fmt.Errorf("test_selector %q: names no placeholder; every selected test file would render the same selector and the tests the tier chose would never run", a.TestSelector)
-		}
-	}
-	return nil
-}
-
-// namesAPlaceholder reports whether tmpl contains at least one {…} group. An unterminated
-// "{" does not count: the runner's own selector syntax may contain a brace, and
-// test_selector is spliced verbatim rather than parsed back.
-func namesAPlaceholder(tmpl string) bool {
-	open := strings.Index(tmpl, "{")
-	return open >= 0 && strings.Contains(tmpl[open:], "}")
-}
-
-// validateIDTemplateNamesAPlaceholder rejects an id_template that expands nothing. Unlike
-// test_for, whose entries may legitimately be a fixed path, an id_template renders ONE id
-// per <testcase>: a template naming no placeholder — `classname#name`, the braces simply
-// forgotten — renders the same constant string for every case in the report, de-duplication
-// collapses the whole suite to a single row whose status is whichever case happened to be
-// last, and a run whose first test failed reports that one outcome, green, exit 0. Nothing
-// downstream can notice, so it is rejected here (exit 2) alongside the vocabulary.
-//
-// An unterminated "{" is rejected on the same grounds rather than kept as a literal: it is
-// a typo for a placeholder, not a runner selector that happens to contain a brace, and it
-// fails exactly as silently. internal/report's splitTemplate refuses both templates too —
-// id_vocabulary_test.go asserts the two verdicts agree.
-func validateIDTemplateNamesAPlaceholder(tmpl string) error {
-	rest, named := tmpl, false
-	for {
-		open := strings.Index(rest, "{")
-		if open < 0 {
-			break
-		}
-		shut := strings.Index(rest[open:], "}")
-		if shut < 0 {
-			return fmt.Errorf("id_template %q: unterminated placeholder %q: every { must close, or the template renders one constant id for every test", tmpl, rest[open:])
-		}
-		named = true
-		rest = rest[open+shut+1:]
-	}
-	if !named {
-		return fmt.Errorf("id_template %q: names no placeholder; it must name at least one of {file}, {classname} or {name}, or every test in the report renders the same id", tmpl)
 	}
 	return nil
 }
@@ -490,25 +199,6 @@ func unknownPlaceholder(tmpl string, known map[string]bool) string {
 		}
 		rest = rest[open+shut+1:]
 	}
-}
-
-// validateImportscan rejects a half-declared scanner. command and script are one
-// declaration in two halves: a command with no script has nothing to run, and a script with
-// no command has nothing to run it. Omitting the whole block is legal and means import
-// ranking is skipped (spec §4.2), so only the halves are checked here.
-func (a *Adapter) validateImportscan() error {
-	if a.Importscan == nil {
-		return nil
-	}
-	switch {
-	case a.Importscan.Command == "" && a.Importscan.Script == "":
-		return fmt.Errorf("importscan: command and script are required; omit the whole block to skip import ranking")
-	case a.Importscan.Script == "":
-		return fmt.Errorf("importscan: script is required alongside command")
-	case a.Importscan.Command == "":
-		return fmt.Errorf("importscan: command is required alongside script")
-	}
-	return nil
 }
 
 // validateGlobs rejects a malformed pattern in any field the engine globs against.

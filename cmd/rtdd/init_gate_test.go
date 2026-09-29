@@ -160,9 +160,8 @@ func TestInitAcceptsAHostOnlyAdapter(t *testing.T) {
 	if err := os.MkdirAll(adir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	yaml := "name: vitest\ndetect: [\"package.json\"]\nsubset: \"npx vitest run {tests}\"\n" +
-		"selection: static\ncoverage: none\nreport: junit-xml\nreport_path: \".rtdd/junit.xml\"\n" +
-		"id_template: \"{file}::{name}\"\ntest_for: [\"{dir}/{name}.test.ts\"]\n" +
+	yaml := "name: vitest\ndetect: [\"package.json\"]\n" +
+		"unit_cmd: \"npx vitest run {unit}\"\ncoverage_file: \"{tmp}/lcov.info\"\ncoverage_format: lcov\n" +
 		"test_globs: [\"**/*.test.ts\"]\nsource_globs: [\"src/**/*.ts\"]\n"
 	if err := os.WriteFile(filepath.Join(adir, "vitest.yaml"), []byte(yaml), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
@@ -210,11 +209,10 @@ func TestInitRefusalNamesTheMalformedHostAdapter(t *testing.T) {
 	if err := os.MkdirAll(adir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	// A real contract violation naming a field, not a YAML syntax error: subset has no
-	// {tests} placeholder, so the "subset" would run the whole suite.
-	yaml := "name: vitest\ndetect: [\"package.json\"]\nsubset: \"npx vitest run\"\n" +
-		"selection: static\ncoverage: none\nreport: junit-xml\nreport_path: \".rtdd/junit.xml\"\n" +
-		"id_template: \"{file}::{name}\"\ntest_for: [\"{dir}/{name}.test.ts\"]\n" +
+	// A real contract violation naming a field, not a YAML syntax error: a coverage file
+	// outside {tmp} would be shared between parallel units.
+	yaml := "name: vitest\ndetect: [\"package.json\"]\n" +
+		"unit_cmd: \"npx vitest run {unit}\"\ncoverage_file: \"lcov.info\"\ncoverage_format: lcov\n" +
 		"test_globs: [\"**/*.test.ts\"]\nsource_globs: [\"src/**/*.ts\"]\n"
 	if err := os.WriteFile(filepath.Join(adir, "vitest.yaml"), []byte(yaml), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
@@ -225,7 +223,7 @@ func TestInitRefusalNamesTheMalformedHostAdapter(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("rtdd init = %d, want 2 (stderr: %s)", code, stderr)
 	}
-	for _, want := range []string{".rtdd/adapters/vitest.yaml", "subset", "{tests}"} {
+	for _, want := range []string{".rtdd/adapters/vitest.yaml", "coverage_file", "{tmp}"} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("stderr does not name %q:\n%s", want, stderr)
 		}
@@ -240,9 +238,8 @@ func TestInitRefusalNamesTheMalformedHostAdapter(t *testing.T) {
 	assertTreeUnchanged(t, before, snapshotTree(t, dir))
 }
 
-// Spec §5, the ≥1-adapter branch: proceed, and record the detected adapters and their
-// selection in .rtdd/config.yaml. `rtdd doctor` still derives fidelity live; this is the
-// record of what the install saw.
+// Spec §5, the ≥1-adapter branch: proceed, and record the detected adapters in
+// .rtdd/config.yaml — the record of what the install saw.
 func TestInitProceedsAndRecordsTheDetectedAdapter(t *testing.T) {
 	dir := newDetectableRepo(t)
 
@@ -254,7 +251,7 @@ func TestInitProceedsAndRecordsTheDetectedAdapter(t *testing.T) {
 		t.Fatalf("read config.yaml: %v", err)
 	}
 	cfg := string(b)
-	for _, want := range []string{"adapters:", "name: python", "selection: coverage", "fidelity: execution-derived"} {
+	for _, want := range []string{"adapters:", "name: python"} {
 		if !strings.Contains(cfg, want) {
 			t.Errorf(".rtdd/config.yaml does not record %q:\n%s", want, cfg)
 		}

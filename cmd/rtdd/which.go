@@ -5,12 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"sort"
-	"strings"
 
 	"github.com/VocanicZ/rtdd/internal/gitctx"
-	"github.com/VocanicZ/rtdd/internal/importscan"
-	"github.com/VocanicZ/rtdd/internal/mapstore"
 	"github.com/VocanicZ/rtdd/internal/selector"
 	"github.com/VocanicZ/rtdd/internal/uncovered"
 )
@@ -28,7 +24,7 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("which", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	base := fs.String("base", "HEAD", "base ref for the changed set")
-	asJSON := fs.Bool("json", false, "emit machine-readable JSON (schema v1)")
+	asJSON := fs.Bool("json", false, "emit machine-readable JSON (schema v2)")
 	adapterPath := fs.String("adapter", "", "path to the adapter YAML (default .rtdd/adapter.yaml)")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -143,93 +139,7 @@ func whichNotes(e *env, blk AdapterSelection, multi bool) []string {
 	if blk.Selection.Tier == selector.TierEmpty {
 		note("an empty selection is not a pass. Nothing was checked.")
 	}
-	// Last, because it qualifies the whole of this adapter's answer rather than naming
-	// one thing that went wrong with it: a static selection is a working selection, and
-	// the note says what believing it is worth.
-	if s := staticSelectionNote(blk.Selection); s != "" {
-		note("%s", s)
-	}
 	return out
-}
-
-// importFallbackScan wires the static-import fallback into selection and records, per
-// file, which tests it produced — that record is `selection.import_fallback`.
-//
-// The trigger condition is spec §6, D14: a changed instrumentable file that NO map row
-// covers. Import-time lines are attributed to no test, so they never enter any row's f;
-// "zero tests cover this file in the map" is precisely the import-time-only case (or a
-// genuinely untested file, where selecting importers is still the best available guess).
-// Firing it on a mapped file would pay for an AST scan the coverage relation already
-// answered.
-type importFallbackScan struct {
-	scanner *importscan.Scanner
-	trigger map[string]bool
-	fired   map[string][]string
-}
-
-// newImportFallback builds the fallback over unmapped. A scanner is constructed only when
-// there is something to scan, so the common case costs no subprocess at all.
-func newImportFallback(root string, m *mapstore.Map, unmapped []string) *importFallbackScan {
-	fb := &importFallbackScan{
-		trigger: make(map[string]bool, len(unmapped)),
-		fired:   map[string][]string{},
-	}
-	for _, p := range unmapped {
-		fb.trigger[p] = true
-	}
-	if len(unmapped) > 0 {
-		fb.scanner = importscan.NewScanner(root, candidateTestFiles(m))
-	}
-	return fb
-}
-
-// testsImporting satisfies selector.Inputs.ImportOnly. A failed scan degrades selection —
-// it never fails the command — so a nil return is a legitimate answer here.
-func (fb *importFallbackScan) testsImporting(rel string) []string {
-	if fb.scanner == nil || !fb.trigger[rel] {
-		return nil
-	}
-	ids := fb.scanner.TestsImporting(rel)
-	if len(ids) > 0 {
-		fb.fired[rel] = ids
-	}
-	return ids
-}
-
-func (fb *importFallbackScan) err() error {
-	if fb.scanner == nil {
-		return nil
-	}
-	return fb.scanner.Err()
-}
-
-// candidateTestFiles is the set of test FILES the scan may return: the file part of every
-// map row's test id. The scan answers "which of these modules transitively imports the
-// target", so a module absent here can never be selected by the fallback — which is
-// harmless for a just-written test module, because the direct tier already runs it
-// without consulting the map at all.
-func candidateTestFiles(m *mapstore.Map) []string {
-	seen := map[string]bool{}
-	for _, r := range m.Rows() {
-		seen[testFileOf(r.T)] = true
-	}
-	out := make([]string, 0, len(seen))
-	for f := range seen {
-		if f != "" {
-			out = append(out, f)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-// testFileOf strips the pytest node-id suffix: "tests/test_it.py::test_logic" is the
-// module "tests/test_it.py", which is what an import scan can reason about.
-func testFileOf(id string) string {
-	if i := strings.Index(id, "::"); i >= 0 {
-		return id[:i]
-	}
-	return id
 }
 
 // emitWhichJSON writes the frozen v1 document — the same schema `rtdd run --json` emits,
@@ -245,11 +155,9 @@ func emitWhichJSON(stdout, stderr io.Writer, blocks []AdapterSelection, base str
 		Instrumentable: sig.Instrumentable,
 		Executed:       false,
 		UncoveredOK:    false,
-		// T2 lists every unit (runner.Units), so the list is the whole run.
-		SuiteEnumerated: true,
-		Warnings:        warnings,
-		UnmappedFiles:   sig.UnmappedFiles,
-		Blocks:          blocks,
+		Warnings:       warnings,
+		UnmappedFiles:  sig.UnmappedFiles,
+		Blocks:         blocks,
 	})
 
 	enc := json.NewEncoder(stdout)

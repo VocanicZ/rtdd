@@ -1,31 +1,14 @@
-# The PHP (PHPUnit) adapter.
-#
-# PHPUnit writes JUnit XML with `--log-junit`, unaided, so `requires` is empty. It runs
-# from vendor/bin, which composer install puts there.
-#
-# `test_join` is DECISION 8: `--filter` takes ONE regex, and `|` is its alternation.
-#
-# The id is CASE-granular and `{classname}::{name}` is exactly PHPUnit's own
-# `--filter 'CalcTest::testAdds'` shape. The `file=` attribute PHPUnit emits is the
-# absolute path on the machine that ran the suite and is useless as a selector, which is
-# why {file} is not the template here (decision 7).
+# The PHP (PHPUnit) adapter on contract v3: one test file per process, cobertura coverage.
+# PHPUnit records coverage only with the pcov or xdebug extension loaded.
+# unverified — settled in Task 12.
 name: phpunit
 detect: ["phpunit.xml", "phpunit.xml.dist", "phpunit.dist.xml"]
-selection: static
-coverage: none
-# `test_selector` is DECISION 13. `--filter` is a regular expression over `Class::method`,
-# and the TS tier names a FILE — so the selector is the file's base name, which for a PHPUnit
-# test file is its class name. `tests/CalcTest.php` spliced verbatim matches nothing and
-# PHPUnit exits 0 having run nothing (#334).
-subset: "vendor/bin/phpunit --log-junit {report} --filter {tests}"
-test_join: "|"
-test_selector: "{name}"
-list: "vendor/bin/phpunit --log-junit {report}"
-report: junit-xml
-report_path: ".rtdd/junit.xml"
-id_template: "{classname}::{name}"
-failfast_flag: "--stop-on-failure"
-test_for: ["tests/{name}Test.php", "tests/{dir}/{name}Test.php", "{dir}/{name}Test.php"]
+unit_cmd: "vendor/bin/phpunit --coverage-cobertura {tmp}/cobertura.xml {unit}"
+coverage_file: "{tmp}/cobertura.xml"
+coverage_format: cobertura
+requires:
+  - bin: php
+    reason: "phpunit records coverage only with the pcov or xdebug extension loaded"
 test_globs: ["tests/**/*Test.php"]
 source_globs: ["src/**/*.php", "lib/**/*.php", "tests/**/*.php"]
 opaque: ["**/*.json", "**/*.xml", "**/*.twig", "tests/fixtures/**"]

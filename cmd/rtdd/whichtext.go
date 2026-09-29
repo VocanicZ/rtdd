@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/VocanicZ/rtdd/internal/adapter"
 	"github.com/VocanicZ/rtdd/internal/selector"
 )
 
@@ -14,13 +13,11 @@ import (
 // (spec §5, tier "empty").
 //
 // The unmapped-file notice is the ONLY file-level signal `which` may honestly print:
-// it runs nothing, so it has no fresh coverage and therefore no line-level report. ad is
-// the adapter that made the selection, and it decides whether the notice is honest at
-// all — see unmappedNoticeApplies.
-func RenderWhich(sel selector.Selection, unmapped []string, ad *adapter.Adapter) string {
+// it runs nothing, so it has no fresh coverage and therefore no line-level report.
+func RenderWhich(sel selector.Selection, unmapped []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "  tier: %s  (%d %s selected, ranked)\n",
-		tierLabel(sel.Tier), len(sel.Tests), plural(len(sel.Tests), "test", "tests"))
+		sel.Tier, len(sel.Tests), plural(len(sel.Tests), "test", "tests"))
 	if len(sel.Direct) > 0 {
 		fmt.Fprintf(&b, "  direct: %s\n", strings.Join(sel.Direct, ", "))
 	}
@@ -33,50 +30,8 @@ func RenderWhich(sel selector.Selection, unmapped []string, ad *adapter.Adapter)
 	if len(sel.Tests) == 0 {
 		b.WriteString("  NOTHING SELECTED — this is not the same as \"all passed\".\n")
 	}
-	if !unmappedNoticeApplies(ad) {
-		return b.String()
-	}
 	for _, f := range unmapped {
-		fmt.Fprintf(&b, "  no map row covers: %s  (import-time-only or untested; "+
-			"tests selected by static import scan)\n", f)
+		fmt.Fprintf(&b, "  no map row covers: %s  (no recorded unit executed it)\n", f)
 	}
 	return b.String()
-}
-
-// tierLabel is the human tier name, and the one place the static tier's FIDELITY is
-// stated (PRD #233 AC8, spec §6): `TS (static)`.
-//
-// The parenthetical exists because the tier letter alone does not distinguish the two
-// axes spec §2 splits apart. TS is the only tier reached without executing anything, so
-// rendered in the same voice as T1 it invites a human to read declared correspondence and
-// import hops as evidence a test suite produced. The word "static" is the whole signal.
-//
-// Every execution-derived tier keeps the label it has: the fidelity claim is true of TS
-// and of nothing else, and the machine surfaces are untouched — `tier` in the JSON
-// document stays the bare `TS` an agent front-end parses.
-func tierLabel(t selector.Tier) string {
-	if t == selector.TierTS {
-		return t.String() + " (static)"
-	}
-	return t.String()
-}
-
-// unmappedNoticeApplies reports whether the no-map-row notice is true of this adapter.
-//
-// For a `selection: static` adapter it is not, on all three of its claims (issue #279).
-// There is no map for a row to be absent from — the adapter declares `coverage: none`, so
-// nothing is ever recorded and EVERY changed file is trivially "unmapped".
-// `import-time-only` is a coverage-attribution concept, and nothing was instrumented to
-// attribute. And "tests selected by static import scan" names the wrong evidence twice
-// over: the selection came from `test_for` correspondence, and an adapter that declares
-// no importscan ran no scan at all — the #275 rule that a skipped level is skipped, on the
-// uncovered-lines surface instead of the `reason` string.
-//
-// The notice is suppressed rather than reworded because a static selection has no
-// file-level signal left to report here: what the selection rests on is already the
-// `reason` line above, and an empty selection already says NOTHING SELECTED in as many
-// words. A nil adapter keeps the notice — nothing declared otherwise, and the coverage
-// reading is the one every existing repository has.
-func unmappedNoticeApplies(ad *adapter.Adapter) bool {
-	return ad == nil || ad.Selection != adapter.SelectionStatic
 }

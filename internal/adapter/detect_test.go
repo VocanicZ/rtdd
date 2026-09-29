@@ -26,7 +26,7 @@ func writeRepoFile(t *testing.T, dir, name, body string) string {
 func mkAdapter(name string, detect ...string) *Adapter {
 	return &Adapter{
 		Name: name, Detect: detect,
-		Seed: "x", Subset: "{tests}", Coverage: "sqlite", Report: "pytest-reportlog",
+		UnitCmd: "x {unit}", CoverageFile: "{tmp}/c", CoverageFormat: "lcov",
 	}
 }
 

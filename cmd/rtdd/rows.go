@@ -74,10 +74,7 @@ func relToRoot(repoRoot, p string) string {
 // through adapter.IsInstrumentable: filtering would drop tests/helpers.py from
 // every row, so editing a shared helper would select nothing. Over-selection is
 // safe for selection; under-selection is not (spec §4, Task 17). Out-of-repo paths
-// — site-packages, the stdlib — were already dropped by coverage.ReadSQLite.
-//
-// Import-time lines belong to no test and are not in PerTest, so they cannot leak
-// into any `f`.
+// — site-packages, the stdlib — were already dropped by covfmt.Resolve.
 func rowsFrom(res *runner.RunResult, sha, adapterName string) []mapstore.Row {
 	byTest := map[string][]string{}
 	if res.Coverage != nil {
@@ -110,9 +107,9 @@ func rowsFrom(res *runner.RunResult, sha, adapterName string) []mapstore.Row {
 //
 // The split is the one frozen in docs/plans/00-interfaces.md: a mapped exit code
 // (4 bad-selector, 5 no-tests-collected) says rtdd's own configuration or map is
-// wrong, which is exit 2; everything else that reaches here — the sysmon warning
-// included — says the environment cannot produce a trustworthy map, which is
-// exit 3. Neither is exit 1: a test did not fail.
+// wrong, which is exit 2; everything else that reaches here says the environment
+// cannot produce a trustworthy map, which is exit 3. Neither is exit 1: a test did not
+// fail.
 func reportRunErr(err error) int {
 	code, hints := runErrClass(err)
 	if err == nil {
@@ -134,12 +131,6 @@ func reportRunErr(err error) int {
 func runErrClass(err error) (int, []string) {
 	if err == nil {
 		return 0, nil
-	}
-	if errors.Is(err, runner.ErrSysmonContext) {
-		return 3, []string{
-			"coverage.py dropped dynamic contexts; the map would be ~90% empty on a run that exits 0.",
-			"the python adapter forces COVERAGE_CORE=ctrace - check for a wrapper script or CI setting that overrides it.",
-		}
 	}
 	var fe *runner.FatalExitError
 	if errors.As(err, &fe) {

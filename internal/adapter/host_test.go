@@ -21,32 +21,39 @@ func writeHostAdapter(t *testing.T, root, name, body string) {
 }
 
 // hostPythonYAML is a host override of the shipped python adapter, distinguishable from
-// the built-in by the `-p no:randomly` its subset carries.
+// the built-in by the `-p no:randomly` its unit_cmd carries.
 const hostPythonYAML = `name: python
 detect: ["pyproject.toml"]
-seed: "pytest --cov --cov-context=test"
-subset: "pytest {tests} --cov --cov-context=test -p no:randomly"
-list: "pytest --collect-only -q"
-coverage: sqlite
-report: pytest-reportlog
+unit_cmd: "pytest --cov --cov-report=lcov:{tmp}/lcov.info -p no:randomly {unit}"
+coverage_file: "{tmp}/lcov.info"
+coverage_format: lcov
 test_globs: ["tests/**/*.py"]
 source_globs: ["**/*.py"]
 `
 
-// brokenYAML declares a subset with no {tests} placeholder: a real contract violation
-// that names a field, not a YAML syntax error.
+// hostVitestYAML is a host adapter for a language no built-in serves under that name.
+const hostVitestYAML = `name: vitest
+detect: ["package.json"]
+unit_cmd: "npx vitest run --coverage.enabled --coverage.reporter=lcov --coverage.reportsDirectory={tmp} {unit}"
+coverage_file: "{tmp}/lcov.info"
+coverage_format: lcov
+test_globs: ["**/*.test.ts"]
+source_globs: ["src/**/*.ts"]
+`
+
+// brokenYAML declares a coverage file outside {tmp}: a real contract violation that
+// names a field, not a YAML syntax error.
 const brokenYAML = `name: broken
 detect: ["go.mod"]
-seed: "go test ./..."
-subset: "go test ./..."
-coverage: sqlite
-report: pytest-reportlog
+unit_cmd: "go test ./..."
+coverage_file: "cover.out"
+coverage_format: gocover
 `
 
 // The whole point of §4.5: a language the engine has never heard of, supported by YAML.
 func TestAvailableIncludesHostAdapters(t *testing.T) {
 	root := t.TempDir()
-	writeHostAdapter(t, root, "vitest.yaml", staticYAML)
+	writeHostAdapter(t, root, "vitest.yaml", hostVitestYAML)
 
 	all, err := Available(root)
 	if err != nil {
@@ -85,8 +92,8 @@ func TestHostAdapterOverridesTheBuiltinOfTheSameName(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("Available returned %d adapters named python, want exactly 1", n)
 	}
-	if !strings.Contains(py.Subset, "-p no:randomly") {
-		t.Errorf("built-in python won over the host adapter: Subset = %q", py.Subset)
+	if !strings.Contains(py.UnitCmd, "-p no:randomly") {
+		t.Errorf("built-in python won over the host adapter: UnitCmd = %q", py.UnitCmd)
 	}
 }
 
@@ -94,8 +101,8 @@ func TestHostAdapterOverridesTheBuiltinOfTheSameName(t *testing.T) {
 // message names both paths.
 func TestDuplicateHostAdapterNamesAreAnError(t *testing.T) {
 	root := t.TempDir()
-	writeHostAdapter(t, root, "a-vitest.yaml", staticYAML)
-	writeHostAdapter(t, root, "z-vitest.yaml", staticYAML)
+	writeHostAdapter(t, root, "a-vitest.yaml", hostVitestYAML)
+	writeHostAdapter(t, root, "z-vitest.yaml", hostVitestYAML)
 
 	_, err := Available(root)
 	if err == nil {
@@ -133,7 +140,7 @@ func TestAvailableWithNoHostDirectoryReturnsTheBuiltins(t *testing.T) {
 // still see the ones that are fine.
 func TestLoadHostReportNamesTheInvalidFileAndKeepsTheRest(t *testing.T) {
 	root := t.TempDir()
-	writeHostAdapter(t, root, "vitest.yaml", staticYAML)
+	writeHostAdapter(t, root, "vitest.yaml", hostVitestYAML)
 	writeHostAdapter(t, root, "broken.yaml", brokenYAML)
 
 	ok, bad, err := LoadHostReport(root)
@@ -149,7 +156,7 @@ func TestLoadHostReportNamesTheInvalidFileAndKeepsTheRest(t *testing.T) {
 	if !strings.HasSuffix(filepath.ToSlash(bad[0].Path), ".rtdd/adapters/broken.yaml") {
 		t.Errorf("invalid path = %q, want .rtdd/adapters/broken.yaml", bad[0].Path)
 	}
-	if !strings.Contains(bad[0].Err.Error(), "{tests}") {
+	if !strings.Contains(bad[0].Err.Error(), "coverage_file") {
 		t.Errorf("invalid err = %q, want it to name the failing field", bad[0].Err)
 	}
 }
@@ -158,7 +165,7 @@ func TestLoadHostReportNamesTheInvalidFileAndKeepsTheRest(t *testing.T) {
 // someone is halfway through authoring an adapter still runs on the ones that are valid.
 func TestAvailableSkipsAMalformedHostAdapterAndKeepsTheRest(t *testing.T) {
 	root := t.TempDir()
-	writeHostAdapter(t, root, "vitest.yaml", staticYAML)
+	writeHostAdapter(t, root, "vitest.yaml", hostVitestYAML)
 	writeHostAdapter(t, root, "broken.yaml", brokenYAML)
 
 	all, err := Available(root)
@@ -179,7 +186,7 @@ func TestAvailableSkipsAMalformedHostAdapterAndKeepsTheRest(t *testing.T) {
 // AvailableReport is Available for callers that must say WHY a host adapter is missing.
 func TestAvailableReportCarriesTheInvalidFilesAlongsideTheResolvedSet(t *testing.T) {
 	root := t.TempDir()
-	writeHostAdapter(t, root, "vitest.yaml", staticYAML)
+	writeHostAdapter(t, root, "vitest.yaml", hostVitestYAML)
 	writeHostAdapter(t, root, "broken.yaml", brokenYAML)
 
 	all, bad, err := AvailableReport(root)
@@ -189,18 +196,16 @@ func TestAvailableReportCarriesTheInvalidFilesAlongsideTheResolvedSet(t *testing
 	if byName(all, "vitest") == nil {
 		t.Errorf("AvailableReport lost the valid host adapter: %v", all)
 	}
-	if len(bad) != 1 || !strings.Contains(bad[0].Err.Error(), "{tests}") {
+	if len(bad) != 1 || !strings.Contains(bad[0].Err.Error(), "coverage_file") {
 		t.Fatalf("invalid = %v, want one entry naming the failing field", bad)
 	}
 }
 
 // One reader: a host adapter is held to exactly the contract the built-ins are, including
-// everything contract v2 added. The message is the one Load would give a built-in.
-func TestHostAdaptersAreValidatedByTheContractV2Rules(t *testing.T) {
+// the removed-field rule. The message is the one Load would give a built-in.
+func TestHostAdaptersAreValidatedByTheContractV3Rules(t *testing.T) {
 	root := t.TempDir()
-	// selection: static forbids seed — a contract v2 rule, not a v1 required-field check.
-	writeHostAdapter(t, root, "vitest.yaml", strings.Replace(staticYAML,
-		"selection: static", "selection: static\nseed: \"npx vitest run\"", 1))
+	writeHostAdapter(t, root, "vitest.yaml", hostVitestYAML+"seed: \"npx vitest run\"\n")
 
 	_, bad, err := LoadHostReport(root)
 	if err != nil {
@@ -209,7 +214,7 @@ func TestHostAdaptersAreValidatedByTheContractV2Rules(t *testing.T) {
 	if len(bad) != 1 {
 		t.Fatalf("invalid = %v, want the v2 rule to reject the host adapter", bad)
 	}
-	if !strings.Contains(bad[0].Err.Error(), "selection: static forbids seed") {
+	if !strings.Contains(bad[0].Err.Error(), "seed: removed in contract v3") {
 		t.Errorf("err = %q, want the same message a built-in would get", bad[0].Err)
 	}
 }
@@ -218,7 +223,7 @@ func TestHostAdaptersAreValidatedByTheContractV2Rules(t *testing.T) {
 // adapter set in the same order.
 func TestAvailableIsDeterministic(t *testing.T) {
 	root := t.TempDir()
-	writeHostAdapter(t, root, "vitest.yaml", staticYAML)
+	writeHostAdapter(t, root, "vitest.yaml", hostVitestYAML)
 	writeHostAdapter(t, root, "python.yaml", hostPythonYAML)
 
 	var first []string
@@ -257,7 +262,7 @@ func TestAvailableIsDeterministic(t *testing.T) {
 // override rule would be decorative.
 func TestDetectResolvesAHostAuthoredAdapter(t *testing.T) {
 	root := t.TempDir()
-	writeHostAdapter(t, root, "vitest.yaml", staticYAML)
+	writeHostAdapter(t, root, "vitest.yaml", hostVitestYAML)
 	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte("{}\n"), 0o644); err != nil {
 		t.Fatalf("write package.json: %v", err)
 	}
@@ -338,8 +343,8 @@ func TestSrcIsNotADeclarableKey(t *testing.T) {
 // the field a user has to edit.
 func TestAvailableReportKeepsTheInvalidFilesWhenNamesCollide(t *testing.T) {
 	root := t.TempDir()
-	writeHostAdapter(t, root, "a-vitest.yaml", staticYAML)
-	writeHostAdapter(t, root, "z-vitest.yaml", staticYAML)
+	writeHostAdapter(t, root, "a-vitest.yaml", hostVitestYAML)
+	writeHostAdapter(t, root, "z-vitest.yaml", hostVitestYAML)
 	writeHostAdapter(t, root, "broken.yaml", brokenYAML)
 
 	_, bad, err := AvailableReport(root)
@@ -352,7 +357,7 @@ func TestAvailableReportKeepsTheInvalidFilesWhenNamesCollide(t *testing.T) {
 	if !strings.HasSuffix(filepath.ToSlash(bad[0].Path), ".rtdd/adapters/broken.yaml") {
 		t.Errorf("invalid[0].Path = %q, want .rtdd/adapters/broken.yaml", bad[0].Path)
 	}
-	if bad[0].Err == nil || !strings.Contains(bad[0].Err.Error(), "subset") {
-		t.Errorf("invalid[0].Err = %v, want it to name the failing subset field", bad[0].Err)
+	if bad[0].Err == nil || !strings.Contains(bad[0].Err.Error(), "coverage_file") {
+		t.Errorf("invalid[0].Err = %v, want it to name the failing coverage_file field", bad[0].Err)
 	}
 }

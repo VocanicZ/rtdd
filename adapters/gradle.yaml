@@ -1,41 +1,12 @@
-# The Java/Kotlin (Gradle) adapter.
-#
-# Gradle's test task writes one JUnit XML per class into build/test-results/test/, so
-# `report_path` is a DIRECTORY, as Maven's is.
-#
-# `test_flag` is DECISION 8, and Gradle is its only instance: `--tests` must precede EACH
-# selector, so the flag is emitted once per id rather than joined into one token. Bare
-# splicing would hand gradle a positional it does not accept.
-#
-# The id is CASE-granular and `{classname}.{name}` is Gradle's dotted FQCN-plus-method
-# form. {classname} itself contains dots, so report.ParseID splits at the FIRST dot;
-# nothing downstream consumes the halves and render->parse->render is stable either way.
-#
-# `test_for` uses {subdir} for the reason maven's does: the mirrored part of the path is
-# the package, and the source root in front of it is the repository's business, not the
-# adapter's. {subdir} is {dir} or any trailing part of it, longest first.
-#
-# `./gradlew` is the wrapper, not a PATH binary, so there is nothing for `requires` to
-# look up: Gradle ships JUnit XML with nothing extra installed.
+# The Java/Kotlin (Gradle) adapter on contract v3: one test class per process, JaCoCo
+# XML written under {tmp}. jobs: 1 because every unit shares build/.
+# unverified — settled in Task 10 (JaCoCo applied by an rtdd-shipped --init-script).
 name: gradle
 detect: ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]
-selection: static
-coverage: none
-# `test_selector` is DECISION 13. `--tests` takes a pattern over the fully qualified class
-# name, and the TS tier names a FILE — so the selector is the file's base name behind a `*`
-# wildcard: `src/test/java/calc/CalcTest.java` becomes `*CalcTest`, which matches
-# `calc.CalcTest` whatever its package. The package is not recoverable from the path alone
-# (how many leading segments the source root occupies is a property of the repository), and
-# a leading `*` is the shape Gradle documents for exactly that.
-subset: "./gradlew test {tests}"
-test_flag: "--tests"
-test_selector: "*{name}"
-list: "./gradlew test"
-report: junit-xml
-report_path: "build/test-results/test/"
-id_template: "{classname}.{name}"
-failfast_flag: "--fail-fast"
-test_for: ["src/test/java/{subdir}/{name}Test.java", "src/test/java/{subdir}/{name}Tests.java", "src/test/kotlin/{subdir}/{name}Test.kt"]
+unit_cmd: "./gradlew -q test --tests *{name} jacocoTestReport -PrtddTmp={tmp}"
+coverage_file: "{tmp}/jacoco.xml"
+coverage_format: jacoco
+jobs: 1
 test_globs: ["src/test/java/**/*.java", "src/test/kotlin/**/*.kt"]
 source_globs: ["src/main/java/**/*.java", "src/main/kotlin/**/*.kt", "src/test/java/**/*.java", "src/test/kotlin/**/*.kt"]
 opaque: ["src/main/resources/**", "src/test/resources/**", "**/*.properties", "**/*.xml"]

@@ -10,17 +10,15 @@ import (
 	"testing"
 
 	"github.com/VocanicZ/rtdd/internal/coverage"
-	"github.com/VocanicZ/rtdd/internal/report"
 	"github.com/VocanicZ/rtdd/internal/runner"
 )
 
 func TestRowsFrom(t *testing.T) {
 	res := &runner.RunResult{
-		Outcomes: []report.Outcome{
+		Outcomes: []runner.Outcome{
 			{Test: "tests/test_a.py::test_add", Status: "pass", DurationMS: 412},
 			{Test: "tests/test_b.py::test_fail", Status: "fail", DurationMS: 2},
-			// A test that ran but recorded no coverage rows at all: it executed
-			// nothing measurable outside already-recorded import-time lines.
+			// A unit that ran but recorded no coverage at all.
 			{Test: "tests/test_b.py::test_skipped", Status: "skip", DurationMS: 1},
 		},
 		Coverage: &coverage.Result{
@@ -34,7 +32,6 @@ func TestRowsFrom(t *testing.T) {
 					"src/logic.py": {9},
 				}},
 			},
-			ImportTime: map[string][]int{"src/constants.py": {1, 3, 5, 6, 7}},
 		},
 	}
 
@@ -58,14 +55,6 @@ func TestRowsFrom(t *testing.T) {
 			t.Errorf("row %d F = %v, want %v (sorted)", i, got[i].F, want[i].F)
 		}
 	}
-	// Import-time files belong to no test and must not leak into any f.
-	for _, r := range got {
-		for _, f := range r.F {
-			if f == "src/constants.py" {
-				t.Errorf("row %q has import-time file src/constants.py in f", r.T)
-			}
-		}
-	}
 }
 
 // mapRow mirrors mapstore.Row's field set so the assertions above read clearly.
@@ -83,7 +72,7 @@ type mapRow struct {
 // is safe for selection; under-selection is not.
 func TestRowsFromKeepsTestOwnedFiles(t *testing.T) {
 	res := &runner.RunResult{
-		Outcomes: []report.Outcome{{Test: "tests/test_a.py::test_add", Status: "pass", DurationMS: 9}},
+		Outcomes: []runner.Outcome{{Test: "tests/test_a.py::test_add", Status: "pass", DurationMS: 9}},
 		Coverage: &coverage.Result{PerTest: []coverage.TestCoverage{
 			{Test: "tests/test_a.py::test_add", Files: map[string][]int{
 				"src/logic.py":     {5},
@@ -116,7 +105,7 @@ func TestRowsFromKeepsTestOwnedFiles(t *testing.T) {
 // cannot act on.
 func TestRowsFromEveryCoveredRowIsComplete(t *testing.T) {
 	res := &runner.RunResult{
-		Outcomes: []report.Outcome{
+		Outcomes: []runner.Outcome{
 			{Test: "tests/test_a.py::test_add", Status: "pass", DurationMS: 412},
 			{Test: "tests/test_b.py::test_fail", Status: "fail", DurationMS: 2},
 		},
@@ -146,7 +135,7 @@ func TestRowsFromEveryCoveredRowIsComplete(t *testing.T) {
 // row per outcome, so s and d refresh even when the coverage store was unreadable.
 func TestRowsFromWithoutCoverage(t *testing.T) {
 	res := &runner.RunResult{
-		Outcomes: []report.Outcome{{Test: "tests/test_a.py::test_add", Status: "pass", DurationMS: 4}},
+		Outcomes: []runner.Outcome{{Test: "tests/test_a.py::test_add", Status: "pass", DurationMS: 4}},
 	}
 	got := rowsFrom(res, "beef", "python")
 	if len(got) != 1 || got[0].T != "tests/test_a.py::test_add" || got[0].C != "beef" {
@@ -276,11 +265,9 @@ func TestReportRunErrExitCodes(t *testing.T) {
 		want int
 	}{
 		{"nil is not an error", nil, 0},
-		{"sysmon is a fatal environment error", runner.ErrSysmonContext, 3},
-		{"wrapped sysmon", runner.ErrSysmonContext, 3},
-		{"bad selector is a configuration error", &runner.FatalExitError{Chunk: 0, Code: 4, Label: "bad-selector"}, 2},
-		{"no tests collected is a configuration error", &runner.FatalExitError{Chunk: 1, Code: 5, Label: "no-tests-collected"}, 2},
-		{"wrapped fatal exit", &runner.FatalExitError{Chunk: 2, Code: 4, Label: "bad-selector"}, 2},
+		{"bad selector is a configuration error", &runner.FatalExitError{Unit: "tests/test_a.py", Code: 4, Label: "bad-selector"}, 2},
+		{"no tests collected is a configuration error", &runner.FatalExitError{Unit: "tests/test_a.py", Code: 5, Label: "no-tests-collected"}, 2},
+		{"wrapped fatal exit", &runner.FatalExitError{Unit: "tests/test_a.py", Code: 4, Label: "bad-selector"}, 2},
 		{"anything else is a fatal environment error", errors.New("boom"), 3},
 	}
 	for _, tc := range cases {
@@ -350,7 +337,7 @@ func TestOnlySeedCallsMapstoreReplace(t *testing.T) {
 // polyglot map.jsonl holding a pytest nodeid and a vitest file path can serve each id
 // back to the only runner that can execute it.
 func TestRowsFromTagsEveryRowWithItsAdapter(t *testing.T) {
-	res := &runner.RunResult{Outcomes: []report.Outcome{
+	res := &runner.RunResult{Outcomes: []runner.Outcome{
 		{Test: "tests/test_a.py::test_one", Status: "pass", DurationMS: 3},
 		{Test: "tests/test_b.py::test_two", Status: "fail", DurationMS: 5},
 	}}

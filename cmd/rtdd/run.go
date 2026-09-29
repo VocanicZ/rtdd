@@ -8,10 +8,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/VocanicZ/rtdd/internal/adapter"
 	"github.com/VocanicZ/rtdd/internal/gitctx"
 	"github.com/VocanicZ/rtdd/internal/mapstore"
-	"github.com/VocanicZ/rtdd/internal/report"
+	"github.com/VocanicZ/rtdd/internal/runner"
 	"github.com/VocanicZ/rtdd/internal/selector"
 	"github.com/VocanicZ/rtdd/internal/uncovered"
 )
@@ -32,7 +31,7 @@ func cmdRun(args []string) int {
 	fs.SetOutput(os.Stderr)
 	base := fs.String("base", "HEAD", "diff base ref for the changed set")
 	failFast := fs.Bool("fail-fast", false, "stop at the first failure (opt-in only)")
-	asJSON := fs.Bool("json", false, "machine-readable output (schema v1)")
+	asJSON := fs.Bool("json", false, "machine-readable output (schema v2)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -108,21 +107,11 @@ func cmdRun(args []string) int {
 		// own: "an empty selection is not a pass" is a sentence about ONE adapter, and
 		// unattributed it reads as a claim about the whole run — which just executed
 		// another adapter's tests.
-		for _, n := range runNotes(blk.Selection, nil) {
+		for _, n := range runNotes(blk.Selection) {
 			if len(blocks) > 1 {
 				n = blk.Adapter + ": " + n
 			}
 			warnings = append(warnings, n)
-		}
-		// runNotes already put the static-tier caveat in `warnings`; this is the same
-		// sentence on stderr, for the reason the scan notes above are printed there:
-		// under --json stdout is one document, and a caveat only the document carries is
-		// one nobody reading the terminal is ever told.
-		if caveat := staticSelectionNote(blk.Selection); caveat != "" {
-			if len(blocks) > 1 {
-				caveat = blk.Adapter + ": " + caveat
-			}
-			fmt.Fprintf(os.Stderr, "rtdd run: %s\n", caveat)
 		}
 	}
 
@@ -133,16 +122,15 @@ func cmdRun(args []string) int {
 			// than sent as an empty list a consumer would read as "nothing uncovered".
 			// `pre` is exactly that Cov-less signal, already computed per adapter.
 			out := BuildOutput(OutputInput{
-				Command:         "run",
-				Base:            *base,
-				Adapter:         blocksAdapterName(blocks),
-				Sel:             sel,
-				Changes:         changes,
-				Instrumentable:  pre.Instrumentable,
-				UnmappedFiles:   pre.UnmappedFiles,
-				SuiteEnumerated: true,
-				Warnings:        warnings,
-				Blocks:          blocks,
+				Command:        "run",
+				Base:           *base,
+				Adapter:        blocksAdapterName(blocks),
+				Sel:            sel,
+				Changes:        changes,
+				Instrumentable: pre.Instrumentable,
+				UnmappedFiles:  pre.UnmappedFiles,
+				Warnings:       warnings,
+				Blocks:         blocks,
 			})
 			if err := emitJSON(out); err != nil {
 				return 2
@@ -182,19 +170,16 @@ func cmdRun(args []string) int {
 	// the codes are folded by FoldExitCodes at the end — worst wins.
 	var (
 		runs     []AdapterRun
-		outcomes []report.Outcome
+		outcomes []runner.Outcome
 		reports  []uncovered.FileReport
 		failed   []string
 		ran      int
 	)
 	sig := SignalOutput{Instrumentable: map[string]bool{}}
 	unmapped := map[string]bool{}
-	// The adapters that ran and declare `coverage: none`, in block order. They are what
-	// the uncovered surface states a reason for instead of a report (issue #345).
-	// coverageRan is the other side of the same split: whether ANY adapter that ran can
-	// back an uncovered report at all.
+	// coverageRan is whether ANY adapter ran, and so whether fresh coverage backs an
+	// uncovered report at all.
 	var (
-		noCoverage  []string
 		coverageRan bool
 		output      = map[string]string{}
 	)
@@ -208,18 +193,15 @@ func cmdRun(args []string) int {
 			runs = append(runs, AdapterRun{Adapter: blk.Adapter, Err: err, Code: code, Hints: hints})
 			// The warning reaches the --json document too: a consumer discards stderr,
 			// and a run whose Maven half never started must not read as a green one.
-			warnings = append(warnings, adapterFailureNote(blk.Adapter, err, false))
+			warnings = append(warnings, adapterFailureNote(blk.Adapter, err))
 			continue
 		}
 		// Every executed unit's row is refreshed from the coverage its own run produced.
-		if recordsCoverage(blk.Ad) {
-			for _, row := range rowsFrom(res, sha, blk.Adapter) {
-				// UNION, NEVER REPLACE. See the doc comment on cmdRun. UnionFor rather
-				// than Union because an untagged row IS this adapter's row when meta.json
-				// names it, and writing a tagged copy beside it would leave the map
-				// holding both.
-				m.UnionFor(row, mt.Adapter, older)
-			}
+		for _, row := range rowsFrom(res, sha, blk.Adapter) {
+			// UNION, NEVER REPLACE. See the doc comment on cmdRun. UnionFor rather than
+			// Union because an untagged row IS this adapter's row when meta.json names
+			// it, and writing a tagged copy beside it would leave the map holding both.
+			m.UnionFor(row, mt.Adapter, older)
 		}
 
 		// Classify against the coverage THIS adapter just produced — never against
@@ -232,24 +214,13 @@ func cmdRun(args []string) int {
 			IsInstrumentable: instrumentableOf(blk.Ad),
 			Map:              m,
 		})
-		// A `coverage: none` block's classification is fabricated by construction: its
-		// run instrumented nothing, so Classify sees an empty coverage result and reports
-		// EVERY changed line Uncovered. Dropping it here is what keeps the claim off both
-		// output paths — the text report below and the --json document's `uncovered`.
-		switch {
-		case !recordsCoverage(blk.Ad):
-			noCoverage = append(noCoverage, blk.Adapter)
-		default:
-			reports = append(reports, blkSig.Reports...)
-			coverageRan = true
-		}
+		reports = append(reports, blkSig.Reports...)
+		coverageRan = true
 		for p, ok := range blkSig.Instrumentable {
 			sig.Instrumentable[p] = sig.Instrumentable[p] || ok
 		}
-		if unmappedNoticeApplies(blk.Ad) {
-			for _, f := range blkSig.UnmappedFiles {
-				unmapped[f] = true
-			}
+		for _, f := range blkSig.UnmappedFiles {
+			unmapped[f] = true
 		}
 
 		outcomes = append(outcomes, res.Outcomes...)
@@ -308,16 +279,12 @@ func cmdRun(args []string) int {
 			Executed:       true,
 			Outcomes:       outcomes,
 			Reports:        reports,
-			// Available only when SOME adapter that ran records coverage. `available:
-			// false` with a reason is the shape schema v1 already has for a report no
-			// fresh coverage backs; an empty `files` list would read as "nothing
-			// uncovered", which is the fabrication AC9a is about.
-			UncoveredOK:     coverageRan,
-			UncoveredReason: uncoveredAbsentReason(noCoverage, nil),
-			UnmappedFiles:   sig.UnmappedFiles,
-			SuiteEnumerated: true,
-			Warnings:        warnings,
-			Blocks:          blocks,
+			// Available only when SOME adapter ran: an empty `files` list with nothing
+			// behind it would read as "nothing uncovered".
+			UncoveredOK:   coverageRan,
+			UnmappedFiles: sig.UnmappedFiles,
+			Warnings:      warnings,
+			Blocks:        blocks,
 		})
 		out.ExitCode = code
 		if err := emitJSON(out); err != nil {
@@ -326,7 +293,7 @@ func cmdRun(args []string) int {
 		return finishCycle(root, mt, code)
 	}
 
-	fmt.Print(renderRunSummary(ran, len(failed), m.Len(), coverageWasRecorded(ads)))
+	fmt.Print(renderRunSummary(ran, len(failed), m.Len()))
 	for _, id := range failed {
 		fmt.Printf("FAILED %s\n", id)
 	}
@@ -336,7 +303,7 @@ func cmdRun(args []string) int {
 			fmt.Println()
 		}
 	}
-	if s := RenderUncoveredFor(reports, noCoverage, nil); s != "" {
+	if s := RenderUncovered(reports); s != "" {
 		fmt.Fprint(os.Stdout, "\n"+s)
 	}
 	return finishCycle(root, mt, code)
@@ -352,7 +319,7 @@ func renderRunTiers(blocks []AdapterSelection) string {
 		if len(blocks) > 1 {
 			fmt.Fprintf(&b, "adapter: %s\n", blk.Adapter)
 		}
-		fmt.Fprintf(&b, "tier %s: %d selected", tierLabel(blk.Selection.Tier), len(blk.Selection.Tests))
+		fmt.Fprintf(&b, "tier %s: %d selected", blk.Selection.Tier, len(blk.Selection.Tests))
 		if blk.Selection.Reason != "" {
 			fmt.Fprintf(&b, " (%s)", blk.Selection.Reason)
 		}
@@ -362,39 +329,8 @@ func renderRunTiers(blocks []AdapterSelection) string {
 }
 
 // renderRunSummary is the one-line summary of what the run did.
-//
-// The map-row clause is CONDITIONAL, and that is issue #345 AC9b. `rtdd run` printed
-// "N rows in the map" unconditionally, which claimed a coverage relation for an adapter
-// that records none — see the gate at the UnionFor call above for what those rows
-// actually were. It is dropped rather than printed as zero: "0 rows in the map" is a true
-// sentence about a map that should not be mentioned at all, and it still puts the
-// coverage vocabulary on a static run's output.
-//
-// The ran/failed counts are real for every adapter and always survive: tests were
-// executed and some of them failed, and neither claim needs coverage to be honest.
-func renderRunSummary(ran, failed, rows int, mapApplies bool) string {
-	if !mapApplies {
-		return fmt.Sprintf("%d ran, %d failed\n", ran, failed)
-	}
+func renderRunSummary(ran, failed, rows int) string {
 	return fmt.Sprintf("%d ran, %d failed, %d rows in the map\n", ran, failed, rows)
-}
-
-// uncoveredAbsentReason is the --json document's `uncovered.reason` for a run whose
-// adapters record no coverage: the same sentences the text surface prints, so a consumer
-// reading the document and a human reading the terminal are told the same thing. It
-// returns "" when no adapter was suppressed, which leaves buildUncovered's own default.
-func uncoveredAbsentReason(noCoverage, notRecorded []string) string {
-	if len(noCoverage) == 0 && len(notRecorded) == 0 {
-		return ""
-	}
-	reasons := make([]string, 0, len(noCoverage)+len(notRecorded))
-	for _, name := range noCoverage {
-		reasons = append(reasons, noCoverageReason(name))
-	}
-	for _, name := range notRecorded {
-		reasons = append(reasons, notRecordedReason(name))
-	}
-	return strings.Join(reasons, "; ")
 }
 
 // selectionIsEmpty is the one reading of "nothing to run": an explicit empty tier, or a
@@ -410,43 +346,11 @@ func selectionIsEmpty(sel selector.Selection) bool {
 // is skipped entirely. Without this warning the document an agent front-end reads is
 // indistinguishable from a green run of a real subset, which is precisely the silent
 // narrowing the contract forbids.
-func runNotes(sel selector.Selection, scanErr error, extra ...string) []string {
-	var out []string
+func runNotes(sel selector.Selection) []string {
 	if sel.Tier == selector.TierEmpty || len(sel.Tests) == 0 {
-		out = append(out, "an empty selection is not a pass. Nothing was checked.")
+		return []string{"an empty selection is not a pass. Nothing was checked."}
 	}
-	if scanErr != nil {
-		out = append(out, importScanNote(scanErr))
-	}
-	for _, e := range extra {
-		if e != "" {
-			out = append(out, e)
-		}
-	}
-	// Last, and never gated on the selection being non-empty: a static selection that
-	// named nothing is the weakest evidence of all, and the note above says only that
-	// nothing ran — not that what would have run was chosen from a declaration.
-	if s := staticSelectionNote(sel); s != "" {
-		out = append(out, s)
-	}
-	return out
-}
-
-// adapterScanWarning is the declared scanner's failure as a document warning, or "" when
-// there was none. Under --json a consumer discards stderr, so a degradation that lives
-// only there is one the agent front-end never learns about.
-func adapterScanWarning(ad *adapter.Adapter, err error) string {
-	if err == nil || ad == nil {
-		return ""
-	}
-	return adapterImportScanNote(ad.Name, err)
-}
-
-// importScanNote is the one wording for a failed static import scan, shared by `run` and
-// `which` so the two commands never describe the same degradation differently.
-func importScanNote(err error) string {
-	return fmt.Sprintf("the static import scan failed, so an import-time-only file "+
-		"may be under-selected: %v", err)
+	return nil
 }
 
 // emitJSON writes the schema document to stdout, indented, as the whole of stdout.
@@ -475,15 +379,9 @@ func finishCycle(root string, mt meta, code int) int {
 	return code
 }
 
-// adapterFailureNote is the document warning for an adapter that produced no results,
-// worded by WHICH invocation failed. An enumeration that could not start never got as far
-// as a subset, and calling it "the subset invocation" would send an operator to the wrong
-// command — the enumeration is the one to reproduce.
-func adapterFailureNote(name string, err error, enum bool) string {
-	if enum {
-		return fmt.Sprintf("%s: enumerating the suite failed: %v", name, err)
-	}
-	return fmt.Sprintf("%s: the subset invocation failed: %v", name, err)
+// adapterFailureNote is the document warning for an adapter that produced no results.
+func adapterFailureNote(name string, err error) string {
+	return fmt.Sprintf("%s: the run failed: %v", name, err)
 }
 
 // anyAdapterFailedToRun reports whether some adapter's subset invocation never produced a

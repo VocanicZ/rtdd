@@ -47,14 +47,13 @@ fails. An empty selection and a non-empty uncovered report are both exit 0.
 
 ## The uncovered report
 
-The report classifies your changed lines into three classes, and the distinction matters:
+The report classifies your changed lines into two classes:
 
-- **covered** — an executing test touched these changed lines.
-- **uncovered** — no test executed them.
-- **import-time** — executed during collection and attributed to no test. Reported
-  separately and never counted as uncovered. Dataclasses, enums, config modules, ORM model
-  definitions, route decorators, and `__init__.py` re-exports land here routinely while
-  being correctly tested.
+- **covered** — a test file's own run executed these changed lines this cycle.
+- **uncovered** — no test file's run executed them.
+
+Each test file runs in its own process, so a line executed while importing a module is
+executed by that test file and counts as covered.
 
 An uncovered range is information about the suite, not a verdict on the patch.
 
@@ -64,30 +63,6 @@ When nothing is selected, `rtdd` says so explicitly. An empty selection is a dis
 outcome from "all selected tests passed", because every under-selection path terminates
 there. Treat it as "the map has nothing to say about this change", not as a pass.
 
-## Selection fidelity
-
-Every `--json` document carries `selection_fidelity`, which answers a different question
-from `tier`: `tier` says how much of the suite was selected, `selection_fidelity` says what
-that answer was derived from. It is never null and never absent, and it is one of three
-values:
-
-- **`execution-derived`** — tests were chosen from per-test coverage recorded by a real
-  run. Everything else in this document assumes this fidelity.
-- **`static`** — this toolchain records nothing, so tests were chosen from declared
-  correspondence and imports.
-- **`none`** — neither is available, so nothing narrower than the full suite can be
-  selected.
-
-The distinction changes how a green run should be read: a static selection is derived from
-declared correspondence and imports, not from a recorded run, so it can miss a test that
-execution-derived selection would have caught. A passing static selection is therefore
-weaker evidence than a passing execution-derived one. Read a green `static` run as "the
-tests I could name passed", not as "this change is covered".
-
-`rtdd doctor` is the one command that reports which fidelity this repository can achieve
-and why: one row per detected adapter, the fidelity it can reach here, and the clause of
-its own declaration that determined it.
-
 ## JSON output
 
 `--json` emits one object for programmatic consumption:
@@ -96,13 +71,11 @@ its own declaration that determined it.
 {
   "tier": "T0",
   "reason": "changed files intersect 12 recorded test rows",
-  "selection_fidelity": "execution-derived",
   "base": "HEAD",
   "changed": ["src/auth.py", "src/db.py"],
   "direct": ["tests/test_auth.py"],
-  "tests": ["tests/test_auth.py::test_login", "tests/test_db.py::test_pool"],
+  "tests": ["tests/test_auth.py", "tests/test_db.py"],
   "uncovered": [{"path": "src/auth.py", "ranges": [{"start": 52, "end": 58}]}],
-  "import_time": [{"path": "src/constants.py", "ranges": [{"start": 1, "end": 12}]}],
   "selected_duration_ms": 1412,
   "map_tests": 8471
 }
@@ -124,10 +97,8 @@ rtdd map compact             collapse duplicate rows after a union merge
 rtdd init                    install .gitattributes, config, and agent front-ends
 ```
 
-`rtdd seed` is the only operation that may narrow a test's recorded file set. Every other
-path unions, because a subset run legitimately records less coverage than a full run — an
-import-time line migrates to whichever test ran first, and a failing test records only a
-truncated prefix of its real path.
+`rtdd seed` is the only operation that may narrow a test file's recorded file set. Every
+other path unions, because a failing test records only a truncated prefix of its real path.
 
 ## What it cannot see
 
@@ -146,10 +117,10 @@ Stated plainly, because a selector that hides its blind spots is worse than no s
 
 ## The map file
 
-`.rtdd/map.jsonl` is committed, sorted by test id, one line per test, file-level only:
+`.rtdd/map.jsonl` is committed, sorted by test file, one line per test file, file-level only:
 
 ```
-{"t":"tests/test_auth.py::test_login","f":["src/auth.py","src/db.py"],"c":"a3f21e0","d":412,"s":"pass"}
+{"t":"tests/test_auth.py","f":["src/auth.py","src/db.py"],"c":"a3f21e0","d":412,"s":"pass","a":"python"}
 ```
 
 `rtdd init` installs `.rtdd/map.jsonl merge=union` into `.gitattributes`. Two agents editing

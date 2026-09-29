@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/VocanicZ/rtdd/internal/gitctx"
-	"github.com/VocanicZ/rtdd/internal/report"
+	"github.com/VocanicZ/rtdd/internal/runner"
 	"github.com/VocanicZ/rtdd/internal/selector"
 	"github.com/VocanicZ/rtdd/internal/uncovered"
 )
@@ -18,10 +18,10 @@ func TestBuildOutputRunWithUncoveredReport(t *testing.T) {
 	}
 	reports := []uncovered.FileReport{
 		{Path: "src/constants.py", Ranges: []uncovered.ClassifiedRange{
-			{Range: gitctx.LineRange{Start: 1, End: 15}, Class: uncovered.ImportTime},
+			{Range: gitctx.LineRange{Start: 1, End: 15}, Class: uncovered.Covered},
 		}},
 		{Path: "src/logic.py", Ranges: []uncovered.ClassifiedRange{
-			{Range: gitctx.LineRange{Start: 8, End: 8}, Class: uncovered.ImportTime},
+			{Range: gitctx.LineRange{Start: 8, End: 8}, Class: uncovered.Covered},
 			{Range: gitctx.LineRange{Start: 9, End: 9}, Class: uncovered.Uncovered},
 		}},
 	}
@@ -38,20 +38,19 @@ func TestBuildOutputRunWithUncoveredReport(t *testing.T) {
 		Changes:        changes,
 		Instrumentable: map[string]bool{"src/constants.py": true, "src/logic.py": true},
 		Executed:       true,
-		Outcomes: []report.Outcome{
+		Outcomes: []runner.Outcome{
 			{Test: "tests/test_new.py::test_x", Status: "pass", DurationMS: 400},
 			{Test: "tests/test_it.py::test_logic", Status: "pass", DurationMS: 1000},
 		},
-		Reports:        reports,
-		UncoveredOK:    true,
-		UnmappedFiles:  []string{"src/constants.py"},
-		ImportFallback: map[string][]string{"src/constants.py": {"tests/test_it.py"}},
+		Reports:       reports,
+		UncoveredOK:   true,
+		UnmappedFiles: []string{"src/constants.py"},
 	}
 
 	out := BuildOutput(in)
 
-	if out.Schema != 1 {
-		t.Fatalf("schema = %d, want 1", out.Schema)
+	if out.Schema != 2 {
+		t.Fatalf("schema = %d, want 2", out.Schema)
 	}
 	if out.ExitCode != 0 {
 		t.Fatalf("exit_code = %d, want 0 — an uncovered report is a signal, never a verdict", out.ExitCode)
@@ -59,8 +58,8 @@ func TestBuildOutputRunWithUncoveredReport(t *testing.T) {
 	if out.Uncovered.Summary.UncoveredLines != 1 {
 		t.Fatalf("uncovered_lines = %d, want 1", out.Uncovered.Summary.UncoveredLines)
 	}
-	if out.Uncovered.Summary.ImportTimeLines != 16 {
-		t.Fatalf("import_time_lines = %d, want 16", out.Uncovered.Summary.ImportTimeLines)
+	if out.Uncovered.Summary.CoveredLines != 16 {
+		t.Fatalf("covered_lines = %d, want 16", out.Uncovered.Summary.CoveredLines)
 	}
 	if out.Run.DurationMS != 1400 {
 		t.Fatalf("duration_ms = %d, want 1400", out.Run.DurationMS)
@@ -71,8 +70,8 @@ func TestBuildOutputRunWithUncoveredReport(t *testing.T) {
 	if len(out.Uncovered.Files) != 2 || out.Uncovered.Files[0].Path != "src/constants.py" {
 		t.Fatalf("uncovered.files = %#v", out.Uncovered.Files)
 	}
-	if out.Uncovered.Files[0].Ranges[0].Class != "import-time" {
-		t.Fatalf("class = %q, want \"import-time\"", out.Uncovered.Files[0].Ranges[0].Class)
+	if out.Uncovered.Files[0].Ranges[0].Class != "covered" {
+		t.Fatalf("class = %q, want \"covered\"", out.Uncovered.Files[0].Ranges[0].Class)
 	}
 	if out.Uncovered.Files[0].UncoveredLines != 0 {
 		t.Fatalf("constants.py uncovered_lines = %d, want 0", out.Uncovered.Files[0].UncoveredLines)
@@ -106,7 +105,6 @@ func TestBuildOutputNeverNullsSlices(t *testing.T) {
 		`"changed":[]`,
 		`"direct":[]`,
 		`"tests":[]`,
-		`"import_fallback":{}`,
 		`"failures":[]`,
 		`"unmapped_files":[]`,
 		`"warnings":[]`,
@@ -130,7 +128,7 @@ func TestBuildOutputNeverNullsSlicesWithUncoveredAvailable(t *testing.T) {
 		t.Fatalf("json.Marshal: %v", err)
 	}
 	s := string(b)
-	for _, needle := range []string{`"failures":[]`, `"files":[]`, `"import_fallback":{}`} {
+	for _, needle := range []string{`"failures":[]`, `"files":[]`} {
 		if !strings.Contains(s, needle) {
 			t.Fatalf("missing %s in %s", needle, s)
 		}
@@ -204,7 +202,7 @@ func TestBuildOutputFailingTestExitsOne(t *testing.T) {
 		Command: "run", Base: "HEAD", Adapter: "python",
 		Sel:      selector.Selection{Tier: selector.TierT0, Tests: []string{"tests/a.py::t"}},
 		Executed: true,
-		Outcomes: []report.Outcome{
+		Outcomes: []runner.Outcome{
 			{Test: "tests/a.py::t", Status: "fail", DurationMS: 5},
 			{Test: "tests/b.py::t", Status: "error", DurationMS: 3},
 			{Test: "tests/c.py::t", Status: "skip", DurationMS: 1},
@@ -234,15 +232,15 @@ func TestBuildOutputExitCodeIffFailedOrErrored(t *testing.T) {
 	}
 	cases := []struct {
 		name     string
-		outcomes []report.Outcome
+		outcomes []runner.Outcome
 		want     int
 	}{
 		{"no tests", nil, 0},
-		{"all pass", []report.Outcome{{Test: "a", Status: "pass"}}, 0},
-		{"skips only", []report.Outcome{{Test: "a", Status: "skip"}}, 0},
-		{"one fail", []report.Outcome{{Test: "a", Status: "pass"}, {Test: "b", Status: "fail"}}, 1},
-		{"one error", []report.Outcome{{Test: "a", Status: "pass"}, {Test: "b", Status: "error"}}, 1},
-		{"fail and error", []report.Outcome{{Test: "a", Status: "fail"}, {Test: "b", Status: "error"}}, 1},
+		{"all pass", []runner.Outcome{{Test: "a", Status: "pass"}}, 0},
+		{"skips only", []runner.Outcome{{Test: "a", Status: "skip"}}, 0},
+		{"one fail", []runner.Outcome{{Test: "a", Status: "pass"}, {Test: "b", Status: "fail"}}, 1},
+		{"one error", []runner.Outcome{{Test: "a", Status: "pass"}, {Test: "b", Status: "error"}}, 1},
+		{"fail and error", []runner.Outcome{{Test: "a", Status: "fail"}, {Test: "b", Status: "error"}}, 1},
 	}
 	for _, tc := range cases {
 		for _, withReport := range []bool{false, true} {
@@ -319,44 +317,6 @@ func TestBuildOutputTierNames(t *testing.T) {
 	}
 }
 
-// Audit finding A1, at the wire: an import-time line is reported as "import-time" and is
-// never spelled "uncovered", and it never lands in uncovered_lines.
-func TestBuildOutputImportTimeIsNeverEmittedAsUncovered(t *testing.T) {
-	out := BuildOutput(OutputInput{
-		Command: "run", Base: "HEAD", Adapter: "python", Executed: true, UncoveredOK: true,
-		Reports: []uncovered.FileReport{
-			{Path: "src/a.py", Ranges: []uncovered.ClassifiedRange{
-				{Range: gitctx.LineRange{Start: 1, End: 4}, Class: uncovered.ImportTime},
-				{Range: gitctx.LineRange{Start: 5, End: 6}, Class: uncovered.Covered},
-			}},
-		},
-	})
-	if out.Uncovered.Summary.UncoveredLines != 0 {
-		t.Fatalf("uncovered_lines = %d, want 0 — import-time is not uncovered",
-			out.Uncovered.Summary.UncoveredLines)
-	}
-	if out.Uncovered.Files[0].UncoveredLines != 0 {
-		t.Fatalf("files[0].uncovered_lines = %d, want 0", out.Uncovered.Files[0].UncoveredLines)
-	}
-	classes := []string{}
-	for _, r := range out.Uncovered.Files[0].Ranges {
-		classes = append(classes, r.Class)
-	}
-	if len(classes) != 2 || classes[0] != "import-time" || classes[1] != "covered" {
-		t.Fatalf("classes = %#v, want [import-time covered]", classes)
-	}
-	b, err := json.Marshal(out)
-	if err != nil {
-		t.Fatalf("json.Marshal: %v", err)
-	}
-	if strings.Contains(string(b), `"class":"uncovered"`) {
-		t.Fatalf("no range here is uncovered, yet the document says so: %s", b)
-	}
-	if strings.Contains(string(b), `"class":"unknown"`) {
-		t.Fatalf("class must be one of covered/uncovered/import-time: %s", b)
-	}
-}
-
 // Every consumer diffs these documents, so the same input must marshal to the same bytes:
 // stable key order comes from the structs, stable element order from sorting.
 func TestBuildOutputIsDeterministic(t *testing.T) {
@@ -365,7 +325,7 @@ func TestBuildOutputIsDeterministic(t *testing.T) {
 			Command: "run", Base: "HEAD", Adapter: "python", Executed: true, UncoveredOK: true,
 			Sel: selector.Selection{Tier: selector.TierT1, Tests: []string{"t/z.py", "t/a.py"},
 				Direct: []string{"t/z.py"}},
-			Outcomes: []report.Outcome{
+			Outcomes: []runner.Outcome{
 				{Test: "t/z.py::t", Status: "fail", DurationMS: 2},
 				{Test: "t/a.py::t", Status: "error", DurationMS: 3},
 			},
@@ -375,8 +335,7 @@ func TestBuildOutputIsDeterministic(t *testing.T) {
 				{Path: "src/a.py", Ranges: []uncovered.ClassifiedRange{
 					{Range: gitctx.LineRange{Start: 2, End: 2}, Class: uncovered.Covered}}},
 			},
-			UnmappedFiles:  []string{"src/z.py", "src/a.py"},
-			ImportFallback: map[string][]string{"src/z.py": {"t/z.py"}, "src/a.py": {"t/a.py"}},
+			UnmappedFiles: []string{"src/z.py", "src/a.py"},
 		}
 	}
 	first, err := json.Marshal(BuildOutput(in()))
@@ -412,7 +371,7 @@ func TestBuildOutputIsDeterministic(t *testing.T) {
 func TestBuildOutputNotExecutedHasZeroRunCounts(t *testing.T) {
 	out := BuildOutput(OutputInput{
 		Command: "which", Base: "HEAD", Adapter: "python",
-		Outcomes: []report.Outcome{{Test: "a", Status: "fail", DurationMS: 9}},
+		Outcomes: []runner.Outcome{{Test: "a", Status: "fail", DurationMS: 9}},
 	})
 	if out.Run.Executed || out.Run.Passed != 0 || out.Run.Failed != 0 || out.Run.Errored != 0 ||
 		out.Run.Skipped != 0 || out.Run.DurationMS != 0 || len(out.Run.Failures) != 0 {
@@ -423,52 +382,11 @@ func TestBuildOutputNotExecutedHasZeroRunCounts(t *testing.T) {
 	}
 }
 
-// `complete` carries the never-narrow-silently guarantee into the document. A T2 tier
-// whose suite was never enumerated is a PARTIAL list of the run, and a consumer that
-// reads `selection.tests` as "run these ids" under-runs the suite. The flag says so on
-// stdout, where a --json consumer actually reads.
-func TestBuildOutputCompleteIsFalseForAnUnenumeratedT2(t *testing.T) {
-	out := BuildOutput(OutputInput{
-		Command: "which", Base: "HEAD", Adapter: "python",
-		Sel: selector.Selection{Tier: selector.TierT2, Tests: []string{"tests/a.py::t"}},
-	})
-	if out.Complete {
-		t.Fatal("complete must be false for a T2 selection whose suite was never enumerated")
-	}
-}
-
-// A direct test in the list does not make it complete: the run is still the whole suite.
-func TestBuildOutputCompleteIsFalseForT2EvenWithADirectTest(t *testing.T) {
-	out := BuildOutput(OutputInput{
-		Command: "which", Base: "HEAD", Adapter: "python",
-		Sel: selector.Selection{
-			Tier:   selector.TierT2,
-			Direct: []string{"tests/test_new.py"},
-			Tests:  []string{"tests/test_new.py"},
-		},
-	})
-	if out.Complete {
-		t.Fatal("a T2 selection carrying a direct test is still a partial list; complete must be false")
-	}
-}
-
-// Enumerating the suite is what makes a T2 list whole, and `run` pays for it.
-func TestBuildOutputCompleteIsTrueForAnEnumeratedT2(t *testing.T) {
-	out := BuildOutput(OutputInput{
-		Command: "run", Base: "HEAD", Adapter: "python",
-		Sel:             selector.Selection{Tier: selector.TierT2, Tests: []string{"tests/a.py::t"}},
-		SuiteEnumerated: true,
-	})
-	if !out.Complete {
-		t.Fatal("an enumerated T2 selection IS the whole suite; complete must be true")
-	}
-}
-
 // Every other tier names its own tests exhaustively, so the list is complete by
 // construction — including the empty tier, whose emptiness is fully known.
 func TestBuildOutputCompleteIsTrueForEveryOtherTier(t *testing.T) {
 	for _, tier := range []selector.Tier{
-		selector.TierEmpty, selector.TierDirect, selector.TierT0, selector.TierT1,
+		selector.TierEmpty, selector.TierDirect, selector.TierT0, selector.TierT1, selector.TierT2,
 	} {
 		out := BuildOutput(OutputInput{
 			Command: "which", Base: "HEAD", Adapter: "python",

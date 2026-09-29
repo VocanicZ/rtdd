@@ -158,3 +158,13 @@ func TestAFatalMappedExitStopsSchedulingAndIsReturned(t *testing.T) {
 		t.Errorf("err = %v, want FatalExitError", err)
 	}
 }
+
+// The inherited entry is REPLACED, not appended after, so a child that reads the first
+// match still gets the adapter's value.
+func TestMergeEnvReplacesRatherThanAppends(t *testing.T) {
+	got := mergeEnv([]string{"PATH=/bin", "COVERAGE_FILE=/x", "HOME=/h"}, map[string]string{"COVERAGE_FILE": "/t/.coverage"})
+	want := []string{"PATH=/bin", "HOME=/h", "COVERAGE_FILE=/t/.coverage"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("mergeEnv = %v, want %v", got, want)
+	}
+}

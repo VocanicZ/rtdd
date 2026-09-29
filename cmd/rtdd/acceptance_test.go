@@ -9,37 +9,31 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/VocanicZ/rtdd/internal/adapter"
 	"github.com/VocanicZ/rtdd/internal/coverage"
 	"github.com/VocanicZ/rtdd/internal/gitctx"
+	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
 	"github.com/VocanicZ/rtdd/internal/mapstore"
-	"github.com/VocanicZ/rtdd/internal/report"
+	"github.com/VocanicZ/rtdd/internal/runner"
 	"github.com/VocanicZ/rtdd/internal/uncovered"
 )
 
-// buildPyFixture materialises the §F1 project and runs pytest under coverage with
-// dynamic contexts. It returns the repo root and the parsed coverage result.
+// buildPyFixture materialises the §F1 project in a git repo and runs its one unit
+// (tests/test_it.py) through the real one-pipeline runner with the shipped python adapter.
+// It returns the repo root and the parsed coverage result.
 //
-// Measured on 2026-08-26 (Python 3.13.5, coverage.py 7.15.4, pytest 9.0.3) the run
-// produces exactly:
-//
-//	src/__init__.py   ctx=''                                  lines=[0]
-//	src/constants.py  ctx=''                                  lines=[1,2,4,7,8,9,12,13,14,15]
-//	src/logic.py      ctx=''                                  lines=[1,4,8]
-//	src/logic.py      ctx='tests/test_it.py::test_logic|run'  lines=[5]
-//
-// It SKIPS, never fails, when the Python toolchain is absent — the same convention the
-// M1b integration tests use, so a Go-only checkout still runs the whole suite.
+// It SKIPS, never fails, when the Python toolchain is absent, so a Go-only checkout still
+// runs the whole suite.
 func buildPyFixture(t *testing.T) (string, *coverage.Result) {
 	t.Helper()
-	py, err := exec.LookPath("python3")
-	if err != nil {
-		t.Skip("python3 not on PATH")
+	if _, err := exec.LookPath("pytest"); err != nil {
+		t.Skip("pytest not on PATH")
 	}
-	if err := exec.Command(py, "-c", "import pytest, coverage, pytest_cov").Run(); err != nil {
-		t.Skip("pytest / coverage / pytest-cov not importable")
+	if err := exec.Command("python3", "-c", "import pytest_cov").Run(); err != nil {
+		t.Skip("pytest-cov not importable")
 	}
 
-	root := t.TempDir()
+	root := gittest.Init(t)
 	files := map[string]string{
 		"src/__init__.py":   "",
 		"tests/__init__.py": "",
@@ -58,100 +52,61 @@ func buildPyFixture(t *testing.T) (string, *coverage.Result) {
 			"def test_logic():\n    assert retries_left(1) == 2\n",
 	}
 	for rel, content := range files {
-		p := filepath.Join(root, filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
+		gittest.Write(t, root, rel, content)
 	}
+	gittest.Commit(t, root, "fixture")
 
-	cmd := exec.Command(py, "-m", "pytest", "--cov=src", "--cov-context=test", "-q")
-	cmd.Dir = root
-	cmd.Env = append(os.Environ(), "COVERAGE_CORE=ctrace")
-	out, err := cmd.CombinedOutput()
+	all, err := adapter.Builtin()
 	if err != nil {
-		t.Fatalf("pytest failed: %v\n%s", err, out)
+		t.Fatal(err)
 	}
-	if !strings.Contains(string(out), "2 passed") {
-		t.Fatalf("expected 2 passed, got:\n%s", out)
+	var py *adapter.Adapter
+	for _, a := range all {
+		if a.Name == "python" {
+			py = a
+		}
 	}
-
-	// Fatal, never skipped: a sysmon run silently drops ~90% of contexts (audit A7).
-	if strings.Contains(string(out), "no-sysmon-context") {
-		t.Fatalf("dynamic contexts were dropped; COVERAGE_CORE=ctrace was not honoured:\n%s", out)
-	}
-
-	cov, err := coverage.ReadSQLite(filepath.Join(root, ".coverage"), root)
+	res, err := runner.Seed(py, root)
 	if err != nil {
-		t.Fatalf("ReadSQLite: %v", err)
+		t.Fatalf("seed: %v", err)
 	}
-	return root, cov
+	if len(res.Outcomes) != 1 || res.Outcomes[0].Status != "pass" {
+		t.Fatalf("outcomes = %#v, want one passing unit\n%v", res.Outcomes, res.Output)
+	}
+	return root, res.Coverage
 }
 
-func TestAcceptanceImportTimeOnlyFileIsNeverUncovered(t *testing.T) {
-	// GUARANTEE 1: a file whose changed lines are all import-time is correctly tested
-	// and must produce a clean report. This is audit finding A1 and the reason RTDD
-	// is usable on any repo with dataclasses, enums, config modules, Pydantic/Django
-	// models, or __init__.py re-exports.
+func TestAcceptanceImportExecutedLinesAreCovered(t *testing.T) {
+	// GUARANTEE 1 (one-pipeline spec §8): a constants/enum/dataclass module's lines run on
+	// import, inside the unit's own process, so they are Covered — never Uncovered.
 	_, cov := buildPyFixture(t)
 
-	if lines, ok := cov.ImportTime["src/constants.py"]; !ok || len(lines) == 0 {
-		t.Fatalf("fixture invariant broken: src/constants.py has no import-time lines: %#v", cov.ImportTime)
-	}
-	for _, tc := range cov.PerTest {
-		if len(tc.Files["src/constants.py"]) != 0 {
-			t.Fatalf("fixture invariant broken: %s attributes lines in src/constants.py; "+
-				"finding A1 says import-time code is attributed to ZERO test contexts", tc.Test)
-		}
-	}
-
+	// The module's executable lines; 3, 5, 6, 10 and 11 are blank.
 	changes := []gitctx.Change{
-		{Path: "src/constants.py", Status: gitctx.Modified, Lines: []gitctx.LineRange{{Start: 1, End: 15}}},
+		{Path: "src/constants.py", Status: gitctx.Modified, Lines: []gitctx.LineRange{
+			{Start: 1, End: 2}, {Start: 4, End: 4}, {Start: 7, End: 9}, {Start: 12, End: 15}}},
 	}
 	reports := uncovered.Classify(changes, cov)
 	if n := uncovered.Summarize(reports).UncoveredLines; n != 0 {
-		t.Fatalf("uncovered_lines = %d, want 0 — a dataclass/enum/constants module asserted "+
-			"on by two passing tests must produce a clean report\nreports: %#v", n, reports)
+		t.Fatalf("uncovered_lines = %d, want 0 — a module asserted on by a passing unit "+
+			"must produce a clean report\nreports: %#v", n, reports)
 	}
-	if s := RenderUncovered(reports); strings.Contains(s, "UNCOVERED") {
-		t.Fatalf("text report must contain no UNCOVERED line:\n%s", s)
+	if s := RenderUncovered(reports); s != "" {
+		t.Fatalf("text report must be empty:\n%s", s)
 	}
 
-	// The same guarantee in --json: `uncovered.files` is present and available (the run
-	// really did produce fresh coverage), every range is import-time, and the summary's
-	// uncovered_lines is 0. An agent reading the JSON must reach the same verdict a human
-	// reading the text report does.
 	out := BuildOutput(OutputInput{
 		Command: "run", Base: "HEAD", Adapter: "python",
 		Executed: true, Reports: reports, UncoveredOK: true,
 		Instrumentable: map[string]bool{"src/constants.py": true},
 		Changes:        changes,
 	})
-	if !out.Uncovered.Available {
-		t.Fatal("json uncovered.available = false, want true after a real run")
-	}
-	if n := out.Uncovered.Summary.UncoveredLines; n != 0 {
-		t.Fatalf("json uncovered_lines = %d, want 0", n)
-	}
-	for _, f := range out.Uncovered.Files {
-		if f.UncoveredLines != 0 {
-			t.Errorf("json files[%s].uncovered_lines = %d, want 0", f.Path, f.UncoveredLines)
-		}
-		for _, r := range f.Ranges {
-			if r.Class == uncovered.Uncovered.String() {
-				t.Errorf("json files[%s] carries an %q range %d-%d; import-time is never uncovered",
-					f.Path, r.Class, r.Start, r.End)
-			}
-		}
-	}
 	blob, err := json.Marshal(out)
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
-	if strings.Contains(string(blob), `"class":"uncovered"`) {
-		t.Fatalf("serialised --json must carry no uncovered range:\n%s", blob)
+	if !out.Uncovered.Available || strings.Contains(string(blob), `"class":"uncovered"`) {
+		t.Fatalf("serialised --json must be available and carry no uncovered range:\n%s", blob)
 	}
 }
 
@@ -160,9 +115,9 @@ func TestAcceptanceClassificationIsLineGranular(t *testing.T) {
 	// function's lines as Uncovered. v1 was file-granular and reported green here.
 	_, cov := buildPyFixture(t)
 
-	// src/logic.py IS covered (line 5 belongs to tests/test_it.py::test_logic), yet
-	// lines 8-9 are the never-called unused_helper. Line 8 is the `def` (import-time);
-	// line 9 is its body, which nothing executes.
+	// src/logic.py IS covered (line 5 runs in tests/test_it.py), yet lines 8-9 are the
+	// never-called unused_helper. Line 8 is the `def`, executed on import; line 9 is its
+	// body, which nothing executes.
 	changes := []gitctx.Change{
 		{Path: "src/logic.py", Status: gitctx.Modified, Lines: []gitctx.LineRange{{Start: 8, End: 9}}},
 	}
@@ -173,8 +128,7 @@ func TestAcceptanceClassificationIsLineGranular(t *testing.T) {
 	if n := reports[0].UncoveredLines(); n != 1 {
 		t.Fatalf("UncoveredLines() = %d, want 1 (line 9 only)\nranges: %#v", n, reports[0].Ranges)
 	}
-	want := "  UNCOVERED: src/logic.py:9  (1 changed line, no executing test)\n" +
-		"  import-time: src/logic.py:8  (executed during collection, not attributed)\n"
+	want := "  UNCOVERED: src/logic.py:9  (1 changed line, no executing test)\n"
 	if got := RenderUncovered(reports); got != want {
 		t.Fatalf("RenderUncovered()\n got:\n%s\nwant:\n%s", got, want)
 	}
@@ -202,10 +156,7 @@ func TestAcceptanceUncoveredReportNeverChangesTheExitCode(t *testing.T) {
 		t.Fatal("fixture invariant broken: the report must be non-empty for this test to mean anything")
 	}
 
-	outcomes := []report.Outcome{
-		{Test: "tests/test_it.py::test_constants", Status: "pass", DurationMS: 2},
-		{Test: "tests/test_it.py::test_logic", Status: "pass", DurationMS: 1},
-	}
+	outcomes := []runner.Outcome{{Test: "tests/test_it.py", Status: "pass", DurationMS: 3}}
 	if code := ExitCodeFor(outcomes, reports); code != 0 {
 		t.Fatalf("ExitCodeFor() = %d, want 0 with a non-empty uncovered report and no failing test", code)
 	}
@@ -225,9 +176,9 @@ func TestAcceptanceUncoveredReportNeverChangesTheExitCode(t *testing.T) {
 	}
 }
 
-func TestAcceptanceImportOnlyFileIsInNoMapRow(t *testing.T) {
-	// GUARANTEE 4: an import-time-only file is in NO map row's f, which is exactly the
-	// static-import fallback's trigger condition (spec §6, D14).
+func TestAcceptanceImportedFileIsInItsUnitsRow(t *testing.T) {
+	// GUARANTEE 4: a file a unit only imports is still in that unit's row, so a change to
+	// it selects the unit and is not reported unmapped.
 	_, cov := buildPyFixture(t)
 
 	keep := func(a, b string) string { return a }
@@ -239,24 +190,17 @@ func TestAcceptanceImportOnlyFileIsInNoMapRow(t *testing.T) {
 		}
 		m.Union(mapstore.Row{T: tc.Test, F: fs, C: "aaaaaaa", D: 1, S: "pass"}, keep)
 	}
-
-	if got := m.TestsCovering([]string{"src/constants.py"}); len(got) != 0 {
-		t.Fatalf("TestsCovering(src/constants.py) = %#v, want empty — import-time lines "+
-			"are attributed to no test and therefore enter no row's f", got)
-	}
-
-	changes := []gitctx.Change{
-		{Path: "src/constants.py", Status: gitctx.Modified, Lines: []gitctx.LineRange{{Start: 1, End: 15}}},
-		{Path: "src/logic.py", Status: gitctx.Modified, Lines: []gitctx.LineRange{{Start: 8, End: 9}}},
+	if got := m.TestsCovering([]string{"src/constants.py"}); len(got) != 1 || got[0] != "tests/test_it.py" {
+		t.Fatalf("TestsCovering(src/constants.py) = %#v, want [tests/test_it.py]", got)
 	}
 	sig := BuildSignal(SignalInput{
-		Changes:          changes,
+		Changes:          []gitctx.Change{{Path: "src/constants.py", Status: gitctx.Modified, Lines: []gitctx.LineRange{{Start: 1, End: 1}}}},
 		Cov:              cov,
 		Map:              m,
 		IsInstrumentable: func(rel string) bool { return strings.HasPrefix(rel, "src/") },
 	})
-	if len(sig.UnmappedFiles) != 1 || sig.UnmappedFiles[0] != "src/constants.py" {
-		t.Fatalf("UnmappedFiles = %#v, want [src/constants.py]", sig.UnmappedFiles)
+	if len(sig.UnmappedFiles) != 0 {
+		t.Fatalf("UnmappedFiles = %#v, want none", sig.UnmappedFiles)
 	}
 }
 
@@ -278,8 +222,8 @@ func TestAcceptanceClassificationConsumesOnlyFreshCoverageNeverTheMap(t *testing
 		}
 		m.Union(mapstore.Row{T: tc.Test, F: fs, C: "aaaaaaa", D: 1, S: "pass"}, keep)
 	}
-	// tests/test_it.py::test_logic really does execute src/logic.py, so the map says the
-	// file is covered. Line 9 is still uncovered, and only the coverage knows that.
+	// tests/test_it.py really does execute src/logic.py, so the map says the file is
+	// covered. Line 9 is still uncovered, and only the coverage knows that.
 	if got := m.TestsCovering([]string{"src/logic.py"}); len(got) == 0 {
 		t.Fatalf("fixture invariant broken: no map row covers src/logic.py")
 	}
@@ -324,9 +268,7 @@ func TestAcceptanceClassificationConsumesOnlyFreshCoverageNeverTheMap(t *testing
 	}
 
 	// Line 5 is a covered body, 8 is a `def` executed at import, 9 is a dead body. The
-	// two ranges skip lines 6-7, which are blank: coverage stores only executed lines, so
-	// a blank line inside a file some test DID touch is indistinguishable from a dead one
-	// and classifies Uncovered. That is settled behaviour, and not what this test is about.
+	// two ranges skip lines 6-7, which are blank and would classify Uncovered.
 	changes := []gitctx.Change{
 		{Path: "src/logic.py", Status: gitctx.Modified,
 			Lines: []gitctx.LineRange{{Start: 5, End: 5}, {Start: 8, End: 9}}},
@@ -334,16 +276,12 @@ func TestAcceptanceClassificationConsumesOnlyFreshCoverageNeverTheMap(t *testing
 	instrumentable := func(rel string) bool { return strings.HasPrefix(rel, "src/") }
 
 	fresh := BuildSignal(SignalInput{Changes: changes, Cov: cov, Map: m, IsInstrumentable: instrumentable})
-	if n := uncovered.Summarize(fresh.Reports).CoveredLines; n != 1 {
-		t.Fatalf("with fresh coverage covered_lines = %d, want 1 (line 5)\nreports: %#v",
+	if n := uncovered.Summarize(fresh.Reports).CoveredLines; n != 2 {
+		t.Fatalf("with fresh coverage covered_lines = %d, want 2 (lines 5 and 8)\nreports: %#v",
 			n, fresh.Reports)
 	}
 	if n := uncovered.Summarize(fresh.Reports).UncoveredLines; n != 1 {
 		t.Fatalf("with fresh coverage uncovered_lines = %d, want 1 (line 9)\nreports: %#v",
-			n, fresh.Reports)
-	}
-	if n := uncovered.Summarize(fresh.Reports).ImportTimeLines; n != 1 {
-		t.Fatalf("with fresh coverage import_time_lines = %d, want 1 (line 8)\nreports: %#v",
 			n, fresh.Reports)
 	}
 
@@ -351,7 +289,7 @@ func TestAcceptanceClassificationConsumesOnlyFreshCoverageNeverTheMap(t *testing
 	// line survived as Covered here it could only have come from the map.
 	stale := BuildSignal(SignalInput{Changes: changes, Cov: nil, Map: m, IsInstrumentable: instrumentable})
 	s := uncovered.Summarize(stale.Reports)
-	if s.CoveredLines != 0 || s.ImportTimeLines != 0 {
+	if s.CoveredLines != 0 {
 		t.Fatalf("without fresh coverage the map must contribute nothing; got %#v\nreports: %#v",
 			s, stale.Reports)
 	}

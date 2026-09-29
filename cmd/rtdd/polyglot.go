@@ -143,7 +143,7 @@ func RenderSelections(blocks []AdapterSelection) string {
 		if len(blocks) > 1 {
 			fmt.Fprintf(&b, "adapter: %s\n", blk.Adapter)
 		}
-		b.WriteString(RenderWhich(blk.Selection, blk.Signal.UnmappedFiles, blk.Ad))
+		b.WriteString(RenderWhich(blk.Selection, blk.Signal.UnmappedFiles))
 	}
 	return b.String()
 }
@@ -165,8 +165,6 @@ func instrumentableOf(ad *adapter.Adapter) func(string) bool {
 func tierBreadth(t selector.Tier) int {
 	switch t {
 	case selector.TierT2:
-		return 4
-	case selector.TierTS:
 		return 3
 	case selector.TierT1:
 		return 2
@@ -218,14 +216,8 @@ func foldBlocks(blocks []AdapterSelection) (selector.Selection, SignalOutput) {
 		for p, ok := range blk.Signal.Instrumentable {
 			sig.Instrumentable[p] = sig.Instrumentable[p] || ok
 		}
-		// Only from an adapter the notice is true of: a `selection: static` adapter
-		// records nothing, so EVERY changed file is trivially unmapped for it, and
-		// unioning that in would report a Python file as uncovered because the Vitest
-		// half of the repository has no map — see unmappedNoticeApplies.
-		if unmappedNoticeApplies(blk.Ad) {
-			for _, f := range blk.Signal.UnmappedFiles {
-				unmapped[f] = true
-			}
+		for _, f := range blk.Signal.UnmappedFiles {
+			unmapped[f] = true
 		}
 	}
 	for f := range unmapped {

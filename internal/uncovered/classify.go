@@ -7,7 +7,7 @@ import (
 	"github.com/VocanicZ/rtdd/internal/gitctx"
 )
 
-// Class is the three-way classification of a changed line.
+// Class is the two-way classification of a changed line (spec §8).
 type Class int
 
 const (
@@ -15,20 +15,15 @@ const (
 	Covered Class = iota
 	// Uncovered — no test executed it. The real signal.
 	Uncovered
-	// ImportTime — executed during collection/import, attributed to no test.
-	// NEVER counted as Uncovered. See spec §6 and audit finding A1.
-	ImportTime
 )
 
-// String returns "covered" | "uncovered" | "import-time".
+// String returns "covered" | "uncovered".
 func (c Class) String() string {
 	switch c {
 	case Covered:
 		return "covered"
 	case Uncovered:
 		return "uncovered"
-	case ImportTime:
-		return "import-time"
 	default:
 		return "unknown"
 	}
@@ -59,10 +54,9 @@ func (r FileReport) UncoveredLines() int {
 
 // Summary aggregates a set of FileReports for the --json output and the text report.
 type Summary struct {
-	Files           int
-	CoveredLines    int
-	UncoveredLines  int
-	ImportTimeLines int
+	Files          int
+	CoveredLines   int
+	UncoveredLines int
 }
 
 // Summarize totals the reports.
@@ -76,30 +70,15 @@ func Summarize(reports []FileReport) Summary {
 				s.CoveredLines += n
 			case Uncovered:
 				s.UncoveredLines += n
-			case ImportTime:
-				s.ImportTimeLines += n
 			}
 		}
 	}
 	return s
 }
 
-// Classify intersects each Change's line ranges with FRESH post-run coverage.
-//
-// A line covered by any test is Covered. A line present only in Result.ImportTime is
-// ImportTime and MUST NOT be reported as Uncovered. Everything else is Uncovered.
-//
-// One exception, and it is the reason audit finding A1 exists: a file that coverage
-// measured but that NO test context touches is an import-time-only file (spec §6, D14).
-// Its whole module body runs during collection, and coverage stores only executed lines
-// — it cannot tell a blank line, a comment or a decorator continuation apart from a dead
-// statement. Fixture F1's src/constants.py is exactly this: a constants/Enum/@dataclass
-// module asserted on by two passing tests whose import-time lines are 1,2,4,7,8,9,12-15,
-// the gaps being blank lines. Classifying those gaps Uncovered would scream UNCOVERED at
-// a correctly tested dataclass module, which is the false positive RTDD exists to avoid,
-// so every changed line of an import-time-only file is ImportTime. The cost is a real
-// dead function added to such a module reading clean; selection for these files does not
-// go through the coverage relation at all but through the static import scan.
+// Classify intersects each Change's line ranges with FRESH post-run coverage. A line
+// some unit executed is Covered; everything else is Uncovered. In an isolated run a line
+// executed while importing is executed by that unit, so there is no third class (spec §8).
 //
 // cov must be the coverage produced by the run that just finished. Line data is never
 // persisted in map.jsonl, so there is no line-drift problem: both sides are current.
@@ -109,14 +88,9 @@ func Summarize(reports []FileReport) Summary {
 // test file or an opaque asset.
 func Classify(changes []gitctx.Change, cov *coverage.Result) []FileReport {
 	covered := map[string]map[int]bool{}
-	importTime := map[string]map[int]bool{}
-
 	if cov != nil {
 		for _, tc := range cov.PerTest {
 			for path, lines := range tc.Files {
-				if len(lines) == 0 {
-					continue
-				}
 				set := covered[path]
 				if set == nil {
 					set = map[int]bool{}
@@ -125,16 +99,6 @@ func Classify(changes []gitctx.Change, cov *coverage.Result) []FileReport {
 				for _, ln := range lines {
 					set[ln] = true
 				}
-			}
-		}
-		for path, lines := range cov.ImportTime {
-			set := importTime[path]
-			if set == nil {
-				set = map[int]bool{}
-				importTime[path] = set
-			}
-			for _, ln := range lines {
-				set[ln] = true
 			}
 		}
 	}
@@ -148,17 +112,12 @@ func Classify(changes []gitctx.Change, cov *coverage.Result) []FileReport {
 		if len(lines) == 0 {
 			continue
 		}
-		cSet, iSet := covered[ch.Path], importTime[ch.Path]
-		importOnly := len(cSet) == 0 && len(iSet) > 0
+		cSet := covered[ch.Path]
 		ranges := coalesce(lines, func(ln int) Class {
-			switch {
-			case cSet[ln]:
+			if cSet[ln] {
 				return Covered
-			case iSet[ln] || importOnly:
-				return ImportTime
-			default:
-				return Uncovered
 			}
+			return Uncovered
 		})
 		out = append(out, FileReport{Path: ch.Path, Ranges: ranges})
 	}

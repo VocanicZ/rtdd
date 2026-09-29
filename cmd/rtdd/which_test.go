@@ -3,14 +3,10 @@ package main
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
-	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
 )
 
 // rawObject decodes one JSON object as raw keys, so a test can assert a key is ABSENT.
@@ -186,8 +182,8 @@ func TestWhichKeepsTestFilesAndOpaqueFilesOffTheUncoveredPath(t *testing.T) {
 	}
 }
 
-// which is the cheap question. It must cost one map load, one git diff and (at most) a
-// static import scan — never a test execution. The adapter's every command is a sentinel
+// which is the cheap question. It must cost one map load, one git diff and one file
+// listing — never a test execution. The adapter's every command is a sentinel
 // writer here, so running any of them leaves evidence on disk.
 func TestWhichRunsNoTests(t *testing.T) {
 	dir := newTestRepo(t)
@@ -210,101 +206,11 @@ func TestWhichRunsNoTests(t *testing.T) {
 // Every adapter command writes a sentinel: if which ever executes one, the file appears.
 const sentinelAdapter = `name: python
 detect: ["pyproject.toml"]
-seed: "sh -c 'touch RAN'"
-subset: "sh -c 'touch RAN {tests}'"
-list: "sh -c 'touch RAN'"
-coverage: sqlite
-report: pytest-reportlog
+unit_cmd: "sh -c 'touch RAN {unit}'"
+coverage_file: "{tmp}/lcov.info"
+coverage_format: lcov
 test_globs: ["tests/**/*.py", "**/test_*.py"]
 source_globs: ["src/**/*.py"]
 opaque: ["**/*.yaml", "**/*.html", "**/fixtures/**"]
 full_escalate: ["requirements.txt", "pyproject.toml", "**/conftest.py"]
 `
-
-// The static-import fallback: a changed instrumentable file that NO map row covers is
-// exactly the import-time-only case (spec §6, D14), because import-time lines are
-// attributed to no test and so never enter any row's f. which must fire the scan and
-// report which tests it produced, per file.
-func TestWhichImportFallbackFiresForAnUnmappedInstrumentableFile(t *testing.T) {
-	if _, err := exec.LookPath("python3"); err != nil {
-		if _, err2 := exec.LookPath("python"); err2 != nil {
-			t.Skip("no python interpreter on PATH")
-		}
-	}
-	dir := importFallbackRepo(t)
-	writeFile(t, dir, "src/constants.py", "MAX_RETRIES = 4\n")
-
-	code, stdout, stderr := rtdd(t, dir, "which", "--json")
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
-	}
-	got := decodeOutput(t, stdout)
-
-	fallback := got.Selection.ImportFallback["src/constants.py"]
-	if !reflect.DeepEqual(fallback, []string{"tests/test_it.py"}) {
-		t.Fatalf("selection.import_fallback = %#v, want {src/constants.py: [tests/test_it.py]}",
-			got.Selection.ImportFallback)
-	}
-	if !reflect.DeepEqual(got.UnmappedFiles, []string{"src/constants.py"}) {
-		t.Errorf("unmapped_files = %#v, want [src/constants.py]", got.UnmappedFiles)
-	}
-	found := false
-	for _, id := range got.Selection.Tests {
-		if id == "tests/test_it.py" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("selection.tests = %#v, want the importing test selected", got.Selection.Tests)
-	}
-	if got.Tier != "T1" {
-		t.Errorf("tier = %q, want T1 (reason: %s)", got.Tier, got.Reason)
-	}
-}
-
-// The fallback fires only for files no map row covers: a mapped file is answered by the
-// coverage relation, and paying for an AST scan there would be pure cost.
-func TestWhichImportFallbackIsEmptyWhenEveryChangedFileIsMapped(t *testing.T) {
-	dir := importFallbackRepo(t)
-	writeFile(t, dir, "src/logic.py", "def retries_left(used):\n    return 1 - used\n")
-
-	code, stdout, stderr := rtdd(t, dir, "which", "--json")
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
-	}
-	got := decodeOutput(t, stdout)
-	if len(got.Selection.ImportFallback) != 0 {
-		t.Errorf("selection.import_fallback = %#v, want {}", got.Selection.ImportFallback)
-	}
-	if !strings.Contains(stdout, `"import_fallback": {}`) {
-		t.Errorf("import_fallback must be an object, never null:\n%s", stdout)
-	}
-}
-
-// importFallbackRepo is fixture F1: src/constants.py executes only at import time and is
-// therefore in no map row, while tests/test_it.py imports it transitively through
-// src/logic.py.
-func importFallbackRepo(t *testing.T) string {
-	t.Helper()
-	dir := gittest.Init(t)
-	gittest.Write(t, dir, "src/__init__.py", "")
-	gittest.Write(t, dir, "src/constants.py", "MAX_RETRIES = 3\n")
-	gittest.Write(t, dir, "src/logic.py",
-		"from src.constants import MAX_RETRIES\n\n\ndef retries_left(used):\n    return MAX_RETRIES - used\n")
-	gittest.Write(t, dir, "tests/test_it.py",
-		"from src.logic import retries_left\n\n\ndef test_logic():\n    assert retries_left(1) == 2\n")
-	gittest.Write(t, dir, ".gitignore", ".rtdd/\n")
-	gittest.Commit(t, dir, "init")
-
-	sha := gittest.HeadShort(t, dir)
-	gittest.Write(t, dir, ".rtdd/map.jsonl",
-		`{"t":"tests/test_it.py","f":["src/logic.py"],"c":"`+sha+`","d":12,"s":"pass"}`+"\n")
-	ad, err := os.ReadFile("testdata/adapter.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	gittest.Write(t, dir, ".rtdd/adapter.yaml", string(ad))
-	gittest.Write(t, dir, ".rtdd/meta.json",
-		`{"v":2,"adapter":"python","seeded_at":"`+sha+`","cycles":`+strconv.Itoa(0)+"}\n")
-	return dir
-}

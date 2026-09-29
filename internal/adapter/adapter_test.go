@@ -21,20 +21,17 @@ func TestLoadParsesEveryField(t *testing.T) {
 	if a.Name != "python" {
 		t.Errorf("Name = %q, want python", a.Name)
 	}
-	if a.Env["COVERAGE_CORE"] != "ctrace" {
-		t.Errorf("Env[COVERAGE_CORE] = %q, want ctrace", a.Env["COVERAGE_CORE"])
+	if a.Env["COVERAGE_FILE"] != "{tmp}/.coverage" {
+		t.Errorf("Env[COVERAGE_FILE] = %q, want {tmp}/.coverage", a.Env["COVERAGE_FILE"])
 	}
-	if a.Coverage != "sqlite" || a.Report != "pytest-reportlog" {
-		t.Errorf("Coverage/Report = %q/%q, want sqlite/pytest-reportlog", a.Coverage, a.Report)
-	}
-	if a.FailFastFlag != "-x" {
-		t.Errorf("FailFastFlag = %q, want -x", a.FailFastFlag)
+	if a.CoverageFile != "{tmp}/lcov.info" || a.CoverageFormat != "lcov" {
+		t.Errorf("CoverageFile/CoverageFormat = %q/%q, want {tmp}/lcov.info/lcov", a.CoverageFile, a.CoverageFormat)
 	}
 	if a.ExitCodes[4] != "bad-selector" || a.ExitCodes[5] != "no-tests-collected" {
 		t.Errorf("ExitCodes = %#v, want 4=bad-selector 5=no-tests-collected", a.ExitCodes)
 	}
-	if len(a.Detect) != 3 || len(a.TestGlobs) != 3 || len(a.FullEscalate) != 8 {
-		t.Errorf("Detect/TestGlobs/FullEscalate lengths = %d/%d/%d, want 3/3/8",
+	if len(a.Detect) != 3 || len(a.TestGlobs) != 2 || len(a.FullEscalate) != 8 {
+		t.Errorf("Detect/TestGlobs/FullEscalate lengths = %d/%d/%d, want 3/2/8",
 			len(a.Detect), len(a.TestGlobs), len(a.FullEscalate))
 	}
 }
@@ -68,29 +65,14 @@ func TestLoadMissingFileIsAnError(t *testing.T) {
 }
 
 // The shipped declaration must parse through the same KnownFields(true) decoder as any
-// host-repo adapter, including the seed/subset/list/exit_codes fields that M1a never
-// executes. M1b inherits this file rather than rewriting it.
+// host-repo adapter.
 func TestShippedPythonAdapterParses(t *testing.T) {
 	a, err := Load(filepath.Join("..", "..", "adapters", "python.yaml"))
 	if err != nil {
 		t.Fatalf("Load(adapters/python.yaml): %v", err)
 	}
-	if a.Name != "python" {
-		t.Errorf("Name = %q, want python", a.Name)
-	}
-	if !strings.HasPrefix(a.Seed, "pytest ") || !strings.Contains(a.Seed, "--cov-context=test") {
-		t.Errorf("Seed = %q, want a pytest command with --cov-context=test", a.Seed)
-	}
-	if !strings.Contains(a.Subset, "{tests}") {
-		t.Errorf("Subset = %q, want it to carry the {tests} placeholder", a.Subset)
-	}
-	// M1a amendment: {src} is dropped from Seed/Subset; bare --cov honours the host's
-	// own [run] source and omit settings, so seed and subset agree on scope.
-	if strings.Contains(a.Seed, "{src}") || strings.Contains(a.Subset, "{src}") {
-		t.Errorf("Seed/Subset still reference {src}: %q / %q", a.Seed, a.Subset)
-	}
-	if a.List == "" {
-		t.Error("List is empty; M1b needs the collect-only command")
+	if a.Name != "python" || !strings.Contains(a.UnitCmd, "{unit}") {
+		t.Errorf("Name/UnitCmd = %q/%q, want python and a {unit} command", a.Name, a.UnitCmd)
 	}
 	if a.ExitCodes[4] != "bad-selector" || a.ExitCodes[5] != "no-tests-collected" {
 		t.Errorf("ExitCodes = %#v, want 4=bad-selector 5=no-tests-collected", a.ExitCodes)
@@ -276,14 +258,10 @@ func TestLoadRejectsAMalformedGlobInEveryGlobField(t *testing.T) {
 const validYAML = `name: demo
 detect: ["pyproject.toml"]
 env:
-  COVERAGE_CORE: ctrace
   COVERAGE_FILE: .coverage
-seed: "pytest --cov --cov-context=test --cov-report= --report-log={log}"
-subset: "pytest {tests} --cov --cov-context=test --cov-report= --report-log={log}"
-list: "pytest --collect-only -q"
-coverage: sqlite
-report: pytest-reportlog
-failfast_flag: "-x"
+unit_cmd: "pytest --cov --cov-report=lcov:{tmp}/lcov.info {unit}"
+coverage_file: "{tmp}/lcov.info"
+coverage_format: lcov
 test_globs: ["tests/**/*.py"]
 source_globs: ["src/**/*.py"]
 exit_codes:
@@ -305,18 +283,20 @@ func writeAdapter(t *testing.T, dir, name, body string) string {
 // Each rejection carries its own message: an agent reading exit 2 must be told which
 // field is wrong, not merely that the adapter is invalid.
 func TestLoadRejectsEachInvalidFieldWithADistinctMessage(t *testing.T) {
-	base := "name: x\ndetect: [\"a\"]\nseed: s\nsubset: \"{tests}\"\ncoverage: sqlite\nreport: pytest-reportlog\n"
+	const cmd = "unit_cmd: \"t {unit}\"\n"
+	const cov = "coverage_file: \"{tmp}/c\"\ncoverage_format: lcov\n"
+	base := "name: x\ndetect: [\"a\"]\n" + cmd + cov
 	cases := []struct {
 		name string
 		yaml string
 		want string
 	}{
-		{"no name", "detect: [\"a\"]\nseed: s\nsubset: \"{tests}\"\ncoverage: sqlite\nreport: pytest-reportlog\n", "name is required"},
-		{"no detect", "name: x\nseed: s\nsubset: \"{tests}\"\ncoverage: sqlite\nreport: pytest-reportlog\n", "detect is required"},
-		{"no seed", "name: x\ndetect: [\"a\"]\nsubset: \"{tests}\"\ncoverage: sqlite\nreport: pytest-reportlog\n", "seed is required"},
-		{"subset without {tests}", "name: x\ndetect: [\"a\"]\nseed: s\nsubset: \"pytest --cov\"\ncoverage: sqlite\nreport: pytest-reportlog\n", "{tests}"},
-		{"bad coverage", "name: x\ndetect: [\"a\"]\nseed: s\nsubset: \"{tests}\"\ncoverage: lcov\nreport: pytest-reportlog\n", "unsupported coverage"},
-		{"bad report", "name: x\ndetect: [\"a\"]\nseed: s\nsubset: \"{tests}\"\ncoverage: sqlite\nreport: junit\n", "unsupported report"},
+		{"no name", "detect: [\"a\"]\n" + cmd + cov, "name is required"},
+		{"no detect", "name: x\n" + cmd + cov, "detect is required"},
+		{"no unit_cmd", "name: x\ndetect: [\"a\"]\n" + cov, "unit_cmd is required"},
+		{"no coverage_file", "name: x\ndetect: [\"a\"]\n" + cmd + "coverage_format: lcov\n", "coverage_file is required"},
+		{"no coverage_format", "name: x\ndetect: [\"a\"]\n" + cmd + "coverage_file: \"{tmp}/c\"\n", "coverage_format is required"},
+		{"bad format", "name: x\ndetect: [\"a\"]\n" + cmd + "coverage_file: \"{tmp}/c\"\ncoverage_format: sqlite\n", "coverage_format \"sqlite\""},
 		{"malformed glob", base + "test_globs: [\"tests/[a-*.py\"]\n", "tests/[a-*.py"},
 	}
 	seen := map[string]string{}
@@ -338,24 +318,13 @@ func TestLoadRejectsEachInvalidFieldWithADistinctMessage(t *testing.T) {
 	}
 }
 
-// An empty subset is missing {tests} too, but it deserves the "required" message rather
-// than the placeholder one.
-func TestLoadRejectsAnEmptySubsetAsMissing(t *testing.T) {
-	p := writeAdapter(t, t.TempDir(), "a.yaml",
-		"name: x\ndetect: [\"a\"]\nseed: s\ncoverage: sqlite\nreport: pytest-reportlog\n")
-	_, err := Load(p)
-	if err == nil || !strings.Contains(err.Error(), "subset is required") {
-		t.Fatalf("Load error = %v, want %q", err, "subset is required")
-	}
-}
-
 func TestLoadAcceptsAValidAdapter(t *testing.T) {
 	p := writeAdapter(t, t.TempDir(), "demo.yaml", validYAML)
 	a, err := Load(p)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if a.Name != "demo" || a.List == "" || a.Env["COVERAGE_FILE"] != ".coverage" {
+	if a.Name != "demo" || a.UnitCmd == "" || a.Env["COVERAGE_FILE"] != ".coverage" {
 		t.Errorf("Load returned %#v, want the whole declaration parsed", a)
 	}
 }
@@ -409,15 +378,9 @@ func TestBuiltinShipsPythonWithoutTheFilesystem(t *testing.T) {
 	if py == nil {
 		t.Fatalf("Builtin() has no adapter named python; got %d adapters", len(all))
 	}
-	// Audit A7: sysmon records ~1 context in 4 and still exits 0, so this is asserted
-	// rather than left to review.
-	if py.Env["COVERAGE_CORE"] != "ctrace" {
-		t.Errorf("Env[COVERAGE_CORE] = %q, want ctrace", py.Env["COVERAGE_CORE"])
-	}
-	// The env var beats a host `[run] data_file` setting, so the runner always knows
-	// which database to read.
-	if py.Env["COVERAGE_FILE"] != ".coverage" {
-		t.Errorf("Env[COVERAGE_FILE] = %q, want .coverage", py.Env["COVERAGE_FILE"])
+	// Each unit's .coverage lives in its own {tmp}, so parallel units never share one.
+	if py.Env["COVERAGE_FILE"] != "{tmp}/.coverage" {
+		t.Errorf("Env[COVERAGE_FILE] = %q, want {tmp}/.coverage", py.Env["COVERAGE_FILE"])
 	}
 	if py.ExitCodes[4] != "bad-selector" || py.ExitCodes[5] != "no-tests-collected" {
 		t.Errorf("ExitCodes = %#v, want 4=bad-selector 5=no-tests-collected", py.ExitCodes)
@@ -433,49 +396,13 @@ func byName(all []*Adapter, name string) *Adapter {
 	return nil
 }
 
-// Measured: `--cov=` with an empty value makes pytest exit 1 and record nothing, and any
-// guessed {src} makes seed and subset disagree on scope. Bare --cov defers to the host's
-// own [run] source/omit for both commands.
-func TestBuiltinPythonTemplatesUseBareCov(t *testing.T) {
-	all, err := Builtin()
-	if err != nil {
-		t.Fatalf("Builtin: %v", err)
-	}
-	py := byName(all, "python")
-	if py == nil {
-		t.Fatal("Builtin() has no adapter named python")
-	}
-	for _, tc := range []struct{ field, tmpl string }{{"seed", py.Seed}, {"subset", py.Subset}} {
-		if !hasBareFlag(tc.tmpl, "--cov") {
-			t.Errorf("%s = %q, want a bare --cov argument", tc.field, tc.tmpl)
-		}
-		if strings.Contains(tc.tmpl, "--cov=") {
-			t.Errorf("%s = %q, must never use --cov=<value>", tc.field, tc.tmpl)
-		}
-		if strings.Contains(tc.tmpl, "{src}") {
-			t.Errorf("%s = %q, still references {src}", tc.field, tc.tmpl)
-		}
-	}
-}
-
-// hasBareFlag reports whether flag appears in tmpl as its own whitespace-delimited
-// argument, so "--cov-report=" does not count as "--cov".
-func hasBareFlag(tmpl, flag string) bool {
-	for _, f := range strings.Fields(tmpl) {
-		if f == flag {
-			return true
-		}
-	}
-	return false
-}
-
 // Regression for #68: an adapter file with a malformed detect glob loaded with a nil
 // error, so the pattern was not caught until Detect globbed the repo with it —
 // detect.go -> glob.go -> paths.MatchGlob, which panics by design on a pattern
 // ValidateGlob rejects. A hand-written adapter must never crash rtdd; a bad detect glob
 // is a configuration error (exit 2) like every other bad glob.
 func TestLoadRejectsAMalformedDetectGlobRatherThanPanickingInDetect(t *testing.T) {
-	p := writeAdapter(t, t.TempDir(), "a.yaml", "name: python\ndetect: [\"[bad\"]\nseed: s\nsubset: \"{tests}\"\ncoverage: sqlite\nreport: pytest-reportlog\n")
+	p := writeAdapter(t, t.TempDir(), "a.yaml", "name: python\ndetect: [\"[bad\"]\nunit_cmd: \"t {unit}\"\ncoverage_file: \"{tmp}/c\"\ncoverage_format: lcov\n")
 
 	a, err := loadNoPanic(t, p)
 	if err == nil {

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/VocanicZ/rtdd/internal/coverage"
@@ -16,34 +15,11 @@ func TestRenderUncoveredMatchesSpecExample(t *testing.T) {
 			{Range: gitctx.LineRange{Start: 40, End: 51}, Class: uncovered.Covered},
 			{Range: gitctx.LineRange{Start: 52, End: 58}, Class: uncovered.Uncovered},
 		}},
-		{Path: "src/constants.py", Ranges: []uncovered.ClassifiedRange{
-			{Range: gitctx.LineRange{Start: 1, End: 12}, Class: uncovered.ImportTime},
-		}},
 	}
 	got := RenderUncovered(reports)
-	want := "" +
-		"  UNCOVERED: src/auth.py:52-58  (7 changed lines, no executing test)\n" +
-		"  import-time: src/constants.py:1-12  (executed during collection, not attributed)\n"
+	want := "  UNCOVERED: src/auth.py:52-58  (7 changed lines, no executing test)\n"
 	if got != want {
 		t.Fatalf("RenderUncovered()\n got:\n%s\nwant:\n%s", got, want)
-	}
-}
-
-func TestRenderUncoveredCleanWhenOnlyImportTimeAndCovered(t *testing.T) {
-	// A file whose changed lines are ALL import-time is correctly tested and must
-	// produce no UNCOVERED line at all.
-	reports := []uncovered.FileReport{
-		{Path: "src/constants.py", Ranges: []uncovered.ClassifiedRange{
-			{Range: gitctx.LineRange{Start: 1, End: 15}, Class: uncovered.ImportTime},
-		}},
-	}
-	got := RenderUncovered(reports)
-	want := "  import-time: src/constants.py:1-15  (executed during collection, not attributed)\n"
-	if got != want {
-		t.Fatalf("RenderUncovered()\n got:\n%s\nwant:\n%s", got, want)
-	}
-	if strings.Contains(got, "UNCOVERED") {
-		t.Fatal("an all-import-time file must never render an UNCOVERED line")
 	}
 }
 
@@ -87,9 +63,8 @@ func TestBuildSignalFiltersToInstrumentableFiles(t *testing.T) {
 	}
 	cov := &coverage.Result{
 		PerTest: []coverage.TestCoverage{
-			{Test: "tests/test_it.py::test_logic", Files: map[string][]int{"src/logic.py": {5}}},
+			{Test: "tests/test_it.py", Files: map[string][]int{"src/logic.py": {1, 4, 5, 8}}},
 		},
-		ImportTime: map[string][]int{"src/logic.py": {1, 4, 8}},
 	}
 	m := mapstore.New()
 	m.Union(mapstore.Row{T: "tests/test_it.py::test_logic", F: []string{"src/logic.py"}, C: "aaa", D: 3, S: "pass"},
@@ -108,7 +83,7 @@ func TestBuildSignalFiltersToInstrumentableFiles(t *testing.T) {
 		t.Fatalf("Reports = %#v, want only src/logic.py", got.Reports)
 	}
 	if got.Reports[0].UncoveredLines() != 1 {
-		t.Fatalf("UncoveredLines() = %d, want 1 (line 9 only; line 8 is a def, import-time)",
+		t.Fatalf("UncoveredLines() = %d, want 1 (line 9 only; line 8 is a def executed on import)",
 			got.Reports[0].UncoveredLines())
 	}
 	if !got.Instrumentable["src/logic.py"] || got.Instrumentable["tests/test_it.py"] {
@@ -119,43 +94,13 @@ func TestBuildSignalFiltersToInstrumentableFiles(t *testing.T) {
 	}
 }
 
-func TestBuildSignalReportsUnmappedInstrumentableFiles(t *testing.T) {
-	changes := []gitctx.Change{
-		{Path: "src/constants.py", Status: gitctx.Modified, Lines: []gitctx.LineRange{{Start: 1, End: 15}}},
-	}
-	cov := &coverage.Result{
-		PerTest:    []coverage.TestCoverage{},
-		ImportTime: map[string][]int{"src/constants.py": {1, 2, 4, 7, 8, 9, 12, 13, 14, 15}},
-	}
-	m := mapstore.New()
-	m.Union(mapstore.Row{T: "tests/test_it.py::test_logic", F: []string{"src/logic.py"}, C: "aaa", D: 3, S: "pass"},
-		func(a, b string) string { return a })
-
-	got := BuildSignal(SignalInput{
-		Changes:          changes,
-		Cov:              cov,
-		Map:              m,
-		IsInstrumentable: func(rel string) bool { return true },
-	})
-
-	want := []string{"src/constants.py"}
-	if len(got.UnmappedFiles) != 1 || got.UnmappedFiles[0] != want[0] {
-		t.Fatalf("UnmappedFiles = %#v, want %#v — an import-time-only file is in no row's f",
-			got.UnmappedFiles, want)
-	}
-	if got.Reports[0].UncoveredLines() != 0 {
-		t.Fatalf("UncoveredLines() = %d, want 0 — every changed line is import-time",
-			got.Reports[0].UncoveredLines())
-	}
-}
-
 func TestBuildSignalWithNoCoverageIsAllUncovered(t *testing.T) {
 	changes := []gitctx.Change{
 		{Path: "src/new.py", Status: gitctx.Added, Lines: []gitctx.LineRange{{Start: 1, End: 3}}},
 	}
 	got := BuildSignal(SignalInput{
 		Changes:          changes,
-		Cov:              &coverage.Result{ImportTime: map[string][]int{}},
+		Cov:              &coverage.Result{},
 		Map:              mapstore.New(),
 		IsInstrumentable: func(rel string) bool { return true },
 	})
@@ -164,8 +109,7 @@ func TestBuildSignalWithNoCoverageIsAllUncovered(t *testing.T) {
 	}
 }
 
-// UnmappedFiles is consumed as the static-import fallback's trigger set, so it must be a
-// list a caller can range over unconditionally — never nil.
+// UnmappedFiles must be a list a caller can range over unconditionally — never nil.
 func TestBuildSignalUnmappedFilesIsNeverNil(t *testing.T) {
 	got := BuildSignal(SignalInput{
 		Changes:          nil,
@@ -186,7 +130,7 @@ func TestBuildSignalUnmappedFilesIsNeverNil(t *testing.T) {
 func TestBuildSignalSkipsDeletedFiles(t *testing.T) {
 	got := BuildSignal(SignalInput{
 		Changes:          []gitctx.Change{{Path: "src/gone.py", Status: gitctx.Deleted}},
-		Cov:              &coverage.Result{ImportTime: map[string][]int{}},
+		Cov:              &coverage.Result{},
 		Map:              mapstore.New(),
 		IsInstrumentable: func(rel string) bool { return true },
 	})

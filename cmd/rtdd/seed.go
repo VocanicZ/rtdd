@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 
-	"github.com/VocanicZ/rtdd/internal/adapter"
 	"github.com/VocanicZ/rtdd/internal/gitctx"
 	"github.com/VocanicZ/rtdd/internal/mapstore"
 	"github.com/VocanicZ/rtdd/internal/runner"
@@ -15,10 +14,8 @@ import (
 // cmdSeed runs the whole suite once, instrumented, and writes a fresh map.
 //
 // This is the ONLY operation permitted to shrink a row, and therefore the only
-// caller of mapstore.Replace in the tree (spec §4, decision D11, audit A4). A
-// subset run legitimately records LESS coverage than a seed — import-time and
-// first-caller-wins lines migrate to whichever test ran first, and a failing test
-// records a truncated prefix of its real path — so every other command unions.
+// caller of mapstore.Replace in the tree (spec §4, decision D11, audit A4). A failing
+// unit records a truncated prefix of its real path, so every other command unions.
 //
 // The map it writes is built with mapstore.New, never loaded from disk: loading
 // would keep rows for tests the suite no longer collects, and a re-seed that
@@ -83,12 +80,9 @@ func cmdSeed(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "rtdd:", err)
 		return 3
 	}
-	// `adapters` records the whole detected set, `adapter` the coverage adapter that
-	// produced this map (decision 4). Both are written: the plural is what a polyglot
-	// repository's commands read, and the singular is what says whose the untagged rows
-	// of a map seeded by an older rtdd are. With several coverage adapters the singular
-	// names the first — every row this seed wrote carries its own tag, so the singular is
-	// only ever consulted for rows an older binary left behind.
+	// `adapters` records the whole detected set, `adapter` the first of them. Every row
+	// this seed wrote carries its own tag, so the singular is only ever consulted for
+	// untagged rows.
 	if err := writeMeta(root, meta{V: mapstore.MapVersion, Adapter: coverageAdapterName(detected), Adapters: detectedSet(detected),
 		SeededAt: sha, Cycles: 0}); err != nil {
 		fmt.Fprintln(stderr, "rtdd:", err)
@@ -100,20 +94,4 @@ func cmdSeed(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "%d failed during seeding: %v\n", len(failed), failed)
 	}
 	return code
-}
-
-// staticSeedRefusal is why `rtdd seed` cannot run against ad, or "" when ad records
-// coverage and seeding is a real operation.
-//
-// It names the adapter: a repository may resolve one of several, and "seeding is
-// unsupported here" is unusable to someone who does not know which declaration is being
-// talked about. It also names the command that DOES answer for a static adapter, because
-// a refusal with no alternative reads as "this toolchain is unsupported, full stop".
-func staticSeedRefusal(ad *adapter.Adapter) string {
-	if ad == nil || ad.Selection != adapter.SelectionStatic {
-		return ""
-	}
-	// One wording, rendered in one place: staticSeedRefusalFor answers for the whole
-	// static set, and a second copy of the sentence here is a copy that drifts.
-	return staticSeedRefusalFor([]*adapter.Adapter{ad})
 }

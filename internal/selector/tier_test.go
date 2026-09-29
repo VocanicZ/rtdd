@@ -111,22 +111,3 @@ func TestPackagePrintsNothing(t *testing.T) {
 		t.Fatal("scanned no non-test source files; the guard would pass vacuously")
 	}
 }
-
-func TestTierTSString(t *testing.T) {
-	if got := TierTS.String(); got != "TS" {
-		t.Errorf("TierTS.String() = %q, want %q", got, "TS")
-	}
-}
-
-// Spec §4.1 inserts TS BETWEEN T1 and T2, and the constants are that order. TierEmpty
-// must survive the insertion as the zero value: a constant added in the wrong place
-// renumbers it, and an unfilled Selection would then read as a successful tier.
-func TestTierTSIsOrderedBetweenT1AndT2(t *testing.T) {
-	if int(TierEmpty) != 0 {
-		t.Fatalf("TierEmpty = %d, want 0 (the zero value)", int(TierEmpty))
-	}
-	if !(TierT1 < TierTS && TierTS < TierT2) {
-		t.Errorf("order = T1:%d TS:%d T2:%d, want T1 < TS < T2",
-			int(TierT1), int(TierTS), int(TierT2))
-	}
-}

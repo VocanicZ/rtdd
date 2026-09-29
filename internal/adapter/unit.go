@@ -12,8 +12,6 @@ import (
 
 var unitPlaceholders = map[string]bool{"{unit}": true, "{dir}": true, "{name}": true, "{names}": true, "{tmp}": true}
 
-func (a *Adapter) IsV3() bool { return a != nil && a.UnitCmd != "" }
-
 func (a *Adapter) validateV3() error {
 	if bad := unknownPlaceholder(a.UnitCmd, unitPlaceholders); bad != "" {
 		return fmt.Errorf("unit_cmd %q: unknown placeholder %s (only {unit}, {dir}, {name}, {names}, {tmp})", a.UnitCmd, bad)

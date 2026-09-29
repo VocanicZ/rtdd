@@ -19,14 +19,11 @@ func twoAdapters() []*adapter.Adapter {
 	return []*adapter.Adapter{
 		{
 			Name: "python", Detect: []string{"pyproject.toml"},
-			Selection: adapter.SelectionCoverage, Coverage: "sqlite",
 			TestGlobs: []string{"tests/**/*.py"}, SourceGlobs: []string{"src/**/*.py"},
 		},
 		{
 			Name: "vitest", Detect: []string{"vitest.config.ts"},
-			Selection: adapter.SelectionStatic, Coverage: adapter.CoverageNone,
 			TestGlobs: []string{"**/*.test.ts"}, SourceGlobs: []string{"src/**/*.ts"},
-			TestFor: []string{"{dir}/{name}.test.ts"},
 		},
 	}
 }
@@ -175,7 +172,7 @@ func TestRenderSelectionsAddsNoHeadingForASingleAdapter(t *testing.T) {
 		t.Fatalf("selectPerAdapter: %v", err)
 	}
 	got := RenderSelections(blocks)
-	want := RenderWhich(blocks[0].Selection, blocks[0].Signal.UnmappedFiles, blocks[0].Ad)
+	want := RenderWhich(blocks[0].Selection, blocks[0].Signal.UnmappedFiles)
 	if got != want {
 		t.Errorf("single-adapter rendering changed:\ngot  %q\nwant %q", got, want)
 	}

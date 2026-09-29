@@ -17,7 +17,7 @@ func explainFixture() *mapstore.Map {
 }
 
 func TestRenderExplainListsCoveringTests(t *testing.T) {
-	got := RenderExplain(explainFixture(), "src/hub.py", nil)
+	got := RenderExplain(explainFixture(), "src/hub.py")
 	want := "" +
 		"src/hub.py is covered by 2 tests:\n" +
 		"    tests/test_a.py::t1        12ms  fail\n" +
@@ -29,7 +29,7 @@ func TestRenderExplainListsCoveringTests(t *testing.T) {
 
 // One covering test is "1 test", not "1 tests": the count is read by humans.
 func TestRenderExplainSingularCount(t *testing.T) {
-	got := RenderExplain(explainFixture(), "src/a.py", nil)
+	got := RenderExplain(explainFixture(), "src/a.py")
 	want := "" +
 		"src/a.py is covered by 1 test:\n" +
 		"    tests/test_a.py::t1        12ms  fail\n"
@@ -45,7 +45,7 @@ func TestRenderExplainBreaksDurationTiesOnTestID(t *testing.T) {
 	m.Union(mapstore.Row{T: "tests/test_z.py::t", F: []string{"src/hub.py"}, C: "aaa", D: 7, S: "pass"}, keep)
 	m.Union(mapstore.Row{T: "tests/test_a.py::t", F: []string{"src/hub.py"}, C: "aaa", D: 7, S: "pass"}, keep)
 
-	got := RenderExplain(m, "src/hub.py", nil)
+	got := RenderExplain(m, "src/hub.py")
 	want := "" +
 		"src/hub.py is covered by 2 tests:\n" +
 		"    tests/test_a.py::t          7ms  pass\n" +
@@ -55,25 +55,18 @@ func TestRenderExplainBreaksDurationTiesOnTestID(t *testing.T) {
 	}
 }
 
-// Zero covering tests is the import-time-only case as often as the untested case. The
-// output must never let a reader conclude "untested" on its own.
 func TestRenderExplainNoCoveringTests(t *testing.T) {
-	got := RenderExplain(explainFixture(), "src/constants.py", nil)
+	got := RenderExplain(explainFixture(), "src/constants.py")
 	want := "" +
 		"src/constants.py is covered by 0 tests.\n" +
-		"  No map row lists this file. Either nothing exercises it, or it only ever\n" +
-		"  executes at import time, where coverage attributes it to no test at all\n" +
-		"  (spec §6). Selection falls back to a static import scan for this file.\n"
+		"  No map row lists this file: no recorded unit executed it.\n"
 	if got != want {
 		t.Fatalf("RenderExplain()\n got:\n%s\nwant:\n%s", got, want)
-	}
-	if !strings.Contains(got, "import time") {
-		t.Error("the zero-coverage message must name the import-time case")
 	}
 }
 
 func TestRenderExplainEmptyMap(t *testing.T) {
-	got := RenderExplain(mapstore.New(), "src/hub.py", nil)
+	got := RenderExplain(mapstore.New(), "src/hub.py")
 	want := "" +
 		"src/hub.py is covered by 0 tests.\n" +
 		"  The map is empty. Run `rtdd seed` first.\n"
@@ -129,8 +122,7 @@ func TestExplainOnAPathAbsentFromTheMapExitsZero(t *testing.T) {
 	}
 	for _, want := range []string{
 		"src/never_seen.py is covered by 0 tests.",
-		"import time",
-		"static import scan",
+		"no recorded unit executed it",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("explain output is missing %q:\n%s", want, stdout)

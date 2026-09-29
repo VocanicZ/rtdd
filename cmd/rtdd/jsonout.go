@@ -4,15 +4,14 @@ import (
 	"encoding/json"
 	"sort"
 
-	"github.com/VocanicZ/rtdd/internal/adapter"
 	"github.com/VocanicZ/rtdd/internal/gitctx"
-	"github.com/VocanicZ/rtdd/internal/report"
+	"github.com/VocanicZ/rtdd/internal/runner"
 	"github.com/VocanicZ/rtdd/internal/selector"
 	"github.com/VocanicZ/rtdd/internal/uncovered"
 )
 
 // SchemaVersion is the --json contract version. Consumers MUST reject an unknown value.
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 // unavailableReason explains an absent uncovered report. The signal is derived from fresh
 // post-run coverage, so a command that executes nothing can never carry one.
@@ -34,10 +33,9 @@ type JSONChange struct {
 
 // JSONSelection is the ranked selection.
 type JSONSelection struct {
-	Count          int                 `json:"count"`
-	Direct         []string            `json:"direct"`
-	Tests          []string            `json:"tests"`
-	ImportFallback map[string][]string `json:"import_fallback"`
+	Count  int      `json:"count"`
+	Direct []string `json:"direct"`
+	Tests  []string `json:"tests"`
 }
 
 // JSONRun is the outcome of the executed subset. All zero when Executed is false.
@@ -55,7 +53,7 @@ type JSONRun struct {
 type JSONClassifiedRange struct {
 	Start int    `json:"start"`
 	End   int    `json:"end"`
-	Class string `json:"class"` // "covered" | "uncovered" | "import-time"
+	Class string `json:"class"` // "covered" | "uncovered"
 }
 
 // JSONFileReport is one file's classification.
@@ -67,10 +65,9 @@ type JSONFileReport struct {
 
 // JSONSummary totals the file reports.
 type JSONSummary struct {
-	Files           int `json:"files"`
-	CoveredLines    int `json:"covered_lines"`
-	UncoveredLines  int `json:"uncovered_lines"`
-	ImportTimeLines int `json:"import_time_lines"`
+	Files          int `json:"files"`
+	CoveredLines   int `json:"covered_lines"`
+	UncoveredLines int `json:"uncovered_lines"`
 }
 
 // JSONUncovered is the uncovered-change signal. Available is false for `which`,
@@ -111,15 +108,11 @@ func (u JSONUncovered) MarshalJSON() ([]byte, error) {
 // one block's ids; the flat `selection` stays what it always was — everything rtdd
 // selected, in rank order — for the consumers that only display it.
 type JSONAdapterSelection struct {
-	Adapter string `json:"adapter"`
-	Tier    string `json:"tier"`
-	Reason  string `json:"reason"`
-	// SelectionFidelity is THIS adapter's own fidelity, and it is why the split is not
-	// lost: a seeded Python block beside a Go block that can only ever be static answer
-	// at two fidelities, and the one flat value cannot be right about both.
-	SelectionFidelity adapter.Fidelity `json:"selection_fidelity"`
-	Complete          bool             `json:"complete"`
-	Selection         JSONSelection    `json:"selection"`
+	Adapter   string        `json:"adapter"`
+	Tier      string        `json:"tier"`
+	Reason    string        `json:"reason"`
+	Complete  bool          `json:"complete"`
+	Selection JSONSelection `json:"selection"`
 }
 
 // Output is the top-level --json document. Field order here is the emitted key order:
@@ -138,22 +131,16 @@ type Output struct {
 	Adapter string `json:"adapter"`
 	Tier    string `json:"tier"`
 	Reason  string `json:"reason"`
-	// SelectionFidelity says what this selection was derived from — spec §6's
-	// `execution-derived` | `static` | `none`, never null and never absent. It sits here,
-	// beside the tier and reason it qualifies, because field order is emitted key order.
-	//
-	// In a polyglot repository it is the WEAKEST fidelity any answering adapter reported:
-	// the flat `selection` it labels is the union of every block, and a union is only as
-	// well-evidenced as its worst member. The per-adapter values are on `selections`, so
-	// the split is carried rather than collapsed.
-	SelectionFidelity adapter.Fidelity `json:"selection_fidelity"`
-	Complete          bool             `json:"complete"`
-	Warnings          []string         `json:"warnings"`
-	Changed           []JSONChange     `json:"changed"`
-	Selection         JSONSelection    `json:"selection"`
-	Run               JSONRun          `json:"run"`
-	Uncovered         JSONUncovered    `json:"uncovered"`
-	UnmappedFiles     []string         `json:"unmapped_files"`
+	// Complete says selection.tests is the whole run. T2 lists every enumerated unit
+	// (spec §4 step 1), so every tier names its tests exhaustively; `warnings`, not
+	// `complete`, is what says an empty selection is not a pass.
+	Complete      bool          `json:"complete"`
+	Warnings      []string      `json:"warnings"`
+	Changed       []JSONChange  `json:"changed"`
+	Selection     JSONSelection `json:"selection"`
+	Run           JSONRun       `json:"run"`
+	Uncovered     JSONUncovered `json:"uncovered"`
+	UnmappedFiles []string      `json:"unmapped_files"`
 	// Selections is the per-adapter split, present ONLY in a repository where more than
 	// one adapter was detected. `omitempty` is the compatibility promise: a
 	// single-adapter document is byte-identical to the one schema v1 has always emitted,
@@ -173,11 +160,7 @@ type OutputInput struct {
 	Changes        []gitctx.Change
 	Instrumentable map[string]bool
 	Executed       bool
-	Outcomes       []report.Outcome
-	// SuiteEnumerated records that the full suite WAS listed. It is the one thing that
-	// can make a T2 selection complete, and only a command that pays for a collection
-	// run (`rtdd run`) may set it.
-	SuiteEnumerated bool
+	Outcomes       []runner.Outcome
 	// Warnings are the caveats the command already reports to a human, verbatim and in
 	// the order it produced them.
 	Warnings    []string
@@ -189,7 +172,6 @@ type OutputInput struct {
 	// just did is how a suppression turns into a wrong instruction (issue #345).
 	UncoveredReason string
 	UnmappedFiles   []string
-	ImportFallback  map[string][]string
 	// Blocks is the per-adapter split for a polyglot repository. One element — or none —
 	// leaves the document exactly as it was before per-adapter selection existed.
 	Blocks []AdapterSelection
@@ -201,23 +183,18 @@ type OutputInput struct {
 // NEVER changes it: RTDD reports, it does not gate (spec §2, §6).
 func BuildOutput(in OutputInput) Output {
 	out := Output{
-		Schema:  SchemaVersion,
-		Command: in.Command,
-		Base:    in.Base,
-		Adapter: in.Adapter,
-		Tier:    in.Sel.Tier.String(),
-		Reason:  in.Sel.Reason,
-		// The folded tier is the WIDEST of the blocks (foldBlocks), and fidelity is
-		// monotonically non-increasing in tier breadth, so reading the flat tier already
-		// yields the weakest block's fidelity. Computing it a second way would be a
-		// second thing to keep in step with the fold.
-		SelectionFidelity: selectionFidelity(in.Sel.Tier),
-		Changed:           buildChanged(in),
-		Selection:         buildSelection(in),
-		Run:               buildRun(in),
-		Uncovered:         buildUncovered(in),
-		Complete:          buildComplete(in),
-		Warnings:          nonNilStrings(in.Warnings),
+		Schema:    SchemaVersion,
+		Command:   in.Command,
+		Base:      in.Base,
+		Adapter:   in.Adapter,
+		Tier:      in.Sel.Tier.String(),
+		Reason:    in.Sel.Reason,
+		Changed:   buildChanged(in),
+		Selection: buildSelection(in),
+		Run:       buildRun(in),
+		Uncovered: buildUncovered(in),
+		Complete:  true,
+		Warnings:  nonNilStrings(in.Warnings),
 	}
 
 	out.Selections = buildSelections(in)
@@ -240,27 +217,14 @@ func buildSelections(in OutputInput) []JSONAdapterSelection {
 	out := make([]JSONAdapterSelection, 0, len(in.Blocks))
 	for _, blk := range in.Blocks {
 		out = append(out, JSONAdapterSelection{
-			Adapter:           blk.Adapter,
-			Tier:              blk.Selection.Tier.String(),
-			Reason:            blk.Selection.Reason,
-			SelectionFidelity: selectionFidelity(blk.Selection.Tier),
-			// T2 lists every unit (runner.Units), so a block is always complete.
+			Adapter:   blk.Adapter,
+			Tier:      blk.Selection.Tier.String(),
+			Reason:    blk.Selection.Reason,
 			Complete:  true,
 			Selection: buildSelection(OutputInput{Sel: blk.Selection}),
 		})
 	}
 	return out
-}
-
-// buildComplete answers "is selection.tests the whole run?".
-//
-// T2 means the full suite, and a command that did not enumerate it can only list the map
-// rows it happens to know — a PARTIAL list a consumer would otherwise read as the run.
-// Direct tests in that list do not make it complete. Every other tier names its tests
-// exhaustively, the empty tier included: its emptiness is fully known, and `warnings`
-// rather than `complete` is what says an empty selection is not a pass.
-func buildComplete(in OutputInput) bool {
-	return in.Sel.Tier != selector.TierT2 || in.SuiteEnumerated
 }
 
 // buildChanged preserves the changed set's own order — it is the diff's order, not noise.
@@ -284,16 +248,11 @@ func buildChanged(in OutputInput) []JSONChange {
 // buildSelection keeps Direct and Tests in rank order: the selector already decided what
 // runs first, and re-sorting here would throw that decision away.
 func buildSelection(in OutputInput) JSONSelection {
-	sel := JSONSelection{
-		Count:          len(in.Sel.Tests),
-		Direct:         nonNilStrings(in.Sel.Direct),
-		Tests:          nonNilStrings(in.Sel.Tests),
-		ImportFallback: make(map[string][]string, len(in.ImportFallback)),
+	return JSONSelection{
+		Count:  len(in.Sel.Tests),
+		Direct: nonNilStrings(in.Sel.Direct),
+		Tests:  nonNilStrings(in.Sel.Tests),
 	}
-	for k, v := range in.ImportFallback {
-		sel.ImportFallback[k] = nonNilStrings(v)
-	}
-	return sel
 }
 
 // buildRun counts outcomes. Nothing executed means every count is zero, whatever outcomes
@@ -353,10 +312,9 @@ func buildUncovered(in OutputInput) JSONUncovered {
 
 	s := uncovered.Summarize(in.Reports)
 	u.Summary = JSONSummary{
-		Files:           s.Files,
-		CoveredLines:    s.CoveredLines,
-		UncoveredLines:  s.UncoveredLines,
-		ImportTimeLines: s.ImportTimeLines,
+		Files:          s.Files,
+		CoveredLines:   s.CoveredLines,
+		UncoveredLines: s.UncoveredLines,
 	}
 	return u
 }

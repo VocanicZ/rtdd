@@ -15,30 +15,15 @@ import (
 const doctorDefaultLimit = 20
 
 // RenderDoctor formats the fan-out table. The spec §9 caveat accompanies every fan-out
-// this command computes, an empty map included: a fan-out number without it actively
-// misleads, because anything executed once per process is attributed to whichever test
-// happened to run first. Its one omission is the repository where fan-out is never
-// computed at all — see fanOutComputable.
+// this command computes, an empty map included: a fan-out number without it misleads.
 //
 // A limit of zero or less means no limit.
-//
-// detected is the DETECTED adapter set, and it is read only by the empty-map branch: for a
-// repository whose adapters all declare selection: static an empty map is the steady
-// state, not a missing setup step, so the line must not send the caller to `rtdd seed`
-// (issue #279). A nil or coverage-only set renders the pre-existing line byte for byte.
-func RenderDoctor(hubs []doctor.Hub, total, limit int, detected []*adapter.Adapter) string {
+func RenderDoctor(hubs []doctor.Hub, total, limit int) string {
 	var b strings.Builder
 
 	if len(hubs) == 0 {
-		b.WriteString(emptyFanOutLine(detected))
-		// The §9 caveat qualifies fan-out NUMBERS. Where no adapter can ever record any,
-		// the line above already says fan-out is never computed here, and the caveat would
-		// qualify a computation that did not happen — in a vocabulary borrowed from the
-		// one toolchain that does record (issue #346, PRD #233 AC9c).
-		if fanOutComputable(detected) {
-			b.WriteString("\n")
-			b.WriteString(doctor.Caveat + "\n")
-		}
+		b.WriteString("fan-out: the map is empty. Run `rtdd seed` first.\n\n")
+		b.WriteString(doctor.Caveat + "\n")
 		return b.String()
 	}
 
@@ -66,215 +51,97 @@ func RenderDoctor(hubs []doctor.Hub, total, limit int, detected []*adapter.Adapt
 	return b.String()
 }
 
-// fanOutComputable reports whether any DETECTED adapter can produce the per-test coverage
-// fan-out is derived from. It is decided from the adapter's DECLARED capability —
-// `selection: static` means `coverage: none`, so no map is ever built — and never from the
-// adapter's name: the defect it fixes was a Python-flavoured caveat printed in a
-// TypeScript repo, and a language comparison would fix that one repo and leave the next.
-//
-// Nothing detected is computable: a repo no adapter serves is the pre-existing
-// "run `rtdd seed` first" state, and it keeps the line and the caveat it always printed.
-func fanOutComputable(detected []*adapter.Adapter) bool {
-	static, coverage := selectionSplit(detected)
-	return len(static) == 0 || len(coverage) > 0
-}
-
-// emptyFanOutLine is what doctor says about an empty map, derived from the detected
-// adapters in the same three cases as RenderNextStep in init.go.
-//
-// The static-only line is why this exists: doctor already prints `coverage: none —
-// nothing is recorded` two blocks above, and then advised the one command whose only job
-// is to record. Contradicting itself inside one screen is worse than either line alone,
-// because a reader who follows the advice burns a cycle and comes back to the same
-// screen.
-func emptyFanOutLine(detected []*adapter.Adapter) string {
-	static, coverage := selectionSplit(detected)
-	switch {
-	case len(static) == 0:
-		// Byte-identical to the pre-#279 line, so every existing doctor test and every
-		// coverage repository sees exactly what it saw before.
-		return "fan-out: the map is empty. Run `rtdd seed` first.\n"
-	case len(coverage) == 0:
-		return fmt.Sprintf("fan-out: the map is empty, and stays empty. %s — `rtdd which` "+
-			"answers what a change selects.\n", staticNothingRecorded(static))
-	default:
-		return fmt.Sprintf("fan-out: the map is empty. Run `rtdd seed` first to build it for "+
-			"%s. %s, so seeding does not apply to %s.\n",
-			seedScope(coverage), staticClause(adapterNames(static)), pronoun(adapterNames(static)))
-	}
-}
-
-// FidelityRow is one DETECTED adapter as doctor reports it: where it came from, the
-// selection fidelity THIS repository can achieve with it, and why it landed there.
-//
-// Fidelity without Why is not an honesty surface. An agent cannot calibrate on a verdict
-// with no cause attached, and a bare "static" reads as a failure rather than as the known
-// ceiling of a toolchain RTDD cannot instrument (spec §6).
-type FidelityRow struct {
+// AdapterRow is one adapter as doctor reports it: where it came from and which of its
+// declared prerequisites this machine lacks.
+type AdapterRow struct {
 	Name     string
 	Src      string // repo-relative path for a host adapter, the embedded name otherwise
 	Host     bool   // read from the repo's .rtdd/adapters/, not from the binary
 	Override bool   // a host adapter that replaced a built-in of the same name
-	Fidelity adapter.Fidelity
-	Why      string   // one clause naming what determined the fidelity
-	Markers  []string // the adapter's detect globs, reported when nothing here matched them
+	Markers  []string
+	Unmet    []adapter.Requirement
 }
 
-// fidelityRows describes the given adapters, in the order they were passed — the order
+// adapterRows describes the given adapters, in the order they were passed — the order
 // adapter.AvailableReport returns them, so repeated runs print the same table.
-//
-// It is deliberately scoping-agnostic: cmdDoctor calls it once for the detected set and
-// once for the resolved-but-undetected remainder, and the two are rendered separately.
-func fidelityRows(repoRoot string, all []*adapter.Adapter) []FidelityRow {
+func adapterRows(repoRoot string, all []*adapter.Adapter) []AdapterRow {
 	builtin := map[string]bool{}
 	if bs, err := adapter.Builtin(); err == nil {
 		for _, b := range bs {
 			builtin[b.Name] = true
 		}
 	}
-	rows := make([]FidelityRow, 0, len(all))
+	rows := make([]AdapterRow, 0, len(all))
 	for _, a := range all {
 		host := adapter.IsHostAuthored(repoRoot, a)
 		src := a.Src
 		if host {
 			src = relToRoot(repoRoot, a.Src)
 		}
-		rows = append(rows, FidelityRow{
+		rows = append(rows, AdapterRow{
 			Name:     a.Name,
 			Src:      src,
 			Host:     host,
 			Override: host && builtin[a.Name],
-			Fidelity: a.Fidelity(),
-			Why:      fidelityWhy(a),
 			Markers:  a.Detect,
+			Unmet:    a.Unmet(lookPath),
 		})
 	}
 	return rows
 }
 
-// fidelityWhy states what determined this adapter's fidelity, in the adapter's own keys.
-// It reads `selection` and `coverage` rather than any separate assertion, because that
-// derivation is the guarantee: an adapter declaring it records nothing can never report
-// execution-derived selection (spec §4.2, §6).
-func fidelityWhy(a *adapter.Adapter) string {
-	switch a.Fidelity() {
-	case adapter.FidelityExecution:
-		return fmt.Sprintf("selection: %s with coverage: %s — tests are chosen from per-test coverage recorded by a real run",
-			a.Selection, a.Coverage)
-	case adapter.FidelityStatic:
-		var have []string
-		if n := len(a.TestFor); n > 0 {
-			have = append(have, fmt.Sprintf("%d test_for %s", n, plural(n, "template", "templates")))
-		}
-		if a.Importscan != nil {
-			have = append(have, "an importscan command")
-		}
-		return fmt.Sprintf("declares selection: static with %s, and coverage: %s — nothing is recorded, so tests are chosen from declared correspondence",
-			strings.Join(have, " and "), a.Coverage)
-	default:
-		return "declares selection: static but no test_for templates and no importscan command"
+// origin is the row's provenance: built-in, host-authored, or a host override.
+func (r AdapterRow) origin() string {
+	switch {
+	case r.Override:
+		return "host-authored, overrides built-in"
+	case r.Host:
+		return "host-authored"
 	}
+	return "built-in"
 }
 
-// RenderFidelity formats the selection-fidelity block printed above the fan-out table.
-// Pure.
+// RenderAdapters formats the detected-adapter block: one row per adapter with its source
+// and every declared prerequisite this machine lacks. Pure.
 //
-// It is the one place §4.5's override rule and §6's fidelity report meet: a repo whose
-// shipped adapter has been replaced by its own YAML has to be able to see that, a host
-// file that failed to load has to be named along with the field that failed — doctor is
+// A host file that failed to load is named along with the field that failed — doctor is
 // the command you run to find out what is wrong, so it reports a broken adapter rather
-// than dying on it — and every row states the fidelity that repository can actually reach
-// and why.
-func RenderFidelity(rows []FidelityRow, invalid []adapter.Invalid) string {
+// than dying on it.
+func RenderAdapters(rows []AdapterRow, invalid []adapter.Invalid) string {
 	var b strings.Builder
-	b.WriteString("selection fidelity\n\n")
-
-	// A repo no adapter detects is the state `rtdd init --force` leaves behind. It is still
-	// a fidelity, and spec §6 says the value is never blank or omitted.
+	b.WriteString("adapters\n\n")
 	if len(rows) == 0 {
-		b.WriteString("  none detected  none\n")
-		b.WriteString("      no adapter's markers match this repository, so RTDD cannot select anything\n")
-		b.WriteString("      narrower than the full suite.\n")
+		b.WriteString("  none detected\n")
+		b.WriteString("      no adapter's markers match this repository, so RTDD cannot select anything.\n")
 		b.WriteString("      Fix: add .rtdd/adapters/<language>.yaml whose detect: globs match a file this\n")
 		b.WriteString("      repository contains, then re-run rtdd doctor.\n")
 	}
-
 	nameW, srcW := 0, 0
 	for _, r := range rows {
 		nameW = max(nameW, len(r.Name))
 		srcW = max(srcW, len(r.Src))
 	}
-	for i, r := range rows {
-		if i > 0 {
-			b.WriteString("\n")
-		}
-		origin := "built-in"
-		if r.Host {
-			origin = "host-authored"
-			if r.Override {
-				origin += ", overrides built-in"
-			}
-		}
-		fmt.Fprintf(&b, "  %-*s  %-*s  (%s)  %s\n", nameW, r.Name, srcW, r.Src, origin, r.Fidelity)
-		fmt.Fprintf(&b, "      %s\n", r.Why)
-		// `none` is never left as a bare verdict: it names the operational consequence the
-		// agent has to act on — the full suite — and the edit that lifts it.
-		if r.Fidelity == adapter.FidelityNone {
-			b.WriteString("      so RTDD cannot select anything narrower than the full suite.\n")
-			b.WriteString("      Fix: add a test_for template that resolves to a real test file, or an\n")
-			b.WriteString("      importscan command, then re-run rtdd doctor.\n")
+	for _, r := range rows {
+		fmt.Fprintf(&b, "  %-*s  %-*s  (%s)\n", nameW, r.Name, srcW, r.Src, r.origin())
+		for _, q := range r.Unmet {
+			fmt.Fprintf(&b, "      %s is not on PATH: %s\n", q.Bin, q.Reason)
 		}
 	}
-
-	// A file that did not load is reported by path AND by the error naming its field:
-	// "one of your adapters is broken" is not something anyone can act on.
 	for _, bad := range invalid {
 		fmt.Fprintf(&b, "\n  not loaded: %s\n      %v\n", bad.Path, bad.Err)
-	}
-
-	if needsStaticCaveat(rows) {
-		b.WriteString("\n")
-		b.WriteString(doctor.StaticCaveat + "\n")
 	}
 	b.WriteString("\n")
 	return b.String()
 }
 
-// needsStaticCaveat reports whether this block prints a fidelity weaker than
-// execution-derived. Its input is the DETECTED rows only: an adapter that does not serve
-// this repository is not this repository's weakness, and — the direction that actually
-// misleads — an undetected execution-derived row must never suppress the caveat a
-// detected static one earns. A repo no adapter detects is `none`, so it needs it too.
-func needsStaticCaveat(rows []FidelityRow) bool {
-	if len(rows) == 0 {
-		return true
-	}
-	for _, r := range rows {
-		if r.Fidelity != adapter.FidelityExecution {
-			return true
-		}
-	}
-	return false
-}
-
 // undetectedHeading labels the adapters that resolved for this repository but whose
-// markers match nothing in it. It is deliberately a sentence about detection and carries
-// no fidelity value: under `selection fidelity` a row is a claim about what this
-// repository can achieve, and an undetected adapter can achieve nothing here.
+// markers match nothing in it.
 const undetectedHeading = "not detected in this repository"
 
-// RenderUndetected formats the resolved-but-undetected adapters. Pure; nothing undetected
-// renders the empty string.
-//
-// The split exists because both halves are real diagnostics and they answer different
-// questions. Reporting an undetected adapter under `selection fidelity` is the bug this
-// section was carved out of — a TypeScript repo told `python … execution-derived`. But
-// dropping it entirely is its own bad diagnostic: "I wrote .rtdd/adapters/vitest.yaml and
-// doctor says nothing" leaves an author with no way to tell a file that never loaded from
-// one whose detect: globs simply miss. So it stays, below, named, with the markers that
-// would have matched — and with no fidelity, so nothing here can be read as this
-// repository's ceiling.
-func RenderUndetected(rows []FidelityRow) string {
+// RenderUndetected formats the resolved-but-undetected adapters, with the markers that
+// would have matched, so an author can tell a host file that never loaded from one whose
+// detect: globs simply miss. Pure; nothing undetected renders the empty string.
+func RenderUndetected(rows []AdapterRow) string {
 	if len(rows) == 0 {
 		return ""
 	}
@@ -287,14 +154,7 @@ func RenderUndetected(rows []FidelityRow) string {
 		srcW = max(srcW, len(r.Src))
 	}
 	for _, r := range rows {
-		origin := "built-in"
-		if r.Host {
-			origin = "host-authored"
-			if r.Override {
-				origin += ", overrides built-in"
-			}
-		}
-		fmt.Fprintf(&b, "  %-*s  %-*s  (%s)\n", nameW, r.Name, srcW, r.Src, origin)
+		fmt.Fprintf(&b, "  %-*s  %-*s  (%s)\n", nameW, r.Name, srcW, r.Src, r.origin())
 		if len(r.Markers) == 0 {
 			b.WriteString("      declares no detect: markers, so it can never be detected\n")
 			continue
@@ -321,9 +181,8 @@ func undetected(all, detected []*adapter.Adapter) []*adapter.Adapter {
 	return out
 }
 
-// cmdDoctor implements `rtdd doctor`: what selection fidelity this repository can actually
-// achieve and why, what its adapters need installed first, and which files the most tests
-// reach — with the spec §9 caveat that keeps the ranking from being read as an escalation
+// cmdDoctor implements `rtdd doctor`: which adapters serve this repository and what they
+// need installed first, and which files the most tests reach — with the spec §9 caveat that keeps the ranking from being read as an escalation
 // trigger. It runs no tests, so its only non-zero exits are usage and environment errors.
 func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
@@ -353,18 +212,15 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		invalid[i].Path = relToRoot(e.root, invalid[i].Path)
 	}
 
-	// Spec §6 / PRD #229 AC8 report fidelity per DETECTED adapter, not per resolved one:
-	// the resolved set is everything the binary and the repo's YAML could offer, which in
-	// a TypeScript repo still includes the built-in python. A detection-walk failure is
-	// reported and doctor carries on with nothing detected, exactly as the broken-host-
-	// adapter path does — doctor is diagnostic, never fatal.
+	// Rows are per DETECTED adapter: the resolved set still includes the built-in python
+	// in a TypeScript repo. A detection-walk failure is reported and doctor carries on
+	// with nothing detected — doctor is diagnostic, never fatal.
 	detected, derr := adapter.DetectAll(e.root, all)
 	if derr != nil {
 		fmt.Fprintf(stderr, "rtdd doctor: %v\n", derr)
 	}
-	fmt.Fprint(stdout, RenderFidelity(fidelityRows(e.root, detected), invalid))
-	fmt.Fprint(stdout, RenderUndetected(fidelityRows(e.root, undetected(all, detected))))
-	fmt.Fprint(stdout, RenderRequirements(adapter.UnmetFindings(detected, lookPath)))
-	fmt.Fprint(stdout, RenderDoctor(doctor.Hubs(e.m), e.m.Len(), *limit, detected))
+	fmt.Fprint(stdout, RenderAdapters(adapterRows(e.root, detected), invalid))
+	fmt.Fprint(stdout, RenderUndetected(adapterRows(e.root, undetected(all, detected))))
+	fmt.Fprint(stdout, RenderDoctor(doctor.Hubs(e.m), e.m.Len(), *limit))
 	return 0
 }

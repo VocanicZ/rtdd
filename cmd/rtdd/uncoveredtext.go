@@ -14,9 +14,7 @@ import (
 // RenderUncovered formats the post-run uncovered report exactly as spec §6 shows:
 //
 //	UNCOVERED: src/auth.py:52-58  (7 changed lines, no executing test)
-//	import-time: src/constants.py:1-12  (executed during collection, not attributed)
 //
-// Import-time ranges are reported on their own line and are NEVER rendered as UNCOVERED.
 // Returns "" when every changed line is Covered.
 func RenderUncovered(reports []uncovered.FileReport) string {
 	var b strings.Builder
@@ -28,15 +26,6 @@ func RenderUncovered(reports []uncovered.FileReport) string {
 			n := cr.Range.End - cr.Range.Start + 1
 			fmt.Fprintf(&b, "  UNCOVERED: %s:%s  (%d changed %s, no executing test)\n",
 				r.Path, spanText(cr.Range), n, plural(n, "line", "lines"))
-		}
-	}
-	for _, r := range reports {
-		for _, cr := range r.Ranges {
-			if cr.Class != uncovered.ImportTime {
-				continue
-			}
-			fmt.Fprintf(&b, "  import-time: %s:%s  (executed during collection, not attributed)\n",
-				r.Path, spanText(cr.Range))
 		}
 	}
 	return b.String()
@@ -64,7 +53,7 @@ type SignalInput struct {
 	Map              *mapstore.Map
 }
 
-// SignalOutput carries the classification and the import-fallback trigger set.
+// SignalOutput carries the classification and the changed files no map row covers.
 //
 // Instrumentable is keyed by every changed path, instrumentable or not, because the
 // --json changed set reports the verdict for each one.
@@ -81,9 +70,7 @@ type SignalOutput struct {
 // coverage as wholly Uncovered, which is right for a new source file and wrong for a test
 // file or an opaque asset, neither of which coverage ever measures.
 //
-// UnmappedFiles is the set of changed instrumentable files that NO map row covers.
-// Because import-time lines are attributed to no test, they never enter any row's f, so
-// this set is exactly the static-import fallback's trigger set (spec §6, D14). It is
+// UnmappedFiles is the set of changed instrumentable files that NO map row covers. It is
 // never nil: callers range over it unconditionally.
 func BuildSignal(in SignalInput) SignalOutput {
 	out := SignalOutput{

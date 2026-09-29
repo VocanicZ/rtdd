@@ -15,7 +15,7 @@ func TestRenderDoctorTable(t *testing.T) {
 		{Path: "src/b.py", TestCount: 2, Fraction: 0.5},
 		{Path: "src/a.py", TestCount: 1, Fraction: 0.25},
 	}
-	got := RenderDoctor(hubs, 4, 2, nil)
+	got := RenderDoctor(hubs, 4, 2)
 	want := "" +
 		"fan-out over 4 tests (top 2 of 3 files)\n" +
 		"\n" +
@@ -41,7 +41,7 @@ func TestRenderDoctorAlwaysPrintsTheCaveat(t *testing.T) {
 		{"empty map", nil, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := RenderDoctor(tc.hubs, tc.tot, 20, nil)
+			got := RenderDoctor(tc.hubs, tc.tot, 20)
 			if !strings.Contains(got, doctor.Caveat) {
 				t.Fatalf("doctor output is missing the §9 caveat:\n%s", got)
 			}
@@ -57,7 +57,7 @@ func TestRenderDoctorAlwaysPrintsTheCaveat(t *testing.T) {
 // The caveat names every once-per-process mechanism the spec calls out, including the
 // two the table itself cannot show: module singletons and DI container wiring.
 func TestRenderDoctorCaveatNamesEveryOncePerProcessMechanism(t *testing.T) {
-	got := RenderDoctor(nil, 0, 20, nil)
+	got := RenderDoctor(nil, 0, 20)
 	for _, needle := range []string{"lru_cache", "singleton", "DI container", "session-scoped fixture"} {
 		if !strings.Contains(got, needle) {
 			t.Fatalf("doctor output is missing %q:\n%s", needle, got)
@@ -66,7 +66,7 @@ func TestRenderDoctorCaveatNamesEveryOncePerProcessMechanism(t *testing.T) {
 }
 
 func TestRenderDoctorEmptyMap(t *testing.T) {
-	got := RenderDoctor(nil, 0, 20, nil)
+	got := RenderDoctor(nil, 0, 20)
 	if !strings.Contains(got, "map is empty") {
 		t.Fatalf("RenderDoctor() on an empty map should say so:\n%s", got)
 	}
@@ -82,7 +82,7 @@ func TestRenderDoctorLimitBeyondTheFileCountShowsEverything(t *testing.T) {
 		{Path: "src/hub.py", TestCount: 3, Fraction: 0.75},
 		{Path: "src/b.py", TestCount: 2, Fraction: 0.5},
 	}
-	got := RenderDoctor(hubs, 4, 20, nil)
+	got := RenderDoctor(hubs, 4, 20)
 	want := "" +
 		"fan-out over 4 tests (2 files)\n" +
 		"\n" +
@@ -103,7 +103,7 @@ func TestRenderDoctorNonPositiveLimitShowsEverything(t *testing.T) {
 		{Path: "src/b.py", TestCount: 2, Fraction: 0.5},
 	}
 	for _, limit := range []int{0, -1} {
-		got := RenderDoctor(hubs, 4, limit, nil)
+		got := RenderDoctor(hubs, 4, limit)
 		if !strings.Contains(got, "src/b.py") {
 			t.Fatalf("limit=%d dropped rows:\n%s", limit, got)
 		}
@@ -113,7 +113,7 @@ func TestRenderDoctorNonPositiveLimitShowsEverything(t *testing.T) {
 // One test in the map is "1 test", not "1 tests": the header is read by humans.
 func TestRenderDoctorSingularTestCount(t *testing.T) {
 	hubs := []doctor.Hub{{Path: "src/a.py", TestCount: 1, Fraction: 1}}
-	got := RenderDoctor(hubs, 1, 20, nil)
+	got := RenderDoctor(hubs, 1, 20)
 	if !strings.Contains(got, "fan-out over 1 test (1 file)") {
 		t.Fatalf("RenderDoctor() header is not singular:\n%s", got)
 	}
@@ -121,30 +121,25 @@ func TestRenderDoctorSingularTestCount(t *testing.T) {
 
 func TestDoctorCommandRanksFilesByFanOut(t *testing.T) {
 	dir := newTestRepo(t)
-	// The python adapter's detection marker: doctor reports fidelity per DETECTED
-	// adapter, so the golden output below is what a plain seeded Python repo prints.
+	// The python adapter's detection marker: doctor reports per DETECTED adapter, so the
+	// golden output below is what a plain seeded Python repo prints with pytest present.
 	gittest.Write(t, dir, "pyproject.toml", "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n")
+	fixLookPath(t, "pytest")
 	installRTDD(t, dir, headShort(t, dir), 0)
 
 	code, stdout, stderr := rtdd(t, dir, "doctor")
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
-	// The selection-fidelity block precedes the fan-out table on every repo (spec §6);
-	// the table itself and its §9 caveat are byte-identical to what doctor always printed.
-	//
-	// Between them sits the not-detected section, because the shipped set is ten adapters
-	// and a Python repo detects one of them. It is rendered here rather than spelled out:
-	// its content is every OTHER built-in with its markers, which changes whenever an
-	// adapter ships, and pinning that list in a golden would make every new adapter a
-	// failure in a test about fan-out ranking.
+	// The adapters block precedes the fan-out table; between them sits the not-detected
+	// section, rendered here rather than spelled out because its content is every OTHER
+	// built-in with its markers.
 	want := "" +
-		"selection fidelity\n" +
+		"adapters\n" +
 		"\n" +
-		"  python  python.yaml  (built-in)  execution-derived\n" +
-		"      selection: coverage with coverage: sqlite — tests are chosen from per-test coverage recorded by a real run\n" +
+		"  python  python.yaml  (built-in)\n" +
 		"\n" +
-		RenderUndetected(fidelityRows(dir, builtinsExcept(t, "python"))) +
+		RenderUndetected(adapterRows(dir, builtinsExcept(t, "python"))) +
 		"fan-out over 4 tests (4 files)\n" +
 		"\n" +
 		"  tests  share  file\n" +

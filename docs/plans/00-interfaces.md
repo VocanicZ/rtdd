@@ -36,12 +36,11 @@ internal/paths/      path normalisation
 internal/mapstore/   map.jsonl I/O, union resolution, compaction, queries
 internal/gitctx/     changed set, commit distance, merge detection
 internal/adapter/    YAML load, detection, file classification
-internal/coverage/   .coverage SQLite reader, context normalisation
-internal/report/     pytest-reportlog parser
+internal/coverage/   per-unit coverage result (file -> hit lines)
+internal/covfmt/     lcov / cobertura / gocover / jacoco parsers, path resolver
 internal/pytestfixture/  test-only: materialises a real pytest project on disk
 internal/selector/   tiers + ranking
-internal/importscan/  static import fallback for import-time-only files
-internal/runner/     subprocess execution, argv chunking
+internal/runner/     unit enumeration and isolated per-unit execution
 internal/uncovered/  line classification
 internal/doctor/     fan-out analysis
 internal/initrepo/   rtdd init: gitattributes, config, agent front-ends
@@ -361,70 +360,21 @@ func (a *Adapter) IsInstrumentable(rel string) bool
 // unrecognised placeholder rather than silently narrowing coverage scope.
 func (a *Adapter) Expand(tmpl string, vars map[string]string) ([]string, error)
 
-// ExpandTests is Expand for a template containing {tests}. Each test id becomes its own
-// argv element, spliced verbatim with no quoting or escaping, so ids containing spaces,
-// '[', ']', '-' or '|' round-trip intact — measured real ids include
-// `tests/test_a.py::test_param[1-one two]`. An empty tests slice is an error: a subset
-// command with the ids dropped would run the whole suite. CONTRACT ADDITION.
-func (a *Adapter) ExpandTests(tmpl string, vars map[string]string, tests []string) ([]string, error)
 ```
 
 ## internal/coverage
 
 ```go
+// TestCoverage is one unit's file->lines attribution.
 type TestCoverage struct {
-    Test  string           // normalised id, phase suffix stripped
+    Test  string           // the unit (test file), repo-relative
     Files map[string][]int // repo-relative path -> sorted covered line numbers
 }
 
+// Result is everything one run recorded, one entry per unit.
 type Result struct {
-    PerTest    []TestCoverage
-    ImportTime map[string][]int // empty-context lines: executed, attributed to no test
+    PerTest []TestCoverage
 }
-
-// Merge unions other into r, sorting PerTest by Test. Used to combine the
-// .coverage read after each argv chunk: pytest erases .coverage at the start of
-// every run unless --cov-append is passed, so RTDD reads and merges per chunk.
-// Per-test file line sets and ImportTime are unioned sorted and deduped; a test
-// present only in other is appended; merging into a zero Result yields other's
-// content; Merge(nil) is a no-op; nothing in r aliases other. CONTRACT ADDITION.
-func (r *Result) Merge(other *Result)
-
-// ReadSQLite reads .coverage directly:
-//   SELECT DISTINCT f.path, c.context, lb.numbits FROM line_bits lb
-//     JOIN file f ON f.id = lb.file_id JOIN context c ON c.id = lb.context_id
-// numbits is coverage.py's packed line bitmap; decode with Numbits.
-func ReadSQLite(dbPath, repoRoot string) (*Result, error)
-
-// Numbits decodes coverage.py's numbits blob into sorted line numbers.
-// Byte i, bit j set => line i*8+j is covered.
-func Numbits(b []byte) []int
-
-// NormalizeContext splits "tests/test_a.py::test_x|run" into ("tests/test_a.py::test_x", "run", true).
-// An empty context returns ok=false — that is import-time coverage, not a test.
-func NormalizeContext(ctx string) (testID, phase string, ok bool)
-```
-
-## internal/report
-
-```go
-type Outcome struct {
-    Test       string
-    Status     string // "pass" | "fail" | "skip" | "error"
-    DurationMS int
-}
-
-// ReadReportLog parses pytest --report-log JSONL into one Outcome per test, in
-// first-seen order. Measured phase rules (pytest 9.0.3):
-//   setup=failed, no call entry            -> "error"
-//   setup=skipped, no call entry           -> "skip"
-//   call=passed|failed|skipped             -> "pass"|"fail"|"skip"
-//   call=passed but teardown=failed        -> "error"
-// DurationMS is the call phase's duration in ms, or setup+teardown when there is
-// no call entry. `duration` in the JSONL is a float in seconds.
-// Non-TestReport envelopes (SessionStart, CollectReport, SessionFinish) are
-// ignored. A malformed line is a fatal error, never a silent skip.
-func ReadReportLog(path string) ([]Outcome, error)
 ```
 
 ## internal/pytestfixture
@@ -451,9 +401,8 @@ const (
 )
 func (t Tier) String() string
 
-// TierTS is added between TierT1 and TierT2 by the M6b amendments at the end of this
-// document; the set above is the M1a-era one. The resolution order those amendments fix
-// is: T2 escalations, T1 escalations, T0, TS, empty.
+// The resolution order is: direct, T2 escalations, T1 escalations, T0, empty. (The M6b
+// TierTS was removed by the one-pipeline amendments at the end of this document.)
 
 type Config struct {
     StaleCommits int     // default 50
@@ -474,10 +423,9 @@ type Inputs struct {
     Changes    []gitctx.Change
     Adapter    *adapter.Adapter
     Cfg        Config
-    AllTests   []string          // from adapter.List; needed for T2 and for direct-tier discovery
+    AllTests   []string          // from runner.Units; needed for T2 and for direct-tier discovery
     Distance   func(sha string) int // wraps gitctx.CommitDistance; -1 means unknown
     Cycles     int               // from meta.json, for DriftGuard
-    ImportOnly func(rel string) []string // importscan.Scanner.TestsImporting; static-import fallback
 }
 
 func Select(in Inputs) Selection
@@ -490,106 +438,43 @@ func Rank(m *mapstore.Map, tests, changedFiles []string) []string
 ## internal/runner
 
 ```go
+// Outcome is one unit's result.
+type Outcome struct {
+    Test       string
+    Status     string // "pass" | "fail" | "skip" | "error"
+    DurationMS int
+}
+
 type RunResult struct {
-    Outcomes []report.Outcome
+    Outcomes []Outcome
     Coverage *coverage.Result
     Failed   []string
     ExitCode int
+    Output   map[string]string // tail of each failed or errored unit's output
 }
 
-// Run executes the adapter's subset (or seed) command. It sets Adapter.Env,
-// chunks test ids across multiple invocations when argv would exceed MaxArgvBytes,
-// and merges the results. A chunk that exits with a mapped ExitCode (4=bad-selector,
-// 5=no-tests-collected) is a fatal error, not a test failure.
+// Units is every test file the adapter claims, tracked or not (one-pipeline spec §4).
+func Units(a *adapter.Adapter, repoRoot string) ([]string, error)
+
+// RunUnits runs each unit in its own process with a private {tmp}, up to Jobs at once,
+// and reads the adapter's coverage_file after each exits.
+func RunUnits(a *adapter.Adapter, repoRoot string, units []string, failFast bool) (*RunResult, error)
+
+// Run is RunUnits over the selected units.
 func Run(a *adapter.Adapter, repoRoot string, tests []string, failFast bool) (*RunResult, error)
 
-// Seed runs the adapter's seed template ONCE over the whole suite, with no test ids
-// and no chunking. It reuses Run's execution path, so COVERAGE_CORE forcing and the
-// combined-stream sysmon scan apply identically. A seed is the only operation that
-// may shrink a map row, so every condition Run treats as fatal is fatal here too —
-// exit 5 included: seeding an empty suite must never write an empty map.
+// Seed is RunUnits over every unit. A seed is the only operation that may shrink a map
+// row, so every condition Run treats as fatal is fatal here too.
 func Seed(a *adapter.Adapter, repoRoot string) (*RunResult, error)
 
-// List returns every test id the adapter's list command reports, in collection
-// order. Needed for the T2 tier and for direct-tier discovery. An exit code
-// mapped to "no-tests-collected" yields an empty list and a nil error — an empty
-// suite is empty, not fatal; any other mapped code is a *FatalExitError. That is
-// the asymmetry with Run, where the same code means the ids RTDD produced selected
-// nothing. Collection order is preserved, never sorted.
-func List(a *adapter.Adapter, repoRoot string) ([]string, error)
-
-const MaxArgvBytes = 100_000 // conservative; Windows CMD is 8191 chars, Linux ARG_MAX is 2MB
-
-func Chunk(tests []string, maxBytes int) [][]string
-
-// The placeholder map an invocation is expanded against is {log} and {out}, plus
-// {report} — and {report} ONLY when the adapter declares report_path, resolved once per
-// Run through report.NewReportPathFor. Expand's vocabulary IS the caller's map, so an
-// adapter naming {report} without report_path fails as an unresolved placeholder rather
-// than receiving an empty string and writing its report to "". {src} is absent by the
-// M1b amendment.
-//
-// readOutcomes is the one dispatch on the adapter's `report:` field, at the single place
-// the runner reads outcomes: "pytest-reportlog" reads the per-chunk {log} with
-// report.ReadReportLog, "junit-xml" reads report_path with report.ReadJUnitReport and
-// renders each case through id_template, and any other value is a named error rather
-// than a fallthrough to whichever parser is first. Both produce report.Outcome in one
-// vocabulary, so the existing last-invocation-wins de-duplication is unchanged.
-func readOutcomes(a *adapter.Adapter, logPath string, rp report.ReportPath) ([]report.Outcome, error)
-
-// report_path is CLEARED PER CHUNK, immediately before the invocation and beside the
-// stale-.coverage removal — not once per Run. It is a fixed, adapter-declared path, so
-// chunk i+1 overwrites chunk i's report; clearing once would let chunk i's cases be
-// re-read as chunk i+1's if chunk i+1 crashed before writing. Each chunk's outcomes are
-// therefore read and merged before the next invocation, exactly as the .coverage read
-// already is, and a chunk whose report is missing or unparseable fails the run with an
-// error naming the chunk rather than a silent partial result.
-//
-// The .coverage read is skipped entirely under coverage: none — a static adapter has no
-// store, and coverage.ReadSQLite against a file that does not exist is an error, not an
-// empty result.
-
-// ErrSysmonContext is returned when the run emitted coverage.py's
-// "no-sysmon-context" warning. Callers MUST exit 3. Never proceed with the map.
-// MEASURED: pytest prints this warning on STDOUT, in its warnings summary, and
-// stderr is empty — the runner scans the COMBINED stream.
-var ErrSysmonContext = errors.New("dynamic contexts unavailable: COVERAGE_CORE=sysmon")
-
-// FatalExitError is a chunk that exited with a code mapped in Adapter.ExitCodes
-// (4=bad-selector, 5=no-tests-collected). It is NOT a test failure; the CLI
-// recovers it with errors.As and exits 2.
+// FatalExitError is a unit that exited with a code mapped in Adapter.ExitCodes. It is
+// NOT a test failure; the CLI recovers it with errors.As and exits 2.
 type FatalExitError struct {
-    Chunk int
+    Unit  string
     Code  int
     Label string
 }
 func (e *FatalExitError) Error() string
-```
-
-## internal/importscan
-
-RTDD's single use of static analysis (spec §6, D14). Shells out to an embedded Python AST
-script; the Go engine never parses Python itself.
-
-```go
-// Scan returns, for each target, the test files whose module transitively imports it.
-// Import cycles terminate via a visited set. A target no module resolves to maps to an
-// empty slice, never a missing key.
-func Scan(repoRoot string, targets, tests []string) (map[string][]string, error)
-
-// Scanner memoises Scan across repeated lookups within one command invocation.
-// It is the value passed as selector.Inputs.ImportOnly.
-type Scanner struct { /* unexported */ }
-
-func NewScanner(repoRoot string, tests []string) *Scanner
-
-// TestsImporting returns the test files whose module transitively imports rel.
-// On scanner error it returns nil; the error is retained and reported by Err.
-// A failed scan degrades selection, it never fails the command.
-func (s *Scanner) TestsImporting(rel string) []string
-
-// Err returns the first error any TestsImporting call encountered, or nil.
-func (s *Scanner) Err() error
 ```
 
 ## internal/uncovered
@@ -614,10 +499,9 @@ type Class int
 const (
     Covered Class = iota
     Uncovered
-    ImportTime
 )
 
-func (c Class) String() string // "covered" | "uncovered" | "import-time"
+func (c Class) String() string // "covered" | "uncovered"
 
 type ClassifiedRange struct {
     Range gitctx.LineRange
@@ -630,27 +514,19 @@ type FileReport struct {
 }
 
 // Classify intersects each Change's line ranges with fresh post-run coverage.
-// A line covered by any test is Covered. A line present only in Result.ImportTime is
-// ImportTime and MUST NOT be reported as Uncovered. Everything else is Uncovered.
+// A line some unit executed is Covered; everything else is Uncovered. In an isolated
+// run a line executed while importing is executed by that unit (one-pipeline spec §8).
 // Deleted changes, and changes with no Lines, produce no FileReport. Output is sorted
 // by Path; each file's ranges are sorted ascending and adjacent lines of the same Class
 // are coalesced. Callers pass only instrumentable changes.
-//
-// One exception, spec §6 / audit A1: a file coverage MEASURED but that NO test context
-// touches is an import-time-only file, and every one of its changed lines is ImportTime.
-// Coverage stores only executed lines, so within such a file a blank line is
-// indistinguishable from a dead statement, and reporting the blanks in a changed
-// dataclass/Enum/constants module as Uncovered is exactly the false positive A1 forbids.
-// A file coverage never saw at all is NOT import-time-only: it is wholly Uncovered.
 func Classify(changes []gitctx.Change, cov *coverage.Result) []FileReport
 
 func (r FileReport) UncoveredLines() int
 
 type Summary struct {
-    Files           int
-    CoveredLines    int
-    UncoveredLines  int
-    ImportTimeLines int
+    Files          int
+    CoveredLines   int
+    UncoveredLines int
 }
 
 // Summarize totals a set of FileReports.
@@ -743,17 +619,16 @@ rtdd init
 agent front-ends depend on, so it is defined in full here. `cmd/rtdd/jsonout.go` builds it
 (`BuildOutput`/`Output`); `cmd/rtdd/jsonout_test.go` holds it to every rule below.
 
-### The schema, version 1
+### The schema, version 2
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "command": "run",
   "base": "HEAD",
   "adapter": "python",
   "tier": "T0",
   "reason": "3 map rows intersect the changed set",
-  "selection_fidelity": "execution-derived",
   "complete": true,
   "warnings": [],
   "changed": [
@@ -765,8 +640,7 @@ agent front-ends depend on, so it is defined in full here. `cmd/rtdd/jsonout.go`
   "selection": {
     "count": 2,
     "direct": ["tests/test_new.py"],
-    "tests": ["tests/test_new.py", "tests/test_it.py::test_logic"],
-    "import_fallback": {"src/constants.py": ["tests/test_it.py"]}
+    "tests": ["tests/test_new.py", "tests/test_it.py"]
   },
   "run": {
     "executed": true,
@@ -778,17 +652,16 @@ agent front-ends depend on, so it is defined in full here. `cmd/rtdd/jsonout.go`
     "available": true,
     "files": [
       {"path": "src/constants.py",
-       "ranges": [{"start": 1, "end": 15, "class": "import-time"}],
+       "ranges": [{"start": 1, "end": 15, "class": "covered"}],
        "uncovered_lines": 0},
       {"path": "src/logic.py",
-       "ranges": [{"start": 8, "end": 8, "class": "import-time"},
+       "ranges": [{"start": 8, "end": 8, "class": "covered"},
                   {"start": 9, "end": 9, "class": "uncovered"}],
        "uncovered_lines": 1}
     ],
-    "summary": {"files": 2, "covered_lines": 0, "uncovered_lines": 1,
-                "import_time_lines": 16}
+    "summary": {"files": 2, "covered_lines": 16, "uncovered_lines": 1}
   },
-  "unmapped_files": ["src/constants.py"],
+  "unmapped_files": [],
   "exit_code": 0
 }
 ```
@@ -797,15 +670,14 @@ agent front-ends depend on, so it is defined in full here. `cmd/rtdd/jsonout.go`
 
 | Field | Type | Meaning |
 |---|---|---|
-| `schema` | int | Always `1` for this version. Consumers MUST reject an unknown value rather than guess. |
+| `schema` | int | Always `2` for this version (schema 2 removed `selection_fidelity`, `selection.import_fallback` and `uncovered.summary.import_time_lines`). Consumers MUST reject an unknown value rather than guess. |
 | `command` | string | `"run"` or `"which"`. |
 | `base` | string | The `--base` ref actually used. |
 | `adapter` | string | Detected adapter name. |
-| `tier` | string | `"empty"`, `"direct"`, `"T0"`, `"T1"`, `"TS"`, `"T2"` — `selector.Tier.String()`. |
+| `tier` | string | `"empty"`, `"direct"`, `"T0"`, `"T1"`, `"T2"` — `selector.Tier.String()`. |
 | `reason` | string | Human-readable escalation cause; `""` when none. |
-| `complete` | bool | Whether `selection.tests` is the WHOLE run. `false` exactly when `tier` is `"T2"` and the suite was not enumerated — `rtdd which` never enumerates it, so `which` reports `false` on every T2. Direct tests present in the list do NOT make it complete. Every other tier names its tests exhaustively and reports `true`, the empty tier included. |
-| `selection_fidelity` | string | What THIS selection was derived from: `"execution-derived"`, `"static"`, or `"none"`. **Never null, never absent, never any other string.** It is a property of the answer, not of the adapter: `Adapter.Fidelity()` says what an adapter could ever produce, while this says what it actually produced here — a coverage adapter with an unseeded map escalates to `T2` and reports `none`. Derived from `tier`: `direct`/`T0`/`T1`/`empty` → `execution-derived`, `TS` → `static`, `T2` (and any tier this table does not know) → `none`. `empty` is `execution-derived` because it is reachable only from a usable map: the map answered, and its answer was "nothing". In a **polyglot** repository the flat value is the WEAKEST fidelity any answering adapter reported — the flat `selection` it labels is the union of every block, and a union is only as well-evidenced as its worst member; the per-adapter values are on `selections[].selection_fidelity`, so the split is carried rather than collapsed. |
-| `warnings` | array of string | The caveats saying the selection is narrower, or less authoritative, than it looks — a missing adapter (file classification disabled), an empty selection, an unenumerated T2 suite, a failed import scan. Verbatim, in the order the command produced them. Never null; `[]` means there are none. The same sentences also go to stderr for a human, but a `--json` consumer normally discards stderr, so the document carries them too. |
+| `complete` | bool | Whether `selection.tests` is the WHOLE run. Always `true`: a T2 selection lists every enumerated unit. |
+| `warnings` | array of string | The caveats saying the selection is narrower, or less authoritative, than it looks — a missing adapter (file classification disabled), an empty selection, an adapter whose run failed. Verbatim, in the order the command produced them. Never null; `[]` means there are none. The same sentences also go to stderr for a human, but a `--json` consumer normally discards stderr, so the document carries them too. |
 | `changed[].path` | string | Repo-relative, slash-separated. |
 | `changed[].status` | string | `"added"`, `"modified"`, `"deleted"`, `"renamed"`, `"untracked"`. |
 | `changed[].instrumentable` | bool | Whether the adapter would instrument it. Only instrumentable files can appear in `uncovered.files`. |
@@ -813,7 +685,6 @@ agent front-ends depend on, so it is defined in full here. `cmd/rtdd/jsonout.go`
 | `selection.count` | int | `len(selection.tests)`. |
 | `selection.direct` | array | Changed/new test files, always run first. Never null. |
 | `selection.tests` | array | Final ranked list, direct first. Never null. Empty is a legitimate outcome and is reported as `tier: "empty"`. |
-| `selection.import_fallback` | object | file → tests chosen by the static import scan. `{}` when the fallback did not fire. |
 | `run.executed` | bool | `false` for `which`, which runs nothing. |
 | `run.passed`/`failed`/`skipped`/`errored` | int | Outcome counts; all `0` when `executed` is `false`. |
 | `run.failures` | array of string | Failing test ids. Never null. |
@@ -821,9 +692,9 @@ agent front-ends depend on, so it is defined in full here. `cmd/rtdd/jsonout.go`
 | `uncovered.available` | bool | `true` only when fresh post-run coverage exists. `which` always emits `false`. |
 | `uncovered.reason` | string | Present only when `available` is `false`; explains why. |
 | `uncovered.files` | array | Omitted when `available` is `false`. Sorted by `path`. |
-| `uncovered.files[].ranges[].class` | string | `"covered"`, `"uncovered"`, `"import-time"`. **`"import-time"` is never `"uncovered"`.** |
+| `uncovered.files[].ranges[].class` | string | `"covered"` or `"uncovered"`. |
 | `uncovered.summary` | object | Totals over `files`. |
-| `unmapped_files` | array | Changed instrumentable files no map row covers — the import-fallback trigger set. Never null. |
+| `unmapped_files` | array | Changed instrumentable files no map row covers. Never null. |
 | `exit_code` | int | The process exit code. **`0` even when `uncovered.summary.uncovered_lines > 0`.** |
 
 **Invariant, and it is tested:** `exit_code` is `1` if and only if `run.failed + run.errored
@@ -831,18 +702,11 @@ agent front-ends depend on, so it is defined in full here. `cmd/rtdd/jsonout.go`
 
 **The polyglot addition, `selections`.** A repository where more than one adapter was
 detected also carries an OPTIONAL top-level `selections` array — one block per adapter,
-each with its own `adapter`, `tier`, `reason`, `selection_fidelity`, `complete` and
-`selection`. It is absent from a single-adapter document, which therefore stays
-byte-identical to what schema v1 has always emitted. A consumer that means to invoke a
+each with its own `adapter`, `tier`, `reason`, `complete` and `selection`. It is absent
+from a single-adapter document. A consumer that means to invoke a
 runner reads exactly ONE block's ids: the flat `selection` is the union across toolchains
 and is not a runner invocation, and a pytest nodeid handed to `npx vitest run` selects
 nothing and reports green.
-
-`selections[].selection_fidelity` carries the same three values and the same never-null
-guarantee as the flat field, for that adapter alone. Two adapters can answer at two
-fidelities — a seeded Python block beside a Go block that can only ever be `static` — and
-one flat value cannot be right about both, which is why the flat one states the weakest
-and the split is kept here rather than collapsed.
 
 ---
 
@@ -964,32 +828,14 @@ func RawDiff(repoRoot, base string) (string, error)
 // validation runs over a host repo's adapters and the embedded ones.
 func LoadFS(fsys fs.FS, dir string) ([]*Adapter, error) // reads adapters/ embedded via go:embed
 func Builtin() ([]*Adapter, error)                      // "python" resolves without a filesystem
-// ExpandTests exists because Expand's map[string]string cannot carry test ids containing
-// spaces, brackets or "::" — argv elements must not be re-split by the shell. It is a
-// METHOD on *Adapter and vars precedes tests, exactly as in the internal/adapter section
-// above; the package-level `ExpandTests(tmpl, tests, vars)` form this block first carried
-// never existed in code.
-func (a *Adapter) ExpandTests(tmpl string, vars map[string]string, tests []string) ([]string, error)
-
-// internal/coverage
-// Merge folds other into r: per-test file/line sets union, ImportTime unions.
-func (r *Result) Merge(other *Result)
-
-// internal/runner
-// FatalExitError wraps a mapped exit code (4 bad-selector, 5 no-tests-collected)
-// from one chunk. These are FATAL, never a test failure — a bad selector means the
-// map is stale and silently reporting "0 failures" would be a false green. Label is
-// the adapter's name for the code; there is no separate Meaning field.
-type FatalExitError struct{ Chunk int; Code int; Label string }
-func (e *FatalExitError) Error() string
-func List(a *adapter.Adapter, repoRoot string) ([]string, error)
+// internal/runner — SUPERSEDED by the `## internal/runner` section above (one pipeline).
 
 // internal/uncovered — SUPERSEDED by the `## internal/uncovered` section above, which is
 // the shipped shape. The planning sketch that stood here gave WithLines no repoRoot and no
 // error, and summed the three classes as `Summary{Covered, Uncovered, ImportTime}`. Both
 // were wrong in ways that matter: WithLines must read an untracked file from disk (git diff
 // never lists one), which needs the repo root and can fail; and the shipped Summary counts
-// Files alongside CoveredLines/UncoveredLines/ImportTimeLines, because the --json summary
+// Files alongside CoveredLines/UncoveredLines, because the --json summary
 // reports a file count the three line totals cannot reconstruct. ParseHunks, Classify,
 // Class.String, FileReport.UncoveredLines and Summarize are all recorded in that section.
 
@@ -997,14 +843,6 @@ func List(a *adapter.Adapter, repoRoot string) ([]string, error)
 // shipped shape. The planning sketch that stood here made the fan-out warning a `Caveat()`
 // function returning a string; it ships as `const Caveat` so the text is one immutable
 // string every caller shares.
-
-// internal/importscan — SUPERSEDED by the `## internal/importscan` section above, which is
-// the shipped shape. The planning sketch that stood here declared a `Scanner` struct with
-// exported RepoRoot/Python fields and a per-target `Scan` method; the shipped package is a
-// single package-level `Scan` taking every target at once, because one Python subprocess
-// that walks the tree once is the whole reason the scan is shelled out rather than inlined.
-// The memoising `Scanner` that satisfies selector.Inputs.ImportOnly has since landed and is
-// recorded in that section.
 
 // internal/initrepo — SUPERSEDED by the `## internal/initrepo` section above, which is
 // the shipped shape. The planning sketch that stood here named the enum `Action` and the record
@@ -1474,3 +1312,23 @@ func ListRun(a *adapter.Adapter, repoRoot string) (*RunResult, []string, error)
 // unchanged.
 func List(a *adapter.Adapter, repoRoot string) ([]string, error)
 ```
+
+---
+
+## One-pipeline amendments — contract v3, `--json` schema 2
+
+Spec: `docs/specs/2026-09-29-one-pipeline.md`. These override everything above them.
+
+- **Deleted packages:** `internal/report`, `internal/importscan`, and the SQLite / numbits /
+  context readers of `internal/coverage` (with the `modernc.org/sqlite` dependency).
+- **Deleted tier:** `TierTS` and every static-tier resolver (`Inputs.Exists`,
+  `Inputs.ImportDistance`, `Inputs.ImportOnly`); the M6b amendments above are historical.
+- **Deleted adapter API:** `Fidelity()`, `TestForCandidate`, `Selectors`, `CanRunPlain`,
+  `ExpandTests`, and the v2 fields `seed`, `subset`, `subset_plain`, `list`, `coverage`,
+  `report`, `report_path`, `report_cmd`, `id_template`, `failfast_flag`, `test_flag`,
+  `test_join`, `test_selector`, `selection`, `test_for`, `importscan` — each is rejected by
+  name at load. `unit_cmd`, `coverage_file` and `coverage_format` are required.
+- **Deleted runner API:** `List`, `ListRun`, `RunPlain`, `Chunk`, `MaxArgvBytes`,
+  `ErrSysmonContext`; `FatalExitError.Chunk`.
+- **Deleted CLI:** `--record`; `rtdd doctor`'s fidelity block is an `adapters` block, one row
+  per detected adapter with its source and unmet `requires`.

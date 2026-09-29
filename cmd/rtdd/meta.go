@@ -39,23 +39,16 @@ func currentMap(m *mapstore.Map, mt meta) *mapstore.Map {
 	return m
 }
 
-// coverageAdapterName is meta.json's singular `adapter` for a detected set: the COVERAGE
-// adapter that produced the map (decision 4 of docs/plans/06-m6d-shipped-adapters.md), and
-// "" where every detected adapter is static.
+// coverageAdapterName is meta.json's singular `adapter` for a detected set: the first
+// detected adapter, or "" when there is none.
 //
-// It is shared by `seed` and `run` because the field is load-bearing on the READ path:
-// mapstore.ForAdapter serves every UNTAGGED row to the adapter this field names and
-// withholds it from everyone else. A static adapter's name here hands a legacy map's
-// pytest nodeids to `mvn -B test -Dtest=...`, which matches nothing and exits 0 — a false
-// pass wearing a real id, and the exact outcome the tag exists to prevent (PRD #232 AC6).
-// An all-static repository leaves it empty: no adapter here recorded a row, so there is
-// nothing for the field to speak for.
+// It is load-bearing on the READ path: mapstore.ForAdapter serves every UNTAGGED row to
+// the adapter this field names and withholds it from everyone else.
 func coverageAdapterName(detected []*adapter.Adapter) string {
-	_, coverage := selectionSplit(detected)
-	if len(coverage) == 0 {
+	if len(detected) == 0 {
 		return ""
 	}
-	return coverage[0].Name
+	return detected[0].Name
 }
 
 // metaAfterRun is the meta.json `rtdd run` writes back: the one it loaded, with the fields

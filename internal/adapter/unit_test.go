@@ -86,3 +86,22 @@ func TestV3Validation(t *testing.T) {
 		})
 	}
 }
+
+func TestRemovedV2FieldIsRejectedByName(t *testing.T) {
+	_, err := parse([]byte(goV3+"subset: \"go test {tests}\"\n"), "x.yaml")
+	if err == nil || !strings.Contains(err.Error(), "subset") || !strings.Contains(err.Error(), "one-pipeline") {
+		t.Fatalf("err = %v, want it to name subset and the spec", err)
+	}
+}
+
+func TestRequiresEntriesNeedABinAndAReason(t *testing.T) {
+	for _, tc := range []struct{ yaml, want string }{
+		{goV3 + "requires:\n  - reason: \"runs go\"\n", "requires[0]: bin is required"},
+		{goV3 + "requires:\n  - bin: go\n", "requires[0] (go): reason is required"},
+	} {
+		_, err := parse([]byte(tc.yaml), "d.yaml")
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("err = %v, want it to contain %q", err, tc.want)
+		}
+	}
+}

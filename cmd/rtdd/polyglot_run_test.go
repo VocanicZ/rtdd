@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
-	"github.com/VocanicZ/rtdd/internal/report"
 	"github.com/VocanicZ/rtdd/internal/runner"
 )
 
@@ -76,12 +75,12 @@ func TestOneAdaptersFailureDoesNotVoidAnothersRun(t *testing.T) {
 func TestRenderAdapterRunsNamesEachAdaptersOwnOutcome(t *testing.T) {
 	runs := []AdapterRun{
 		{Adapter: "python", Result: &runner.RunResult{
-			Outcomes: []report.Outcome{{Test: "tests/test_calc.py::test_add", Status: "fail"}},
+			Outcomes: []runner.Outcome{{Test: "tests/test_calc.py::test_add", Status: "fail"}},
 			Failed:   []string{"tests/test_calc.py::test_add"},
 			ExitCode: 1,
 		}, Code: 1},
 		{Adapter: "vitest", Result: &runner.RunResult{
-			Outcomes: []report.Outcome{{Test: "src/calc.test.ts", Status: "pass"}},
+			Outcomes: []runner.Outcome{{Test: "src/calc.test.ts", Status: "pass"}},
 		}, Code: 0},
 	}
 	out := renderAdapterRuns(runs)
@@ -131,10 +130,8 @@ func brokenVitestAdapter(t *testing.T, dir string) {
 		t.Fatalf("mkdir: %v", err)
 	}
 	yaml := "name: vitest\ndetect: [\"package.json\"]\n" +
-		"subset: \"rtdd-no-such-runner-binary {tests} --outputFile={report}\"\n" +
-		"list: \"rtdd-no-such-runner-binary --outputFile={report}\"\n" +
-		"selection: static\ncoverage: none\nreport: junit-xml\nreport_path: \".rtdd/junit.xml\"\n" +
-		"id_template: \"{classname}\"\ntest_for: [\"{dir}/{name}.test.ts\"]\n" +
+		"unit_cmd: \"rtdd-no-such-runner-binary {unit}\"\n" +
+		"coverage_file: \"{tmp}/lcov.info\"\ncoverage_format: lcov\n" +
 		"test_globs: [\"**/*.test.ts\"]\nsource_globs: [\"src/**/*.ts\"]\n"
 	if err := os.WriteFile(filepath.Join(adir, "vitest.yaml"), []byte(yaml), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
@@ -211,10 +208,8 @@ func brokenEnumerationAdapter(t *testing.T, dir string) {
 		t.Fatalf("mkdir: %v", err)
 	}
 	yaml := "name: vitest\ndetect: [\"package.json\"]\n" +
-		"subset: \"rtdd-no-such-runner-binary {tests} --outputFile={report}\"\n" +
-		"list: \"rtdd-no-such-runner-binary --outputFile={report}\"\n" +
-		"selection: static\ncoverage: none\nreport: junit-xml\nreport_path: \".rtdd/junit.xml\"\n" +
-		"id_template: \"{classname}\"\ntest_for: [\"{dir}/{name}.test.ts\"]\n" +
+		"unit_cmd: \"rtdd-no-such-runner-binary {unit}\"\n" +
+		"coverage_file: \"{tmp}/lcov.info\"\ncoverage_format: lcov\n" +
 		"test_globs: [\"**/*.test.ts\"]\nsource_globs: [\"src/**/*.ts\"]\n" +
 		"full_escalate: [\"package.json\"]\n"
 	if err := os.WriteFile(filepath.Join(adir, "vitest.yaml"), []byte(yaml), 0o644); err != nil {

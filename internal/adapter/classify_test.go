@@ -119,7 +119,8 @@ func TestBuiltinPythonClassifiesTheShippedGlobs(t *testing.T) {
 		// tests, or a *_test.py repo gets an empty direct tier.
 		{"pkg/foo_test.py", true, false, false, false},
 		{"pkg/test_foo.py", true, false, false, false},
-		{"tests/helpers.py", true, false, false, false},
+		// A helper is not a unit: pytest cannot run it on its own, so it is source.
+		{"tests/helpers.py", false, false, false, true},
 		// Flat layout: the package sits at the repo root, not under src/. Scoping
 		// source_globs to src/** would classify this as nothing at all.
 		{"pkg/mod.py", false, false, false, true},

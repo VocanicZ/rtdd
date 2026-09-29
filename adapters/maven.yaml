@@ -1,40 +1,16 @@
-# The Java (Maven / Surefire) adapter.
-#
-# Surefire writes one JUnit XML per test class into target/surefire-reports/, so
-# `report_path` is a DIRECTORY — it ends in "/" and the runner reads every report under
-# it. Gradle is the other adapter of that shape; the other seven name a single file.
-#
-# `test_join` is DECISION 8: `-Dtest=` takes ONE value holding every selector, comma
-# separated, so {tests} is substituted INSIDE the token rather than spliced as bare argv
-# elements. -DfailIfNoSpecifiedTests=false keeps a chunk whose classes live in another
-# module from failing the build instead of selecting nothing.
-#
-# The id is CASE-granular and `{classname}#{name}` is exactly Surefire's own
-# Class#method syntax. That is the REPORTING vocabulary; `test_selector` is the SELECTION
-# one (DECISION 13). The TS tier names src/test/java/calc/CalcTest.java, and `-Dtest=` takes
-# a class, not a path — so the selector is the file's base name, which for a Java test file
-# IS the simple class name Surefire accepts. Splicing the path instead selects nothing, and
-# -DfailIfNoSpecifiedTests=false then keeps the build green over zero executed tests (#334).
-#
-# `test_for` uses {subdir}, not {dir}: the changed file's directory is
-# src/main/java/<package>, and the test that corresponds to it lives at
-# src/test/java/<package> — the mirrored part is the PACKAGE, and how many leading
-# segments the source root occupies is a property of the repository (a module under
-# services/api/ moves it). {subdir} is {dir} or any trailing part of it, longest first,
-# and a candidate still counts only when the file exists.
+# The Java (Maven) adapter on contract v3: one test class per process (-Dtest={name}),
+# JaCoCo attached and reported through plugin goals on the command line, so the pom
+# needs no change. jobs: 1 because every unit shares target/.
+# unverified — settled in Task 10.
 name: maven
 detect: ["pom.xml"]
-selection: static
-coverage: none
-subset: "mvn -B test -Dtest={tests} -DfailIfNoSpecifiedTests=false"
-test_join: ","
-test_selector: "{name}"
-list: "mvn -B test"
-report: junit-xml
-report_path: "target/surefire-reports/"
-id_template: "{classname}#{name}"
-failfast_flag: "-ff"
-test_for: ["src/test/java/{subdir}/{name}Test.java", "src/test/java/{subdir}/{name}Tests.java", "src/test/kotlin/{subdir}/{name}Test.kt"]
+unit_cmd: "mvn -q -Dtest={name} -Djacoco.destFile={tmp}/jacoco.exec org.jacoco:jacoco-maven-plugin:0.8.13:prepare-agent test org.jacoco:jacoco-maven-plugin:0.8.13:report -Djacoco.dataFile={tmp}/jacoco.exec -Djacoco.outputDirectory={tmp}/site"
+coverage_file: "{tmp}/site/jacoco.xml"
+coverage_format: jacoco
+jobs: 1
+requires:
+  - bin: mvn
+    reason: "the maven adapter runs mvn with the JaCoCo plugin"
 test_globs: ["src/test/java/**/*.java", "src/test/kotlin/**/*.kt"]
 source_globs: ["src/main/java/**/*.java", "src/main/kotlin/**/*.kt", "src/test/java/**/*.java"]
 opaque: ["src/main/resources/**", "src/test/resources/**", "**/*.xml", "**/*.properties"]

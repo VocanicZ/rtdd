@@ -17,11 +17,6 @@ const (
 	TierDirect
 	TierT0
 	TierT1
-	// TierTS is the static tier (spec §4.1): tests chosen from declared test_for
-	// correspondence and transitive imports, used when the coverage relation cannot
-	// answer. It sits between T1 and T2 in confidence — narrower than the full suite,
-	// and never a substitute for a usable map.
-	TierTS
 	TierT2
 )
 
@@ -35,8 +30,6 @@ func (t Tier) String() string {
 		return "T0"
 	case TierT1:
 		return "T1"
-	case TierTS:
-		return "TS"
 	case TierT2:
 		return "T2"
 	}

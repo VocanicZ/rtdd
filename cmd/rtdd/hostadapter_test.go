@@ -24,23 +24,19 @@ func writeHostAdapter(t *testing.T, root, name, body string) {
 // A host adapter for a toolchain the binary has never heard of.
 const hostVitestYAML = `name: vitest
 detect: ["vitest.config.ts"]
-subset: "npx vitest run {tests}"
-list: "npx vitest list"
-selection: static
-coverage: none
-report: pytest-reportlog
+unit_cmd: "npx vitest run {unit}"
+coverage_file: "{tmp}/lcov.info"
+coverage_format: lcov
 test_globs: ["**/*.test.ts"]
 source_globs: ["src/**/*.ts"]
 `
 
-// A host override of the shipped python adapter, told apart by its subset.
+// A host override of the shipped python adapter, told apart by its unit_cmd.
 const hostPythonOverrideYAML = `name: python
 detect: ["pyproject.toml"]
-seed: "pytest --cov --cov-context=test"
-subset: "pytest {tests} --cov --cov-context=test -p no:randomly"
-list: "pytest --collect-only -q"
-coverage: sqlite
-report: pytest-reportlog
+unit_cmd: "pytest --cov --cov-report=lcov:{tmp}/lcov.info -p no:randomly {unit}"
+coverage_file: "{tmp}/lcov.info"
+coverage_format: lcov
 test_globs: ["tests/**/*.py"]
 source_globs: ["**/*.py"]
 `
@@ -48,10 +44,9 @@ source_globs: ["**/*.py"]
 // A host adapter that violates the contract in a way that names a field.
 const hostBrokenYAML = `name: broken
 detect: ["go.mod"]
-seed: "go test ./..."
-subset: "go test ./..."
-coverage: sqlite
-report: pytest-reportlog
+unit_cmd: "go test ./..."
+coverage_file: "cover.out"
+coverage_format: gocover
 `
 
 type errString string
@@ -116,7 +111,7 @@ func TestDoctorNamesAnUnloadableHostAdapterAndStillExitsZero(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
-	for _, want := range []string{"not loaded", "broken.yaml", "{tests}"} {
+	for _, want := range []string{"not loaded", "broken.yaml", "coverage_file"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("doctor output does not contain %q:\n%s", want, stdout)
 		}
@@ -163,7 +158,7 @@ func TestWhichWarnsAboutAnUnloadableHostAdapterAndCarriesOn(t *testing.T) {
 	if got := decodeOutput(t, stdout).Adapter; got != "python" {
 		t.Errorf("adapter = %q, want the built-in %q to still resolve", got, "python")
 	}
-	for _, want := range []string{"broken.yaml", "{tests}"} {
+	for _, want := range []string{"broken.yaml", "coverage_file"} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("stderr does not name %q:\n%s", want, stderr)
 		}

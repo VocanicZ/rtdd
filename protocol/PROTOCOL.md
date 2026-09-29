@@ -35,7 +35,7 @@ project configured inside `vite.config.ts`. Two ways forward:
 - `rtdd init --force` installs anyway. The front-ends it writes then carry a caveat saying
   selection is unavailable, because until an adapter matches, it is.
 
-Run `rtdd doctor` at any point to see which adapters matched and what fidelity they give.
+Run `rtdd doctor` at any point to see which adapters matched and what they need installed.
 <!-- rtdd:variant target=global-agents -->
 Check for `.rtdd/map.jsonl` first. If it exists, rtdd is set up — use the commands below. If
 it does not, run `rtdd init` then `rtdd seed` once, and commit the map. `rtdd init` exiting 2
@@ -96,20 +96,18 @@ failed, and nothing else — an empty selection and an uncovered report are both
 <!-- rtdd:endsection -->
 
 <!-- rtdd:section id=uncovered title="The uncovered report" targets=skill,agents,mdc,global,global-agents order=40 -->
-The report classifies your changed lines into three classes, and the distinction matters:
+The report classifies your changed lines into two classes:
 
-- **covered** — an executing test touched these changed lines.
-- **uncovered** — no test executed them.
-- **import-time** — executed during collection and attributed to no test. Reported
-  separately and never counted as uncovered. Dataclasses, enums, config modules, ORM model
-  definitions, route decorators, and `__init__.py` re-exports land here routinely while
-  being correctly tested.
+- **covered** — a test file's own run executed these changed lines this cycle.
+- **uncovered** — no test file's run executed them.
+
+Each test file runs in its own process, so a line executed while importing a module is
+executed by that test file and counts as covered.
 
 An uncovered range is information about the suite, not a verdict on the patch.
 <!-- rtdd:variant target=agents -->
-The uncovered report splits changed lines into covered, uncovered, and import-time.
-Import-time lines execute during collection and are attributed to no test — they are
-reported separately and are not a coverage gap.
+The uncovered report splits changed lines into covered and uncovered: a line is covered
+when some test file's own run executed it this cycle.
 <!-- rtdd:endvariant -->
 <!-- rtdd:endsection -->
 
@@ -122,47 +120,6 @@ An empty selection is reported as its own outcome, never as a pass.
 <!-- rtdd:endvariant -->
 <!-- rtdd:endsection -->
 
-<!-- rtdd:section id=fidelity title="Selection fidelity" targets=skill,agents,mdc,global,global-agents order=55 -->
-Every `--json` document carries `selection_fidelity`, which answers a different question
-from `tier`: `tier` says how much of the suite was selected, `selection_fidelity` says what
-that answer was derived from. It is never null and never absent, and it is one of three
-values:
-
-- **`execution-derived`** — tests were chosen from per-test coverage recorded by a real
-  run. Everything else in this document assumes this fidelity.
-- **`static`** — this toolchain records nothing, so tests were chosen from declared
-  correspondence and imports.
-- **`none`** — neither is available, so nothing narrower than the full suite can be
-  selected.
-
-The distinction changes how a green run should be read: a static selection is derived from
-declared correspondence and imports, not from a recorded run, so it can miss a test that
-execution-derived selection would have caught. A passing static selection is therefore
-weaker evidence than a passing execution-derived one. Read a green `static` run as "the
-tests I could name passed", not as "this change is covered".
-
-`rtdd doctor` is the one command that reports which fidelity this repository can achieve
-and why: one row per detected adapter, the fidelity it can reach here, and the clause of
-its own declaration that determined it.
-<!-- rtdd:variant target=agents -->
-`--json` carries `selection_fidelity`: `execution-derived` (tests chosen from recorded
-coverage), `static` (chosen from declared correspondence and imports, because this
-toolchain records nothing), or `none` (nothing narrower than the full suite). A static
-selection can miss a test an execution-derived one would have caught, so a passing static
-selection is weaker evidence. `rtdd doctor` reports which fidelity this repository can
-achieve, and why.
-<!-- rtdd:endvariant -->
-<!-- rtdd:variant target=mdc -->
-`--json` carries `selection_fidelity`, which says what the selection was derived from:
-`execution-derived` (tests chosen from coverage recorded by a real run), `static` (chosen
-from declared correspondence and imports, because this toolchain records nothing), or
-`none` (nothing narrower than the full suite is available). A static selection can miss a
-test an execution-derived one would have caught, so a passing static selection is
-weaker evidence — read a green `static` run as "the tests I could name passed".
-`rtdd doctor` reports which fidelity this repository can achieve, and why.
-<!-- rtdd:endvariant -->
-<!-- rtdd:endsection -->
-
 <!-- rtdd:section id=json title="JSON output" targets=skill,global order=60 -->
 `--json` emits one object for programmatic consumption:
 
@@ -170,13 +127,11 @@ weaker evidence — read a green `static` run as "the tests I could name passed"
 {
   "tier": "T0",
   "reason": "changed files intersect 12 recorded test rows",
-  "selection_fidelity": "execution-derived",
   "base": "HEAD",
   "changed": ["src/auth.py", "src/db.py"],
   "direct": ["tests/test_auth.py"],
-  "tests": ["tests/test_auth.py::test_login", "tests/test_db.py::test_pool"],
+  "tests": ["tests/test_auth.py", "tests/test_db.py"],
   "uncovered": [{"path": "src/auth.py", "ranges": [{"start": 52, "end": 58}]}],
-  "import_time": [{"path": "src/constants.py", "ranges": [{"start": 1, "end": 12}]}],
   "selected_duration_ms": 1412,
   "map_tests": 8471
 }
@@ -198,10 +153,8 @@ rtdd map compact             collapse duplicate rows after a union merge
 rtdd init                    install .gitattributes, config, and agent front-ends
 ```
 
-`rtdd seed` is the only operation that may narrow a test's recorded file set. Every other
-path unions, because a subset run legitimately records less coverage than a full run — an
-import-time line migrates to whichever test ran first, and a failing test records only a
-truncated prefix of its real path.
+`rtdd seed` is the only operation that may narrow a test file's recorded file set. Every
+other path unions, because a failing test records only a truncated prefix of its real path.
 <!-- rtdd:endsection -->
 
 <!-- rtdd:section id=limits title="What it cannot see" targets=skill,mdc,global order=80 -->
@@ -225,10 +178,10 @@ whichever test ran first. Selection is file-level. `rtdd verify` does not replac
 <!-- rtdd:endsection -->
 
 <!-- rtdd:section id=map title="The map file" targets=skill,global order=90 -->
-`.rtdd/map.jsonl` is committed, sorted by test id, one line per test, file-level only:
+`.rtdd/map.jsonl` is committed, sorted by test file, one line per test file, file-level only:
 
 ```
-{"t":"tests/test_auth.py::test_login","f":["src/auth.py","src/db.py"],"c":"a3f21e0","d":412,"s":"pass"}
+{"t":"tests/test_auth.py","f":["src/auth.py","src/db.py"],"c":"a3f21e0","d":412,"s":"pass","a":"python"}
 ```
 
 `rtdd init` installs `.rtdd/map.jsonl merge=union` into `.gitattributes`. Two agents editing

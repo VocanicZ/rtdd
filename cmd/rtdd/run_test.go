@@ -1,12 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -432,115 +430,6 @@ func TestRunClassifiesAgainstFreshCoverageOnly(t *testing.T) {
 	}
 }
 
-// `rtdd run` must fire the SAME static-import fallback `rtdd which` fires. Otherwise the
-// advisory command and the executing command disagree about what to run, and the case
-// M2 exists to serve — an import-time-only file, whose lines are attributed to no test
-// and therefore enter no map row's f — selects tests under `which` and executes NOTHING
-// under `run` (spec §6, D14).
-//
-// src/constants.py is that file in the real fixture: TestAcceptanceImportOnlyFileIsInNoMapRow
-// proves no row covers it. tests/test_a.py imports it directly, tests/test_b.py through
-// src/logic.py, so the scan has a real answer to give.
-func TestCmdRunFiresTheStaticImportFallbackAndAgreesWithWhich(t *testing.T) {
-	// `which` reads .rtdd/adapter.yaml while `run` detects the builtin; the two commands
-	// can only be compared when both classify with the SAME adapter, so install it.
-	builtin, err := os.ReadFile(filepath.Join("..", "..", "adapters", "python.yaml"))
-	if err != nil {
-		t.Fatalf("read the builtin python adapter: %v", err)
-	}
-	repo := realRepo(t)
-	chdir(t, repo)
-	writeFile(t, repo, ".rtdd/adapter.yaml", string(builtin))
-	makeSuiteGreen(t, repo)
-	// Commit the repair so the ONLY uncommitted change is the import-time-only file:
-	// a dirty test file would be selected by the direct tier and mask the fallback.
-	gitRun(t, repo, "commit", "-am", "green suite")
-
-	if code := cmdSeed(nil, io.Discard, io.Discard); code != 0 {
-		t.Fatalf("cmdSeed = %d, want 0 once the suite is green", code)
-	}
-
-	consts := filepath.Join(repo, "src", "constants.py")
-	src, err := os.ReadFile(consts)
-	if err != nil {
-		t.Fatalf("read constants.py: %v", err)
-	}
-	if err := os.WriteFile(consts, append(src, []byte("\nMIN = 1\n")...), 0o644); err != nil {
-		t.Fatalf("write constants.py: %v", err)
-	}
-
-	var wout, werr bytes.Buffer
-	if code := cmdWhich([]string{"--json"}, &wout, &werr); code != 0 {
-		t.Fatalf("cmdWhich --json = %d, want 0 (stderr: %s)", code, werr.String())
-	}
-	wantSel := decodeOutput(t, wout.String())
-	if len(wantSel.Selection.ImportFallback) == 0 {
-		t.Fatalf("precondition: which did not fire the import fallback:\n%s", wout.String())
-	}
-
-	var code int
-	raw := captureStdout(t, func() { code = cmdRun([]string{"--json"}) })
-	if code != 0 {
-		t.Fatalf("cmdRun --json = %d, want 0.\n%s", code, raw)
-	}
-	got := decodeOutput(t, raw)
-
-	if !reflect.DeepEqual(got.Selection.Tests, wantSel.Selection.Tests) {
-		t.Fatalf("run selected %#v, which selected %#v — the two commands must agree",
-			got.Selection.Tests, wantSel.Selection.Tests)
-	}
-	if !reflect.DeepEqual(got.Selection.ImportFallback, wantSel.Selection.ImportFallback) {
-		t.Fatalf("run selection.import_fallback = %#v, which = %#v",
-			got.Selection.ImportFallback, wantSel.Selection.ImportFallback)
-	}
-	if len(got.Selection.ImportFallback["src/constants.py"]) == 0 {
-		t.Fatalf("run selection.import_fallback has no src/constants.py entry:\n%s", raw)
-	}
-	if got.Tier != "T1" {
-		t.Errorf("run tier = %q, want T1 (reason: %s)", got.Tier, got.Reason)
-	}
-	// The point of the whole exercise: run must EXECUTE the importing tests, not report
-	// an empty selection that reads as a pass.
-	if !got.Run.Executed {
-		t.Fatalf("run.executed = false — run selected tests but executed nothing:\n%s", raw)
-	}
-	if got.Run.Passed == 0 {
-		t.Fatalf("run.passed = 0, want the importing tests actually run:\n%s", raw)
-	}
-}
-
-// The comment that deferred the fallback to M2 is stale: this IS M2, and a reader who
-// believes it will not look for the wiring. run must build the same scan `which` does.
-//
-// Since per-adapter selection (#317) both commands reach it through selectPerAdapter,
-// which is a stronger guarantee than each file wiring its own: there is now exactly one
-// place the fallback can be built, so the advisory command and the executing command
-// cannot drift apart. The guard therefore asserts run.go goes through that path and that
-// the path itself builds the scan.
-func TestRunWiresTheSharedImportFallbackHelper(t *testing.T) {
-	b, err := os.ReadFile("run.go")
-	if err != nil {
-		t.Fatalf("read run.go: %v", err)
-	}
-	src := string(b)
-	if strings.Contains(src, "static import fallback lands in M2") {
-		t.Error("run.go still carries the stale \"lands in M2\" comment")
-	}
-	if !strings.Contains(src, "selectPerAdapter(") {
-		t.Error("run.go does not select through selectPerAdapter, the one path that wires the fallback")
-	}
-	if strings.Contains(src, "ImportOnly: func(string) []string { return nil }") {
-		t.Error("run.go still passes a stub for selector.Inputs.ImportOnly")
-	}
-	shared, err := os.ReadFile("polyglot.go")
-	if err != nil {
-		t.Fatalf("read polyglot.go: %v", err)
-	}
-	if !strings.Contains(string(shared), "newImportFallback(") {
-		t.Error("selectPerAdapter does not build the shared importFallbackScan")
-	}
-}
-
 // An empty selection is the narrowest possible run, and under --json the "this is not a
 // pass" line is not printed at all — the text branch is skipped. Without `warnings` the
 // document a front-end reads is indistinguishable from a green run of a real subset.
@@ -599,20 +488,6 @@ func TestCmdRunJSONReportsACompleteSelectionWithNoWarnings(t *testing.T) {
 	}
 	if len(got.Warnings) != 0 {
 		t.Errorf("warnings = %#v, want none for an unremarkable run", got.Warnings)
-	}
-}
-
-// AC8 reaches `run` too: the two commands disagreeing about one selection is the defect
-// this repo has been bitten by before, and a fidelity stated by `which` but dropped by
-// `run` is that same disagreement in the surface that actually executes tests.
-func TestRunTierLineStatesTheStaticFidelity(t *testing.T) {
-	blocks := []AdapterSelection{{
-		Adapter:   "vitest",
-		Selection: selector.Selection{Tier: selector.TierTS, Tests: []string{"src/logic.test.ts"}},
-	}}
-	want := "tier TS (static): 1 selected\n"
-	if got := renderRunTiers(blocks); got != want {
-		t.Fatalf("renderRunTiers() = %q, want %q", got, want)
 	}
 }
 

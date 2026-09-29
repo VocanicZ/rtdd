@@ -1,5 +1,5 @@
-// Package uncovered computes the three-way classification of changed lines
-// (Covered / Uncovered / ImportTime) against fresh post-run coverage.
+// Package uncovered computes the two-way classification of changed lines
+// (Covered / Uncovered) against fresh post-run coverage.
 package uncovered
 
 import (

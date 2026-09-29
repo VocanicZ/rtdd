@@ -13,63 +13,19 @@ import (
 	"github.com/VocanicZ/rtdd/internal/gitctx"
 )
 
-// f1Coverage is fixture F1, measured on 2026-08-26 with coverage.py 7.15.4 /
-// pytest 9.0.3 / Python 3.13.5 on a project whose two tests both pass:
-//
-//	src/__init__.py   ctx=''                                  lines=[0]
-//	src/constants.py  ctx=''                                  lines=[1,2,4,7,8,9,12,13,14,15]
-//	src/logic.py      ctx=''                                  lines=[1,4,8]
-//	src/logic.py      ctx='tests/test_it.py::test_logic|run'  lines=[5]
-//
-// src/constants.py holds a module constant, an Enum and a @dataclass, is imported and
-// asserted on by BOTH passing tests, and is attributed to ZERO test contexts.
+// f1Coverage is two isolated units: each unit's own run recorded every line it
+// executed, import-time lines included (spec §8).
 func f1Coverage() *coverage.Result {
 	return &coverage.Result{
 		PerTest: []coverage.TestCoverage{
-			{
-				Test:  "tests/test_it.py::test_logic",
-				Files: map[string][]int{"src/logic.py": {5}},
-			},
-			{
-				Test:  "tests/test_it.py::test_constants",
-				Files: map[string][]int{},
-			},
-		},
-		ImportTime: map[string][]int{
-			"src/__init__.py":  {0},
-			"src/constants.py": {1, 2, 4, 7, 8, 9, 12, 13, 14, 15},
-			"src/logic.py":     {1, 4, 8},
+			{Test: "tests/test_logic.py", Files: map[string][]int{"src/logic.py": {1, 4, 5, 8}}},
+			{Test: "tests/test_constants.py", Files: map[string][]int{"src/constants.py": {1, 2, 4, 7, 8, 9, 12, 13, 14, 15}}},
 		},
 	}
 }
 
-func TestClassifyImportTimeOnlyFileIsClean(t *testing.T) {
-	// The whole point of ImportTime: a dataclass/enum/constants module changed
-	// end to end, asserted on by two passing tests, must produce ZERO uncovered lines.
-	changes := []gitctx.Change{
-		{
-			Path:   "src/constants.py",
-			Status: gitctx.Modified,
-			Lines:  []gitctx.LineRange{{Start: 1, End: 15}},
-		},
-	}
-	got := Classify(changes, f1Coverage())
-	if len(got) != 1 {
-		t.Fatalf("Classify() len = %d, want 1", len(got))
-	}
-	if n := got[0].UncoveredLines(); n != 0 {
-		t.Fatalf("UncoveredLines() = %d, want 0 — import-time lines must NEVER be Uncovered\n got: %#v", n, got[0].Ranges)
-	}
-	for _, r := range got[0].Ranges {
-		if r.Class == Uncovered {
-			t.Fatalf("range %d-%d classified Uncovered; import-time lines must never be", r.Range.Start, r.Range.End)
-		}
-	}
-}
-
-func TestClassifyThreeWayInOneFile(t *testing.T) {
-	// src/logic.py exhibits all three classes at once:
-	//   1 import-time, 4 import-time, 5 covered, 8 import-time, 9 uncovered.
+func TestClassifyBothClassesInOneFile(t *testing.T) {
+	// src/logic.py: 1, 4, 5, 8 covered; 2-3, 6-7, 9 uncovered.
 	changes := []gitctx.Change{
 		{
 			Path:   "src/logic.py",
@@ -82,12 +38,11 @@ func TestClassifyThreeWayInOneFile(t *testing.T) {
 		{
 			Path: "src/logic.py",
 			Ranges: []ClassifiedRange{
-				{Range: gitctx.LineRange{Start: 1, End: 1}, Class: ImportTime},
+				{Range: gitctx.LineRange{Start: 1, End: 1}, Class: Covered},
 				{Range: gitctx.LineRange{Start: 2, End: 3}, Class: Uncovered},
-				{Range: gitctx.LineRange{Start: 4, End: 4}, Class: ImportTime},
-				{Range: gitctx.LineRange{Start: 5, End: 5}, Class: Covered},
+				{Range: gitctx.LineRange{Start: 4, End: 5}, Class: Covered},
 				{Range: gitctx.LineRange{Start: 6, End: 7}, Class: Uncovered},
-				{Range: gitctx.LineRange{Start: 8, End: 8}, Class: ImportTime},
+				{Range: gitctx.LineRange{Start: 8, End: 8}, Class: Covered},
 				{Range: gitctx.LineRange{Start: 9, End: 9}, Class: Uncovered},
 			},
 		},
@@ -112,7 +67,7 @@ func TestClassifyIsLineGranularNotFileGranular(t *testing.T) {
 		{
 			Path: "src/logic.py",
 			Ranges: []ClassifiedRange{
-				{Range: gitctx.LineRange{Start: 8, End: 8}, Class: ImportTime},
+				{Range: gitctx.LineRange{Start: 8, End: 8}, Class: Covered},
 				{Range: gitctx.LineRange{Start: 9, End: 9}, Class: Uncovered},
 			},
 		},
@@ -140,28 +95,6 @@ func TestClassifyBrandNewFileIsAllUncovered(t *testing.T) {
 			Ranges: []ClassifiedRange{
 				{Range: gitctx.LineRange{Start: 1, End: 4}, Class: Uncovered},
 			},
-		},
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("Classify()\n got: %#v\nwant: %#v", got, want)
-	}
-}
-
-func TestClassifyTestAttributionBeatsImportTime(t *testing.T) {
-	cov := &coverage.Result{
-		PerTest: []coverage.TestCoverage{
-			{Test: "tests/test_x.py::test_a", Files: map[string][]int{"src/dual.py": {4}}},
-		},
-		ImportTime: map[string][]int{"src/dual.py": {4}},
-	}
-	changes := []gitctx.Change{
-		{Path: "src/dual.py", Status: gitctx.Modified, Lines: []gitctx.LineRange{{Start: 4, End: 4}}},
-	}
-	got := Classify(changes, cov)
-	want := []FileReport{
-		{
-			Path:   "src/dual.py",
-			Ranges: []ClassifiedRange{{Range: gitctx.LineRange{Start: 4, End: 4}, Class: Covered}},
 		},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -197,8 +130,7 @@ func TestClassifyOverlappingRangesAreDeduped(t *testing.T) {
 		{
 			Path: "src/logic.py",
 			Ranges: []ClassifiedRange{
-				{Range: gitctx.LineRange{Start: 4, End: 4}, Class: ImportTime},
-				{Range: gitctx.LineRange{Start: 5, End: 5}, Class: Covered},
+				{Range: gitctx.LineRange{Start: 4, End: 5}, Class: Covered},
 				{Range: gitctx.LineRange{Start: 6, End: 6}, Class: Uncovered},
 			},
 		},
@@ -237,7 +169,7 @@ func TestClassifyRangesSortedAscendingWithinFile(t *testing.T) {
 		{
 			Path: "src/logic.py",
 			Ranges: []ClassifiedRange{
-				{Range: gitctx.LineRange{Start: 1, End: 1}, Class: ImportTime},
+				{Range: gitctx.LineRange{Start: 1, End: 1}, Class: Covered},
 				{Range: gitctx.LineRange{Start: 5, End: 5}, Class: Covered},
 				{Range: gitctx.LineRange{Start: 9, End: 9}, Class: Uncovered},
 			},
@@ -265,61 +197,8 @@ func TestClassifyNilCoverageIsAllUncovered(t *testing.T) {
 	}
 }
 
-func TestClassifyImportTimeOnlyFileHasNoUncoveredGaps(t *testing.T) {
-	// Fixture F1's src/constants.py is measured but attributed to ZERO test contexts:
-	// its import-time lines are 1,2,4,7,8,9,12-15 and the gaps (3,5,6,10,11) are blank
-	// lines coverage never records. Coverage cannot tell a blank line from a dead
-	// statement, so an import-time-only file classifies wholly ImportTime rather than
-	// reporting blank lines as Uncovered (spec §6, audit A1).
-	changes := []gitctx.Change{
-		{Path: "src/constants.py", Status: gitctx.Modified, Lines: []gitctx.LineRange{{Start: 1, End: 15}}},
-	}
-	got := Classify(changes, f1Coverage())
-	want := []FileReport{
-		{
-			Path:   "src/constants.py",
-			Ranges: []ClassifiedRange{{Range: gitctx.LineRange{Start: 1, End: 15}, Class: ImportTime}},
-		},
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("Classify()\n got: %#v\nwant: %#v", got, want)
-	}
-}
-
-func TestClassifyImportTimeOnlyRuleNeedsZeroTestAttribution(t *testing.T) {
-	// The blanket rule applies ONLY to a file no test touches. src/logic.py has one
-	// test-attributed line, so it stays line-granular and its unexecuted line 9 is
-	// still Uncovered — audit A2 must not be traded away for A1.
-	changes := []gitctx.Change{
-		{Path: "src/logic.py", Status: gitctx.Modified, Lines: []gitctx.LineRange{{Start: 9, End: 9}}},
-	}
-	got := Classify(changes, f1Coverage())
-	if len(got) != 1 || len(got[0].Ranges) != 1 || got[0].Ranges[0].Class != Uncovered {
-		t.Fatalf("Classify() = %#v, want line 9 Uncovered", got)
-	}
-}
-
-func TestClassifyEmptyTestAttributionIsNotAttribution(t *testing.T) {
-	// A PerTest entry carrying an EMPTY line slice for a file attributes nothing —
-	// F1's test_constants is exactly that shape — so the file is still import-time-only.
-	cov := &coverage.Result{
-		PerTest: []coverage.TestCoverage{
-			{Test: "tests/test_it.py::test_constants", Files: map[string][]int{"src/constants.py": {}}},
-		},
-		ImportTime: map[string][]int{"src/constants.py": {1, 2, 4}},
-	}
-	changes := []gitctx.Change{
-		{Path: "src/constants.py", Status: gitctx.Modified, Lines: []gitctx.LineRange{{Start: 1, End: 5}}},
-	}
-	got := Classify(changes, cov)
-	if n := Summarize(got).UncoveredLines; n != 0 {
-		t.Fatalf("UncoveredLines = %d, want 0; an empty line slice is not test attribution\n got: %#v", n, got)
-	}
-}
-
-func TestClassifyFileAbsentFromCoverageIsUncoveredNotImportTime(t *testing.T) {
-	// The import-time-only rule needs the file to be MEASURED. A file coverage never
-	// saw at all is a brand-new source file: wholly Uncovered.
+func TestClassifyFileAbsentFromCoverageIsUncovered(t *testing.T) {
+	// A file coverage never saw at all is a brand-new source file: wholly Uncovered.
 	changes := []gitctx.Change{
 		{Path: "src/never_seen.py", Status: gitctx.Added, Lines: []gitctx.LineRange{{Start: 1, End: 3}}},
 	}
@@ -342,7 +221,6 @@ func TestClassString(t *testing.T) {
 	}{
 		{Covered, "covered"},
 		{Uncovered, "uncovered"},
-		{ImportTime, "import-time"},
 		{Class(99), "unknown"},
 	}
 	for _, tc := range tests {
@@ -358,7 +236,7 @@ func TestUncoveredLinesCountsWholeRanges(t *testing.T) {
 		Ranges: []ClassifiedRange{
 			{Range: gitctx.LineRange{Start: 1, End: 3}, Class: Uncovered},
 			{Range: gitctx.LineRange{Start: 4, End: 4}, Class: Covered},
-			{Range: gitctx.LineRange{Start: 5, End: 9}, Class: ImportTime},
+			{Range: gitctx.LineRange{Start: 5, End: 9}, Class: Covered},
 			{Range: gitctx.LineRange{Start: 10, End: 11}, Class: Uncovered},
 		},
 	}
@@ -382,13 +260,13 @@ func TestSummarize(t *testing.T) {
 		{
 			Path: "src/b.py",
 			Ranges: []ClassifiedRange{
-				{Range: gitctx.LineRange{Start: 1, End: 4}, Class: ImportTime},
+				{Range: gitctx.LineRange{Start: 1, End: 4}, Class: Covered},
 				{Range: gitctx.LineRange{Start: 5, End: 5}, Class: Uncovered},
 			},
 		},
 	}
 	got := Summarize(reports)
-	want := Summary{Files: 2, CoveredLines: 2, UncoveredLines: 4, ImportTimeLines: 4}
+	want := Summary{Files: 2, CoveredLines: 6, UncoveredLines: 4}
 	if got != want {
 		t.Fatalf("Summarize() = %#v, want %#v", got, want)
 	}
