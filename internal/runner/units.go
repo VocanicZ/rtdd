@@ -41,6 +41,7 @@ func UnitsIn(a *adapter.Adapter, files []string) []string {
 type unitResult struct {
 	outcome Outcome
 	files   map[string][]int
+	exec    map[string][]int
 	output  string
 	fatal   error
 }
@@ -102,7 +103,7 @@ func RunUnitsIn(a *adapter.Adapter, repoRoot string, units, repoFiles []string, 
 		}
 		out.Outcomes = append(out.Outcomes, r.outcome)
 		if r.files != nil {
-			out.Coverage.PerTest = append(out.Coverage.PerTest, coverage.TestCoverage{Test: r.outcome.Test, Files: r.files})
+			out.Coverage.PerTest = append(out.Coverage.PerTest, coverage.TestCoverage{Test: r.outcome.Test, Files: r.files, Exec: r.exec})
 		}
 		switch r.outcome.Status {
 		case "fail", "error":
@@ -201,18 +202,22 @@ func runUnit(a *adapter.Adapter, repoRoot, unit string, res *covfmt.Resolver) un
 		return r
 	}
 	defer f.Close()
-	raw, err := covfmt.Parse(a.CoverageFormat, f)
+	rep, err := covfmt.ParseReport(a.CoverageFormat, f)
 	if err != nil {
 		r.outcome.Status = "error"
 		r.output = err.Error() + "\n" + r.output
 		return r
 	}
-	kept := map[string][]int{}
-	for p, ls := range res.Resolve(raw) {
-		if a.IsInstrumentable(p) || a.IsTestFile(p) {
-			kept[p] = ls
+	hit, exec := res.ResolveReport(rep)
+	keep := func(m map[string][]int) map[string][]int {
+		kept := map[string][]int{}
+		for p, ls := range m {
+			if a.IsInstrumentable(p) || a.IsTestFile(p) {
+				kept[p] = ls
+			}
 		}
+		return kept
 	}
-	r.files = kept
+	r.files, r.exec = keep(hit), keep(exec)
 	return r
 }

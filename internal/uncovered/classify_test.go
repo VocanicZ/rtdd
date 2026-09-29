@@ -330,3 +330,30 @@ func TestUncoveredNeverReadsMapJSONL(t *testing.T) {
 		}
 	}
 }
+
+// A measured file's changed lines that are not executable (comment, blank, closing brace)
+// are neither covered nor uncovered: they are not reported. A file no unit measured keeps
+// the old rule — every changed line uncovered.
+func TestClassifySkipsNonExecutableLinesOfAMeasuredFile(t *testing.T) {
+	cov := &coverage.Result{PerTest: []coverage.TestCoverage{{
+		Test:  "a_test.go",
+		Files: map[string][]int{"a.go": {3}},
+		Exec:  map[string][]int{"a.go": {3, 4}, "c.go": {9}},
+	}}}
+	changes := []gitctx.Change{
+		{Path: "a.go", Status: gitctx.Modified, Lines: []gitctx.LineRange{{Start: 1, End: 5}}},
+		{Path: "b.go", Status: gitctx.Added, Lines: []gitctx.LineRange{{Start: 1, End: 2}}},
+		{Path: "c.go", Status: gitctx.Modified, Lines: []gitctx.LineRange{{Start: 1, End: 2}}},
+	}
+	got := Classify(changes, cov)
+	want := []FileReport{
+		{Path: "a.go", Ranges: []ClassifiedRange{
+			{Range: gitctx.LineRange{Start: 3, End: 3}, Class: Covered},
+			{Range: gitctx.LineRange{Start: 4, End: 4}, Class: Uncovered},
+		}},
+		{Path: "b.go", Ranges: []ClassifiedRange{{Range: gitctx.LineRange{Start: 1, End: 2}, Class: Uncovered}}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Classify()\n got: %#v\nwant: %#v", got, want)
+	}
+}

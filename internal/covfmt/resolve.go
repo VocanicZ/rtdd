@@ -42,6 +42,37 @@ func Resolve(root string, raw Lines, repoFiles []string) map[string][]int {
 	return NewResolver(root, repoFiles).Resolve(raw)
 }
 
+// ResolveReport resolves a report's hit and executable lines with ONE path mapping, taken
+// over every reported path, hit or not: a unit that hit one file often reports other
+// measured files at count 0 (the -coverpkg packages linked into a Go test binary), and
+// those give the consensus prefix the support it needs to resolve the hit file.
+func (r *Resolver) ResolveReport(rep Report) (hit, exec map[string][]int) {
+	hit, exec = map[string][]int{}, map[string][]int{}
+	if r.root == "" {
+		return hit, exec
+	}
+	all := Lines{}
+	for p := range rep.Exec {
+		all[p] = nil
+	}
+	for p := range rep.Hit {
+		all[p] = nil
+	}
+	consensusPrefix := computeConsensusPrefix(all, r.set)
+	for _, pair := range []struct {
+		in  Lines
+		out map[string][]int
+	}{{rep.Hit, hit}, {rep.Exec, exec}} {
+		for p, lines := range pair.in {
+			rel, ok := resolveOne(r.roots, p, r.set, r.byBase, consensusPrefix)
+			if ok {
+				pair.out[rel] = sortedUnique(append(pair.out[rel], lines...))
+			}
+		}
+	}
+	return hit, exec
+}
+
 // Resolve maps each reported path onto a repo-relative path, merging lines that arrive
 // under two spellings. For relative paths: exact match, then unique suffix match, then
 // consensus prefix (if support >= 2 distinct reported paths). Absolute paths: rel-to-root

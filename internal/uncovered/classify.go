@@ -83,23 +83,20 @@ func Summarize(reports []FileReport) Summary {
 // cov must be the coverage produced by the run that just finished. Line data is never
 // persisted in map.jsonl, so there is no line-drift problem: both sides are current.
 //
+// A file some unit MEASURED (its tool reported executable lines for it) reports only its
+// executable changed lines: a changed comment, blank or closing brace is not code and is
+// neither class. A file no unit measured keeps the whole-changed-set rule.
+//
 // Callers must pass only instrumentable changes; a file absent from cov entirely
 // classifies wholly Uncovered, which is correct for a new source file and wrong for a
 // test file or an opaque asset.
 func Classify(changes []gitctx.Change, cov *coverage.Result) []FileReport {
 	covered := map[string]map[int]bool{}
+	executable := map[string]map[int]bool{}
 	if cov != nil {
 		for _, tc := range cov.PerTest {
-			for path, lines := range tc.Files {
-				set := covered[path]
-				if set == nil {
-					set = map[int]bool{}
-					covered[path] = set
-				}
-				for _, ln := range lines {
-					set[ln] = true
-				}
-			}
+			addLines(covered, tc.Files)
+			addLines(executable, tc.Exec)
 		}
 	}
 
@@ -112,7 +109,18 @@ func Classify(changes []gitctx.Change, cov *coverage.Result) []FileReport {
 		if len(lines) == 0 {
 			continue
 		}
-		cSet := covered[ch.Path]
+		cSet, eSet := covered[ch.Path], executable[ch.Path]
+		if eSet != nil {
+			code := lines[:0:0]
+			for _, ln := range lines {
+				if cSet[ln] || eSet[ln] {
+					code = append(code, ln)
+				}
+			}
+			if lines = code; len(lines) == 0 {
+				continue
+			}
+		}
 		ranges := coalesce(lines, func(ln int) Class {
 			if cSet[ln] {
 				return Covered
@@ -123,6 +131,20 @@ func Classify(changes []gitctx.Change, cov *coverage.Result) []FileReport {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
+}
+
+// addLines merges path -> lines into sets.
+func addLines(sets map[string]map[int]bool, files map[string][]int) {
+	for path, lines := range files {
+		set := sets[path]
+		if set == nil {
+			set = map[int]bool{}
+			sets[path] = set
+		}
+		for _, ln := range lines {
+			set[ln] = true
+		}
+	}
 }
 
 // expandLines flattens ranges into a sorted, deduplicated line list.

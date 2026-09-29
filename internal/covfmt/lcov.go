@@ -8,8 +8,8 @@ import (
 )
 
 // parseLcov reads SF:/DA: records. DA is "line,count[,checksum]".
-func parseLcov(r io.Reader) (Lines, error) {
-	out := Lines{}
+func parseLcov(r io.Reader) (Report, error) {
+	out := newReport()
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 1<<20), 1<<26)
 	file := ""
@@ -27,8 +27,8 @@ func parseLcov(r io.Reader) (Lines, error) {
 			}
 			n, err1 := strconv.Atoi(parts[0])
 			c, err2 := strconv.ParseInt(parts[1], 10, 64)
-			if err1 == nil && err2 == nil && c > 0 {
-				out.add(file, n)
+			if err1 == nil && err2 == nil {
+				out.add(file, n, c > 0)
 			}
 		}
 	}

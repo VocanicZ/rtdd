@@ -19,21 +19,19 @@ type coberturaDoc struct {
 
 // parseCobertura joins each class filename to the report's single <source> when there is
 // exactly one; with several, the filename is left for Resolve's suffix match.
-func parseCobertura(r io.Reader) (Lines, error) {
+func parseCobertura(r io.Reader) (Report, error) {
 	var doc coberturaDoc
 	if err := xml.NewDecoder(r).Decode(&doc); err != nil {
-		return nil, err
+		return Report{}, err
 	}
-	out := Lines{}
+	out := newReport()
 	for _, c := range doc.Classes {
 		p := c.Filename
 		if len(doc.Sources) == 1 && !path.IsAbs(p) {
 			p = path.Join(doc.Sources[0], p)
 		}
 		for _, l := range c.Lines {
-			if l.Hits > 0 {
-				out.add(p, l.Number)
-			}
+			out.add(p, l.Number, l.Hits > 0)
 		}
 	}
 	return out, nil

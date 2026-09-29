@@ -89,3 +89,32 @@ func TestParseGocoverHugeSpan(t *testing.T) {
 		t.Errorf("Parse(gocover, huge span) = %v, want %v (empty)", got, want)
 	}
 }
+
+// Exec is every line the tool measured, hit or not: the executable lines. A changed line
+// outside it (comment, blank, brace) is not code and must not be reported uncovered.
+func TestParseReportCarriesExecutableLines(t *testing.T) {
+	cases := []struct {
+		format, in string
+		hit, exec  Lines
+	}{
+		{"lcov", "SF:/r/src/a.py\nDA:1,1\nDA:2,0\nDA:3,4\nend_of_record\n",
+			Lines{"/r/src/a.py": {1, 3}}, Lines{"/r/src/a.py": {1, 2, 3}}},
+		{"gocover", "mode: set\nm/calc.go:3.20,5.2 1 1\nm/calc.go:7.20,8.2 1 0\nm/util.go:1.1,2.2 1 0\n",
+			Lines{"m/calc.go": {3, 4, 5}}, Lines{"m/calc.go": {3, 4, 5, 7, 8}, "m/util.go": {1, 2}}},
+		{"cobertura", `<coverage><packages><package><classes><class filename="C.cs"><lines><line number="4" hits="2"/><line number="5" hits="0"/></lines></class></classes></package></packages></coverage>`,
+			Lines{"C.cs": {4}}, Lines{"C.cs": {4, 5}}},
+		{"jacoco", `<report name="x"><package name="p"><sourcefile name="B.java"><line nr="3" mi="0" ci="2"/><line nr="4" mi="1" ci="0"/><line nr="5" mi="0" ci="0"/></sourcefile></package></report>`,
+			Lines{"p/B.java": {3}}, Lines{"p/B.java": {3, 4}}},
+	}
+	for _, c := range cases {
+		t.Run(c.format, func(t *testing.T) {
+			got, err := ParseReport(c.format, strings.NewReader(c.in))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got.Hit, c.hit) || !reflect.DeepEqual(got.Exec, c.exec) {
+				t.Errorf("ParseReport(%s) = hit %v exec %v, want hit %v exec %v", c.format, got.Hit, got.Exec, c.hit, c.exec)
+			}
+		})
+	}
+}

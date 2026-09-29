@@ -240,3 +240,20 @@ func TestResolveAcceptsAbsolutePathsUnderTheRealRoot(t *testing.T) {
 		t.Errorf("Resolve = %v, want %v", got, want)
 	}
 }
+
+// A Go unit that hits one file still reports every -coverpkg file at count 0. The prefix
+// consensus must be taken over those executable paths, or a unit hitting a single file
+// resolves nothing (its row recorded f: []).
+func TestResolveReportUsesExecutablePathsForTheConsensus(t *testing.T) {
+	rep := Report{
+		Hit:  Lines{"example.com/m/calc/calc.go": {3}},
+		Exec: Lines{"example.com/m/calc/calc.go": {3, 5}, "example.com/m/store/store.go": {1}},
+	}
+	hit, exec := NewResolver("/r", []string{"calc/calc.go", "store/store.go"}).ResolveReport(rep)
+	if want := map[string][]int{"calc/calc.go": {3}}; !reflect.DeepEqual(hit, want) {
+		t.Errorf("hit = %v, want %v", hit, want)
+	}
+	if want := map[string][]int{"calc/calc.go": {3, 5}, "store/store.go": {1}}; !reflect.DeepEqual(exec, want) {
+		t.Errorf("exec = %v, want %v", exec, want)
+	}
+}

@@ -15,9 +15,32 @@ type Lines map[string][]int
 
 var Formats = []string{"lcov", "cobertura", "gocover", "jacoco"}
 
+// Report is one coverage file: Hit is the lines executed (count > 0), Exec every line the
+// tool measured, hit or not — the executable lines. Hit is a subset of Exec.
+type Report struct {
+	Hit, Exec Lines
+}
+
+func newReport() Report { return Report{Hit: Lines{}, Exec: Lines{}} }
+
+// add records one measured line, as hit when count > 0.
+func (r Report) add(path string, line int, hit bool) {
+	r.Exec.add(path, line)
+	if hit {
+		r.Hit.add(path, line)
+	}
+}
+
+// Parse returns the hit lines of a coverage file.
 func Parse(format string, r io.Reader) (Lines, error) {
+	rep, err := ParseReport(format, r)
+	return rep.Hit, err
+}
+
+// ParseReport returns a coverage file's hit and executable lines.
+func ParseReport(format string, r io.Reader) (Report, error) {
 	var (
-		out Lines
+		out Report
 		err error
 	)
 	switch format {
@@ -30,13 +53,15 @@ func Parse(format string, r io.Reader) (Lines, error) {
 	case "jacoco":
 		out, err = parseJacoco(r)
 	default:
-		return nil, fmt.Errorf("covfmt: unknown format %q (only %v)", format, Formats)
+		return Report{}, fmt.Errorf("covfmt: unknown format %q (only %v)", format, Formats)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("covfmt: %s: %w", format, err)
+		return Report{}, fmt.Errorf("covfmt: %s: %w", format, err)
 	}
-	for p, ls := range out {
-		out[p] = sortedUnique(ls)
+	for _, l := range []Lines{out.Hit, out.Exec} {
+		for p, ls := range l {
+			l[p] = sortedUnique(ls)
+		}
 	}
 	return out, nil
 }
