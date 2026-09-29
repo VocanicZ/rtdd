@@ -69,6 +69,9 @@ func TestV3Validation(t *testing.T) {
 		{"unknown format", strings.Replace(goV3, "gocover", "sqlite", 1), "coverage_format"},
 		{"no unit placeholder", strings.Replace(goV3, "./{dir}", "./...", 1) + "", ""},
 		{"coverage file outside tmp", strings.Replace(goV3, `coverage_file: "{tmp}/cover.out"`, `coverage_file: "cover.out"`, 1), "coverage_file"},
+		{"coverage file escapes tmp", strings.Replace(goV3, `coverage_file: "{tmp}/cover.out"`, `coverage_file: "{tmp}/../cover.out"`, 1), "coverage_file"},
+		{"coverage file escapes tmp deeper", strings.Replace(goV3, `coverage_file: "{tmp}/cover.out"`, `coverage_file: "{tmp}/a/../../cover.out"`, 1), "coverage_file"},
+		{"coverage file with a harmless dot-dot", strings.Replace(goV3, `coverage_file: "{tmp}/cover.out"`, `coverage_file: "{tmp}/a/../cover.out"`, 1), "coverage_file"},
 		{"unknown placeholder", strings.Replace(goV3, "{names}", "{tests}", 1), "{tests}"},
 		{"bad names regex", strings.Replace(goV3, `'^func (Test\w+)\('`, `'^func (Test'`, 1), "unit_names"},
 	} {

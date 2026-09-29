@@ -21,8 +21,8 @@ func (a *Adapter) validateV3() error {
 	}
 	// Every unit gets a private {tmp}; a coverage file anywhere else is shared between
 	// parallel units and one unit would read another's coverage.
-	if !strings.HasPrefix(a.CoverageFile, "{tmp}/") {
-		return fmt.Errorf("coverage_file %q: must start with {tmp}/ so parallel units never share it", a.CoverageFile)
+	if !strings.HasPrefix(path.Clean(a.CoverageFile), "{tmp}/") || slices.Contains(strings.Split(a.CoverageFile, "/"), "..") {
+		return fmt.Errorf("coverage_file %q: must be under {tmp}/ with no .. element, so parallel units never share it", a.CoverageFile)
 	}
 	if a.UnitNames != "" {
 		re, err := regexp.Compile("(?m)" + a.UnitNames)
