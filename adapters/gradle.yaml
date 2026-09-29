@@ -1,9 +1,32 @@
-# The Java/Kotlin (Gradle) adapter on contract v3: one test class per process, JaCoCo
-# XML written under {tmp}. jobs: 1 because every unit shares build/.
-# unverified — settled in Task 10 (JaCoCo applied by an rtdd-shipped --init-script).
+# The Java/Kotlin (Gradle) adapter on contract v3: one test class per process
+# (--tests *{name}), JaCoCo applied by an init script that unit_files writes into the
+# unit's {tmp}, so the host build needs no change. jobs: 1 because every unit shares build/.
+#
+# NOT VERIFIED ON A REAL TOOLCHAIN in the change that introduced it: gradle was not
+# installed where it was written. The init script follows Gradle's documented jacoco
+# plugin API; expect to adjust it on first real use. It reports per project, so a
+# multi-project build would have the last project's report win {tmp}/jacoco.xml.
 name: gradle
 detect: ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]
-unit_cmd: "./gradlew -q test --tests *{name} jacocoTestReport -PrtddTmp={tmp}"
+unit_cmd: "./gradlew -q --init-script {tmp}/rtdd.init.gradle test --tests *{name}"
+unit_files:
+  rtdd.init.gradle: |
+    allprojects {
+      plugins.withId('java') {
+        apply plugin: 'jacoco'
+        tasks.withType(Test).configureEach {
+          jacoco { destinationFile = file('{tmp}/jacoco.exec') }
+          finalizedBy tasks.named('jacocoTestReport')
+        }
+        tasks.named('jacocoTestReport') {
+          executionData.setFrom(file('{tmp}/jacoco.exec'))
+          reports {
+            xml.required = true
+            xml.outputLocation = file('{tmp}/jacoco.xml')
+          }
+        }
+      }
+    }
 coverage_file: "{tmp}/jacoco.xml"
 coverage_format: jacoco
 jobs: 1
