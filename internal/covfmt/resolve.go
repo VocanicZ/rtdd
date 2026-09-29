@@ -3,6 +3,7 @@ package covfmt
 import (
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -88,12 +89,19 @@ func computeConsensusPrefix(raw Lines, set map[string]bool) string {
 		}
 	}
 
-	// Pick the prefix with highest count of distinct paths (>= 2); ties: shorter prefix.
+	// Pick the prefix with highest count of distinct paths (>= 2); ties: lexically smallest.
+	// Sort prefixes to make tie-breaking deterministic.
+	var prefixes []string
+	for prefix := range prefixPaths {
+		prefixes = append(prefixes, prefix)
+	}
+	sort.Strings(prefixes)
+
 	var best string
 	bestCount := 0
-	for prefix, paths := range prefixPaths {
-		count := len(paths)
-		if count >= 2 && (count > bestCount || (count == bestCount && len(prefix) < len(best))) {
+	for _, prefix := range prefixes {
+		count := len(prefixPaths[prefix])
+		if count >= 2 && (count > bestCount || (count == bestCount && (best == "" || prefix < best))) {
 			best = prefix
 			bestCount = count
 		}

@@ -1,6 +1,8 @@
 package covfmt
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -177,6 +179,36 @@ func TestResolveEscapingPathDoesntVote(t *testing.T) {
 	want := map[string][]int{
 		"a.go": {2}, // consensus prefix "example.com/m/" supports 2 paths
 		"b.go": {3},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Resolve = %v, want %v", got, want)
+	}
+}
+
+func TestResolveRelativeRoot(t *testing.T) {
+	// Resolve with relative root (e.g., ".") resolves absolute paths correctly.
+	// Change to temp directory, use "." as root, and resolve absolute paths under that dir.
+	tmpdir := t.TempDir()
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+
+	if err := os.Chdir(tmpdir); err != nil {
+		t.Fatal(err)
+	}
+
+	files := []string{"src/a.py"}
+	// Construct an absolute path under tmpdir
+	absPath := filepath.Join(tmpdir, "src", "a.py")
+	raw := Lines{
+		absPath: {1, 2},
+	}
+
+	got := Resolve(".", raw, files)
+	want := map[string][]int{
+		"src/a.py": {1, 2},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Resolve = %v, want %v", got, want)
