@@ -48,3 +48,44 @@ func TestParseRejectsUnknownFormatAndGarbage(t *testing.T) {
 		t.Error("gocover without a mode line parsed without error")
 	}
 }
+
+func TestParseJacocoDefaultPackage(t *testing.T) {
+	// JaCoCo with empty package name produces "Foo.java", not "/Foo.java".
+	in := `<?xml version="1.0"?><!DOCTYPE report PUBLIC "-//JACOCO//DTD Report 1.1//EN" "report.dtd"><report name="x"><package name="">
+<sourcefile name="Foo.java"><line nr="1" mi="0" ci="1" mb="0" cb="0"/></sourcefile>
+</package></report>`
+	got, err := Parse("jacoco", strings.NewReader(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Lines{"Foo.java": {1}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Parse(jacoco, default package) = %v, want %v", got, want)
+	}
+}
+
+func TestParseLcovCRLF(t *testing.T) {
+	// LCOV with CRLF line endings should be handled by TrimSpace.
+	in := "TN:\r\nSF:/r/src/a.py\r\nDA:1,1\r\nDA:2,0\r\nend_of_record\r\n"
+	got, err := Parse("lcov", strings.NewReader(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Lines{"/r/src/a.py": {1}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Parse(lcov, CRLF) = %v, want %v", got, want)
+	}
+}
+
+func TestParseGocoverHugeSpan(t *testing.T) {
+	// gocover with a span > 100000 lines should be skipped.
+	in := "mode: set\nexample.com/m/huge.go:1.1,100001.1 1 1\n"
+	got, err := Parse("gocover", strings.NewReader(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Lines{} // huge span skipped, no lines hit
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Parse(gocover, huge span) = %v, want %v (empty)", got, want)
+	}
+}

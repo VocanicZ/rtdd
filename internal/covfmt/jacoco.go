@@ -3,6 +3,7 @@ package covfmt
 import (
 	"encoding/xml"
 	"io"
+	"path"
 )
 
 type jacocoDoc struct {
@@ -32,7 +33,7 @@ func parseJacoco(r io.Reader) (Lines, error) {
 		for _, f := range p.Files {
 			for _, l := range f.Lines {
 				if l.Ci > 0 {
-					out.add(p.Name+"/"+f.Name, l.Nr)
+					out.add(path.Join(p.Name, f.Name), l.Nr)
 				}
 			}
 		}

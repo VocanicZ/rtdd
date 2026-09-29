@@ -40,6 +40,10 @@ func parseGocover(r io.Reader) (Lines, error) {
 		if err1 != nil || err2 != nil || end < start {
 			continue
 		}
+		// Skip spans larger than 100000 lines to prevent unbounded loops.
+		if end-start+1 > 100000 {
+			continue
+		}
 		for n := start; n <= end; n++ {
 			out.add(line[:colon], n)
 		}
