@@ -6,13 +6,14 @@ import "fmt"
 // table — 4 for pytest, say, which is what it exits when pytest-cov is missing and --cov
 // is rejected. It looks like a test failure to a naive caller and is not: the run cannot
 // be trusted, so the CLI exits 2 instead.
+//
+// Output is the tail of the unit's combined output (the runner's own explanation);
+// Requires are the adapter's `requires` reasons, for the CLI's hint.
 type FatalExitError struct {
-	Unit  string
-	Code  int
-	Label string
-	// Output is the tail of the unit's combined output: the runner's own explanation.
-	Output string
-	// Requires are the adapter's `requires` reasons, for the CLI's hint.
+	Unit     string
+	Code     int
+	Label    string
+	Output   string
 	Requires []string
 }
 

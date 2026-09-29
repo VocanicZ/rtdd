@@ -351,7 +351,8 @@ func (a *Adapter) IsInstrumentable(rel string) bool
 // NOT in the set: the amendment below dropped it in favour of a bare --cov.
 // The template is tokenised on whitespace BEFORE substitution, so a substituted value
 // is never re-split. A template containing {tests} is an error here; an unrecognised
-// {placeholder} is an error, never a literal passed through to the runner.
+// {placeholder} is an error, never a literal passed through to the runner. An empty `{}`
+// names nothing and is a literal (jest's --coverageThreshold={}).
 //
 // Expand has no closed variable set — it resolves whatever key it is handed — so nothing
 // in internal/adapter structurally prevents a host adapter reintroducing --cov={src}.
@@ -369,6 +370,7 @@ func (a *Adapter) Expand(tmpl string, vars map[string]string) ([]string, error)
 type TestCoverage struct {
     Test  string           // the unit (test file), repo-relative
     Files map[string][]int // repo-relative path -> sorted covered line numbers
+    Exec  map[string][]int // every line the tool measured (executable), hit or not; nil if none
 }
 
 // Result is everything one run recorded, one entry per unit.
@@ -467,12 +469,22 @@ func Run(a *adapter.Adapter, repoRoot string, tests []string, failFast bool) (*R
 // row, so every condition Run treats as fatal is fatal here too.
 func Seed(a *adapter.Adapter, repoRoot string) (*RunResult, error)
 
+// The *In variants take the gitctx.ListFiles result the command already listed, so one
+// command lists the repository once.
+func UnitsIn(a *adapter.Adapter, files []string) []string
+func RunUnitsIn(a *adapter.Adapter, repoRoot string, units, repoFiles []string, failFast bool) (*RunResult, error)
+func RunIn(a *adapter.Adapter, repoRoot string, tests, repoFiles []string, failFast bool) (*RunResult, error)
+func SeedIn(a *adapter.Adapter, repoRoot string, repoFiles []string) (*RunResult, error)
+
 // FatalExitError is a unit that exited with a code mapped in Adapter.ExitCodes. It is
-// NOT a test failure; the CLI recovers it with errors.As and exits 2.
+// NOT a test failure; the CLI recovers it with errors.As and exits 2. Output is the
+// unit's output tail (part of Error()); Requires are the adapter's `requires` reasons.
 type FatalExitError struct {
-    Unit  string
-    Code  int
-    Label string
+    Unit     string
+    Code     int
+    Label    string
+    Output   string
+    Requires []string
 }
 func (e *FatalExitError) Error() string
 ```
