@@ -1,7 +1,9 @@
 # The PHP (PHPUnit) adapter on contract v3: one test file per process, cobertura coverage.
 # PHPUnit records coverage only with the pcov or xdebug extension loaded (XDEBUG_MODE=coverage
 # for xdebug), and the project's phpunit.xml must name its source dir under <source><include>
-# (PHPUnit 10+) or <coverage><include> (9), else the report is empty.
+# (PHPUnit 10+) or <coverage><include> (9), else the report is empty. PHPUnit 10+ is
+# assumed; PHPUnit 9 needs the <coverage><include> form. Exit 2 (an errored test) is not
+# listed in exit_codes, so it is classified as an error.
 # NOT RUN against a real toolchain in this change (php only, no composer/phpunit/pcov here).
 # A first real run must confirm: `--coverage-cobertura` is accepted with a file argument,
 # that the test file path as the last argument runs only that file, that the report's

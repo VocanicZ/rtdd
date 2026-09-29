@@ -46,19 +46,19 @@ func TestRSpecRendersItsUnitAndLoader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"bundle", "exec", "rspec", "spec/api_spec.rb"}; !reflect.DeepEqual(got, want) {
+	if want := []string{"bundle", "exec", "rspec", "--require", "/t/u1/rtdd_simplecov.rb", "spec/api_spec.rb"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("UnitArgv = %q, want %q", got, want)
 	}
-	if env := a.UnitEnv("/t/u1"); env["RUBYOPT"] != "-r/t/u1/rtdd_simplecov.rb" {
-		t.Errorf("UnitEnv = %v", env)
+	if env := a.UnitEnv("/t/u1"); len(env) != 0 {
+		t.Errorf("UnitEnv = %v, want none", env)
 	}
 	loader := a.UnitFileContents("/t/u1")["rtdd_simplecov.rb"]
-	for _, w := range []string{`require "bundler/setup"`, `c.single_report_path = "/t/u1/lcov.info"`, "SimpleCov.start"} {
+	for _, w := range []string{`c.output_directory = "/t/u1"`, `c.lcov_file_name = "lcov.info"`, "SimpleCov.start"} {
 		if !strings.Contains(loader, w) {
 			t.Errorf("loader lacks %q:\n%s", w, loader)
 		}
 	}
-	if strings.Contains(loader, "{tmp}") {
+	if strings.Contains(loader, "bundler/setup") || strings.Contains(loader, "{tmp}") {
 		t.Errorf("loader has an unsubstituted {tmp}:\n%s", loader)
 	}
 	if p := a.CoveragePath("/t/u1"); p != "/t/u1/lcov.info" || a.CoverageFormat != "lcov" {
