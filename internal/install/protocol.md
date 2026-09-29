@@ -46,10 +46,11 @@ adapter it names or re-run with `--force`.
 
 <!-- rtdd:section id=what title="What rtdd reports" targets=skill,agents,mdc,global,global-agents order=10 -->
 `rtdd` reports which tests cover the code you just changed, and which of the lines you just
-changed nothing covers. Both come from coverage recorded during real execution of this
-repository's suite, not from a static call graph, so the relation includes edges reached
-through dynamic dispatch, dependency injection, plugin registries, and monkeypatching, and
-omits any path no test has ever taken.
+changed nothing covers. In every language rtdd supports, both come from coverage recorded by
+running each test file in its own process under the language's stock coverage tool, not from
+a static call graph, so the relation includes edges reached through dynamic dispatch,
+dependency injection, plugin registries, and monkeypatching, and omits any path no test has
+ever taken.
 
 It reports. It does not gate, block, or fail anything on policy.
 <!-- rtdd:variant target=agents -->
@@ -125,21 +126,34 @@ An empty selection is reported as its own outcome, never as a pass.
 
 ```json
 {
-  "tier": "T0",
-  "reason": "changed files intersect 12 recorded test rows",
+  "schema": 2,
+  "command": "which",
   "base": "HEAD",
-  "changed": ["src/auth.py", "src/db.py"],
-  "direct": ["tests/test_auth.py"],
-  "tests": ["tests/test_auth.py", "tests/test_db.py"],
-  "uncovered": [{"path": "src/auth.py", "ranges": [{"start": 52, "end": 58}]}],
-  "selected_duration_ms": 1412,
-  "map_tests": 8471
+  "adapter": "python",
+  "tier": "T0",
+  "reason": "tests whose recorded coverage intersects the changed set",
+  "complete": true,
+  "warnings": [],
+  "changed": [{"path": "src/auth.py", "status": "modified", "instrumentable": true,
+               "lines": [{"start": 52, "end": 58}]}],
+  "selection": {"count": 2, "direct": ["tests/test_auth.py"],
+                "tests": ["tests/test_auth.py", "tests/test_db.py"]},
+  "run": {"executed": false, "passed": 0, "failed": 0, "skipped": 0, "errored": 0,
+          "failures": [], "duration_ms": 0},
+  "uncovered": {"available": false, "reason": "requires fresh post-run coverage; run `rtdd run`",
+                "summary": {"files": 0, "covered_lines": 0, "uncovered_lines": 0}},
+  "unmapped_files": [],
+  "exit_code": 0
 }
 ```
 
-`tier` is one of `empty`, `direct`, `T0`, `T1`, `T2`. `T2` means the full suite was selected
-because the map is unseeded, a dependency manifest changed, the test-harness config changed,
-or the drift guard was reached; `reason` says which.
+Reject any `schema` other than `2`. `tier` is one of `empty`, `direct`, `T0`, `T1`, `T2`. `T2`
+means the full suite was selected because the map is unseeded, a dependency manifest changed,
+the test-harness config changed, or the drift guard was reached; `reason` says which. `tests`
+always lists the whole run, so `complete` is `true`; an empty selection carries a `warnings`
+entry instead. In a repository with several adapters a `selections` array splits the ids per
+adapter: take the ids for one runner from exactly one block. `uncovered` is `available` only
+after `rtdd run`.
 <!-- rtdd:endsection -->
 
 <!-- rtdd:section id=commands title="The rest of the commands" targets=skill,global order=70 -->
@@ -154,7 +168,7 @@ rtdd init                    install .gitattributes, config, and agent front-end
 ```
 
 `rtdd seed` is the only operation that may narrow a test file's recorded file set. Every
-other path unions, because a failing test records only a truncated prefix of its real path.
+other path unions, because a failing test file records only a truncated prefix of its real path.
 <!-- rtdd:endsection -->
 
 <!-- rtdd:section id=limits title="What it cannot see" targets=skill,mdc,global order=80 -->
@@ -162,18 +176,27 @@ Stated plainly, because a selector that hides its blind spots is worse than no s
 
 - Coverage only knows paths some test actually took. A branch nothing has ever exercised has
   no edge, and `rtdd which` will not find it.
-- Anything executed once per process — `@lru_cache`, module singletons, DI containers,
-  session-scoped fixtures — is attributed to whichever test happened to run first, so the
-  most coupled file in a repo can appear as its cleanest in `rtdd doctor`.
-- Selection is file-level. Changing one function in a file selects every test that touched
-  any part of that file.
+- Each test file runs in its own process, so anything executed once per process —
+  `@lru_cache`, module singletons, DI containers, session-scoped fixtures — is attributed to
+  every test file that runs it. That inflates fan-out in `rtdd doctor`: code reached only
+  through shared setup looks coupled to every test file.
+- Selection is file-level on both sides. Changing one function in a file selects every test
+  file that executed any part of that file, and the smallest unit selected is a test file
+  (for Go, the package filtered to that file's own `Test` functions).
+- The price is one process per test file, plus the coverage tool's overhead, on `rtdd seed`
+  and on every `rtdd run`. It is small for Python, Go, and Node, and large where a process
+  start is slow (the JVM under Maven or Gradle, .NET).
+- Test files that depend on each other — through shared state on disk, ordering, or a port —
+  may fail or pass differently when run one per process than in a full suite. The map only
+  records what each did alone.
 - A merge commit escalates, because a union-merged map cannot narrow relative to its parents
   but can still be stale relative to the merged code.
 - `rtdd verify` is a convenience, not a substitute for CI.
 <!-- rtdd:variant target=mdc -->
 Coverage only knows paths some test actually took; a never-exercised branch has no edge.
-Once-per-process execution (`@lru_cache`, singletons, session fixtures) is attributed to
-whichever test ran first. Selection is file-level. `rtdd verify` does not replace CI.
+Each test file runs in its own process, so once-per-process code (`@lru_cache`, singletons,
+session fixtures) is attributed to every test file that runs it. Selection is file-level, and
+the cost is one process per test file. `rtdd verify` does not replace CI.
 <!-- rtdd:endvariant -->
 <!-- rtdd:endsection -->
 

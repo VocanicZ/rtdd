@@ -41,7 +41,7 @@ func TestGlobalFrontEndsTeachInit(t *testing.T) {
 	}
 }
 
-// The project skill's description scopes itself to "a Python repository that has a
+// The project skill's description scopes itself to "a repository that has a
 // .rtdd/map.jsonl". Copying that verbatim into a machine-wide skill would tell the agent to
 // stand down in precisely the repositories the global skill exists to bootstrap, so the two
 // descriptions must differ.

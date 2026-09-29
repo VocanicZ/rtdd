@@ -15,7 +15,7 @@ const (
 const (
 	SkillDescription = "Surface which tests cover the code you changed, and which changed " +
 		"lines nothing covers, from recorded coverage rather than a static graph. Use when " +
-		"editing a Python repository that has a .rtdd/map.jsonl, before or after changing " +
+		"editing a repository that has a .rtdd/map.jsonl, before or after changing " +
 		"source files, to find the relevant tests and the untested part of a diff."
 	// GlobalSkillDescription is deliberately NOT SkillDescription. The project skill is
 	// installed by `rtdd init` into a repository that has already been set up, so it can
@@ -29,7 +29,7 @@ const (
 		"has a .rtdd/map.jsonl, run `rtdd which`; if it does not, run `rtdd init` to set " +
 		"rtdd up for that repository first."
 	MdcDescription = "Which tests cover the code you changed, from recorded coverage."
-	MdcGlobs       = "**/*.py"
+	MdcGlobs       = "**/*.{py,go,js,jsx,ts,tsx,rs,java,kt,cs,php,rb}"
 )
 
 // The machine-wide front-ends. Their basenames differ from the repo-scoped ones on
