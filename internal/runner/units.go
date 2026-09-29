@@ -170,7 +170,11 @@ func runUnit(a *adapter.Adapter, repoRoot, unit string, repoFiles []string) unit
 		r.outcome.Status = "skip"
 		return r
 	case mapped:
-		r.fatal = &FatalExitError{Unit: unit, Code: code, Label: label}
+		fe := &FatalExitError{Unit: unit, Code: code, Label: label, Output: r.output}
+		for _, req := range a.Requires {
+			fe.Requires = append(fe.Requires, req.Reason)
+		}
+		r.fatal = fe
 		return r
 	default:
 		r.outcome.Status = "error"

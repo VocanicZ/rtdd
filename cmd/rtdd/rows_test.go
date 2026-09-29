@@ -497,3 +497,19 @@ func assertSameDir(t *testing.T, got, want string) {
 		t.Fatalf("findRepoRoot = %q, want %q", gotEval, wantEval)
 	}
 }
+
+// Exit 4 is almost always a missing coverage plugin, not a stale map: the hint says so and
+// names what the adapter requires.
+func TestExitFourHintPointsAtTheCoveragePlugin(t *testing.T) {
+	_, hints := runErrClass(&runner.FatalExitError{Unit: "tests/test_a.py", Code: 4, Label: "bad-selector",
+		Requires: []string{"the python adapter runs pytest with the pytest-cov plugin"}})
+	got := strings.Join(hints, "\n")
+	for _, want := range []string{"the runner rejected its arguments", "coverage plugin installed", "pytest-cov plugin"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("hints %q do not contain %q", got, want)
+		}
+	}
+	if strings.Contains(got, "map may be stale") {
+		t.Errorf("hints still blame a stale map: %q", got)
+	}
+}

@@ -216,3 +216,25 @@ func TestAnUnwritableUnitFileIsAnErrorUnit(t *testing.T) {
 		t.Fatalf("status %q output %q, want error naming unit_files", r.outcome.Status, r.output)
 	}
 }
+
+// A runner that rejects its arguments (pytest without pytest-cov exits 4) says why on
+// stderr; the fatal error must carry that text, or the user sees only an exit code.
+func TestFatalExitCarriesTheUnitsOutput(t *testing.T) {
+	dir, a := gofixRepo(t)
+	a.Jobs = 1
+	os.WriteFile(filepath.Join(dir, "exit4.sh"), []byte("echo 'error: unrecognized arguments: --cov=.' >&2\nexit 4\n"), 0o644)
+	a.UnitCmd = "sh exit4.sh"
+	a.ExitCodes = map[int]string{4: "bad-selector"}
+	a.Requires = []adapter.Requirement{{Bin: "pytest", Reason: "needs the pytest-cov plugin"}}
+	_, err := Run(a, dir, []string{"calc/calc_test.go"}, false)
+	var fe *FatalExitError
+	if !errors.As(err, &fe) {
+		t.Fatalf("err = %v, want FatalExitError", err)
+	}
+	if !strings.Contains(err.Error(), "unrecognized arguments: --cov=.") {
+		t.Errorf("error does not carry the unit's output: %q", err.Error())
+	}
+	if len(fe.Requires) != 1 || fe.Requires[0] != "needs the pytest-cov plugin" {
+		t.Errorf("Requires = %v, want the adapter's requires reasons", fe.Requires)
+	}
+}

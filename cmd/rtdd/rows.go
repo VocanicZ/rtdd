@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/VocanicZ/rtdd/internal/adapter"
 	"github.com/VocanicZ/rtdd/internal/gitctx"
@@ -105,10 +106,10 @@ func rowsFrom(res *runner.RunResult, sha, adapterName string) []mapstore.Row {
 // It returns 0 for a nil error so callers can write `if code := reportRunErr(err);
 // code != 0` without a second nil check.
 //
-// The split is the one frozen in docs/plans/00-interfaces.md: a mapped exit code
-// (4 bad-selector, 5 no-tests-collected) says rtdd's own configuration or map is
-// wrong, which is exit 2; everything else that reaches here says the environment
-// cannot produce a trustworthy map, which is exit 3. Neither is exit 1: a test did not
+// The split is the one frozen in docs/plans/00-interfaces.md: a mapped exit code (4 for
+// pytest: the runner rejected its arguments, typically a missing coverage plugin) says
+// rtdd's configuration or environment is wrong, which is exit 2; everything else that
+// reaches here says the environment cannot produce a trustworthy map, which is exit 3. Neither is exit 1: a test did not
 // fail.
 func reportRunErr(err error) int {
 	code, hints := runErrClass(err)
@@ -135,7 +136,11 @@ func runErrClass(err error) (int, []string) {
 	var fe *runner.FatalExitError
 	if errors.As(err, &fe) {
 		if fe.Code == 4 {
-			return 2, []string{"the test ids rtdd produced were rejected by the runner; the map may be stale. Try: rtdd seed"}
+			hint := "the runner rejected its arguments — is its coverage plugin installed (e.g. pytest-cov)?"
+			if len(fe.Requires) > 0 {
+				hint += " The adapter requires: " + strings.Join(fe.Requires, "; ")
+			}
+			return 2, []string{hint}
 		}
 		return 2, nil
 	}
