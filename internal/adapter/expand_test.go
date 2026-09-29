@@ -54,8 +54,7 @@ func TestExpandUnknownPlaceholderIsAnError(t *testing.T) {
 		"pytest --junit={junit}",
 		"pytest --out={OUT}",
 		"pytest --dir={out-dir}",
-		"pytest {}",
-	} {
+	} { // `{}` is a literal: see TestEmptyBracesAreALiteral
 		_, err := a.Expand(tmpl, map[string]string{"log": "l"})
 		if err == nil {
 			t.Errorf("Expand(%q) = nil error, want error; an unknown placeholder must never pass through as a literal", tmpl)
@@ -80,5 +79,22 @@ func TestExpandEmptyTemplate(t *testing.T) {
 		if _, err := a.Expand(tmpl, map[string]string{}); err == nil {
 			t.Errorf("Expand(%q) = nil error, want error", tmpl)
 		}
+	}
+}
+
+// An empty brace pair names nothing, so it is a literal: jest's --coverageThreshold={}
+// (the one spelling that clears a project threshold) must reach the runner verbatim and
+// pass validation.
+func TestEmptyBracesAreALiteral(t *testing.T) {
+	a := &Adapter{Name: "jest"}
+	got, err := a.Expand("jest --coverageThreshold={} {unit}", map[string]string{"unit": "a.test.js"})
+	if err != nil {
+		t.Fatalf("Expand: %v", err)
+	}
+	if want := []string{"jest", "--coverageThreshold={}", "a.test.js"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Expand = %q, want %q", got, want)
+	}
+	if bad := unknownPlaceholder("jest --coverageThreshold={} {unit}", unitPlaceholders); bad != "" {
+		t.Fatalf("unknownPlaceholder = %q, want none", bad)
 	}
 }

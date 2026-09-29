@@ -11,10 +11,11 @@ import (
 	"strings"
 )
 
-// placeholderRe matches any {...} group, not just the known names. A brace group RTDD
+// placeholderRe matches any non-empty {...} group, not just the known names. An empty
+// `{}` names nothing and stays a literal (jest's --coverageThreshold={}). A brace group RTDD
 // does not recognise is a typo in the adapter; letting it through as a literal would
 // reach the runner as a nonsense argument and surface as an unreadable bad-selector exit.
-var placeholderRe = regexp.MustCompile(`\{[^{}]*\}`)
+var placeholderRe = regexp.MustCompile(`\{[^{}]+\}`)
 
 // Expand substitutes placeholders into a command template and returns argv.
 //

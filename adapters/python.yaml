@@ -1,6 +1,7 @@
 # The Python adapter on contract v3.
 # name/detect: which repos this adapter claims.
 # unit_cmd: one test file per process under pytest-cov. --cov-report writes the lcov rtdd reads.
+# --cov-fail-under=0: a project threshold judges the whole suite, which one unit never meets.
 # env: COVERAGE_FILE keeps parallel units off each other's .coverage.
 # coverage_file/coverage_format: where that lcov lands and how to parse it.
 # exit_codes: 5 (no tests collected) is a skip; 4 (pytest rejected its arguments — usually
@@ -11,7 +12,7 @@
 # and which changes force the whole suite.
 name: python
 detect: ["pytest.ini", "pyproject.toml", "setup.cfg"]
-unit_cmd: "pytest -q -p no:cacheprovider --cov=. --cov-report=lcov:{tmp}/lcov.info {unit}"
+unit_cmd: "pytest -q -p no:cacheprovider --cov=. --cov-report=lcov:{tmp}/lcov.info --cov-fail-under=0 {unit}"
 env: { COVERAGE_FILE: "{tmp}/.coverage" }
 coverage_file: "{tmp}/lcov.info"
 coverage_format: lcov

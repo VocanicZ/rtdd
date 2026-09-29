@@ -198,7 +198,7 @@ func unknownPlaceholder(tmpl string, known map[string]bool) string {
 			return ""
 		}
 		ph := rest[open : open+shut+1]
-		if !known[ph] {
+		if ph != "{}" && !known[ph] { // {} names nothing: a literal, as in Expand
 			return ph
 		}
 		rest = rest[open+shut+1:]

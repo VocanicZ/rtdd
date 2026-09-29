@@ -8,7 +8,15 @@ import (
 	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
 )
 
-func TestPipelinePython(t *testing.T) {
+func TestPipelinePython(t *testing.T) { pythonPipeline(t, "[pytest]\npythonpath = .\n") }
+
+// A project coverage threshold judges the whole suite; one unit alone never meets it, so
+// the adapter overrides it and the unit's outcome stays its tests' outcome.
+func TestPipelinePythonIgnoresTheProjectCoverageThreshold(t *testing.T) {
+	pythonPipeline(t, "[pytest]\npythonpath = .\naddopts = --cov-fail-under=90\n")
+}
+
+func pythonPipeline(t *testing.T, ini string) {
 	pytest, err := exec.LookPath("pytest")
 	if err != nil {
 		t.Skip("pytest not on PATH")
@@ -25,7 +33,7 @@ func TestPipelinePython(t *testing.T) {
 		// The old adapter assumed the same thing: real repos import their package via an
 		// installed package, a root conftest.py, or pytest's pythonpath. This fixture uses
 		// pythonpath.
-		"pytest.ini":          "[pytest]\npythonpath = .\n",
+		"pytest.ini":          ini,
 		"app/__init__.py":     "",
 		"app/store.py":        "def get(k): return \"v:\" + k\n",
 		"app/api.py":          "from app.store import get\ndef handle(k): return get(k)\n",

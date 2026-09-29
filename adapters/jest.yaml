@@ -6,9 +6,11 @@
 # Cost: projects keeping tests only in __tests__/ under non-.test names need a host adapter
 # (.rtdd/adapters/jest.yaml). Extensions are js/jsx/ts/tsx only: jest's default testMatch does not
 # run .mjs/.cjs/.mts/.cts tests, so listing them would make units jest skips (exit 1).
+# --coverageThreshold={} clears a project coverageThreshold: one file alone never meets a
+# suite-wide threshold, and jest would exit 1 on a unit whose tests passed.
 name: jest
 detect: ["jest.config.js", "jest.config.ts", "jest.config.mjs", "jest.config.cjs", "jest.config.json"]
-unit_cmd: "npx jest --ci --coverage --coverageReporters=lcovonly --coverageDirectory={tmp} {unit}"
+unit_cmd: "npx jest --ci --coverage --coverageReporters=lcovonly --coverageDirectory={tmp} --coverageThreshold={} {unit}"
 coverage_file: "{tmp}/lcov.info"
 coverage_format: lcov
 requires:

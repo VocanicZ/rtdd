@@ -4,9 +4,11 @@
 # Verified against vitest 5. test_globs are only *.test.* / *.spec.* files: vitest exits 1 ("No test
 # files found") on a file its include skips, so helpers under test/ or tests/ must not become units (the former test/** and tests/** globs
 # were removed). Covers vitest's default include: js, jsx, ts, tsx, mjs, cjs, mts, cts.
+# The --coverage.thresholds.*=0 flags zero a project's global thresholds: one file alone never
+# meets a suite-wide threshold. Glob-keyed thresholds in the config are not overridden.
 name: vitest
 detect: ["vitest.config.js", "vitest.config.ts", "vitest.config.mjs", "vitest.config.mts", "vitest.config.cjs", "vitest.workspace.ts"]
-unit_cmd: "npx vitest run --coverage.enabled --coverage.reporter=lcov --coverage.reportsDirectory={tmp} {unit}"
+unit_cmd: "npx vitest run --coverage.enabled --coverage.reporter=lcov --coverage.reportsDirectory={tmp} --coverage.thresholds.lines=0 --coverage.thresholds.functions=0 --coverage.thresholds.branches=0 --coverage.thresholds.statements=0 {unit}"
 coverage_file: "{tmp}/lcov.info"
 coverage_format: lcov
 requires:
