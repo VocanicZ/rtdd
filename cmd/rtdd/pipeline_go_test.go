@@ -16,8 +16,9 @@ func TestPipelineGo(t *testing.T) {
 	if err := os.CopyFS(dir, os.DirFS("../../internal/runner/testdata/gofix")); err != nil {
 		t.Fatal(err)
 	}
+	gittest.Write(t, dir, ".gitignore", ".rtdd/\n")
 	if err := gittest.InitRepo(dir, "init"); err != nil {
 		t.Fatal(err)
 	}
-	pipelineCheck(t, dir, "store/store.go", "\nfunc Extra(k string) string {\n\treturn k + \"!\"\n}\n", "api/api_test.go")
+	pipelineCheck(t, dir, "store/store.go", "\nfunc Extra(k string) string {\n\treturn k + \"!\"\n}\n", 3, "api/api_test.go")
 }

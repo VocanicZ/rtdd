@@ -22,6 +22,9 @@ func TestPipelinePython(t *testing.T) {
 	}
 	dir := t.TempDir()
 	for rel, body := range map[string]string{
+		// The old adapter assumed the same thing: real repos import their package via an
+		// installed package, a root conftest.py, or pytest's pythonpath. This fixture uses
+		// pythonpath.
 		"pytest.ini":          "[pytest]\npythonpath = .\n",
 		"app/__init__.py":     "",
 		"app/store.py":        "def get(k): return \"v:\" + k\n",
@@ -35,5 +38,5 @@ func TestPipelinePython(t *testing.T) {
 	if err := gittest.InitRepo(dir, "init"); err != nil {
 		t.Fatal(err)
 	}
-	pipelineCheck(t, dir, "app/store.py", "def extra(k):\n    return k + \"!\"\n", "tests/test_api.py")
+	pipelineCheck(t, dir, "app/store.py", "def extra(k):\n    return k + \"!\"\n", 2, "tests/test_api.py")
 }

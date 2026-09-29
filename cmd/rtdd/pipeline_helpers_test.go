@@ -10,7 +10,8 @@ import (
 
 // pipelineCheck drives the real CLI through seed -> edit store -> which -> run in dir and
 // asserts that only wantTest is selected although the edit is reached only through it.
-func pipelineCheck(t *testing.T, dir, storeFile, appended, wantTest string) {
+// hitOffset is the 1-based line within appended that must be reported uncovered.
+func pipelineCheck(t *testing.T, dir, storeFile, appended string, hitOffset int, wantTest string) {
 	t.Helper()
 	chdir(t, dir)
 
@@ -28,6 +29,12 @@ func pipelineCheck(t *testing.T, dir, storeFile, appended, wantTest string) {
 	if err := json.Unmarshal(raw, &meta); err != nil || meta.V != 2 {
 		t.Fatalf("meta.json v = %d (err %v), want 2: %s", meta.V, err, raw)
 	}
+
+	before, err := os.ReadFile(filepath.Join(dir, storeFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantLine := strings.Count(string(before), "\n") + hitOffset
 
 	f, err := os.OpenFile(filepath.Join(dir, storeFile), os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -63,15 +70,21 @@ func pipelineCheck(t *testing.T, dir, storeFile, appended, wantTest string) {
 	}
 	var r struct {
 		Uncovered struct {
-			Summary struct {
-				UncoveredLines int `json:"uncovered_lines"`
-			} `json:"summary"`
+			Files []JSONFileReport `json:"files"`
 		} `json:"uncovered"`
 	}
 	if err := json.Unmarshal([]byte(out.String()), &r); err != nil {
 		t.Fatalf("run json: %v\n%s", err, out.String())
 	}
-	if r.Uncovered.Summary.UncoveredLines < 1 {
-		t.Fatalf("uncovered_lines = %d, want the appended line counted\n%s", r.Uncovered.Summary.UncoveredLines, out.String())
+	for _, fr := range r.Uncovered.Files {
+		if fr.Path != storeFile {
+			continue
+		}
+		for _, rg := range fr.Ranges {
+			if rg.Class == "uncovered" && rg.Start <= wantLine && wantLine <= rg.End {
+				return
+			}
+		}
 	}
+	t.Fatalf("no uncovered range in %s covers appended line %d\n%s", storeFile, wantLine, out.String())
 }
