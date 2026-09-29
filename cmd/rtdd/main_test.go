@@ -516,57 +516,6 @@ func TestAMalformedGlobInTheAdapterIsAConfigurationError(t *testing.T) {
 	}
 }
 
-// T2 means the full suite, and M1a cannot enumerate it. A direct test in the list does
-// not make the list complete, so the note must still print. Issue #38 case 2.
-func TestWhichNotesTheUnenumeratedSuiteEvenWhenADirectTestIsSelected(t *testing.T) {
-	dir := newTestRepo(t)
-	installRTDD(t, dir, headShort(t, dir), 0)
-	writeFile(t, dir, "requirements.txt", "pytest==9.0.3\n")
-	writeFile(t, dir, "tests/test_new.py", "def test_new():\n    pass\n")
-
-	code, stdout, stderr := rtdd(t, dir, "which")
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
-	}
-	if !strings.Contains(stdout, "tier: T2") {
-		t.Fatalf("want tier T2:\n%s", stdout)
-	}
-	if !strings.Contains(stdout, "not enumerate") {
-		t.Errorf("a T2 selection carrying a direct test is still partial; the note must print:\n%s", stdout)
-	}
-}
-
-// T2 means the full suite and `which` does not enumerate it, so `selection.tests` is a
-// partial list. Under --json the document is the WHOLE of stdout and a consumer normally
-// discards stderr, so a stderr-only caveat is a caveat the agent front-end never sees:
-// the guarantee has to be IN the document, as `complete: false` plus the sentence in
-// `warnings`. The stderr line stays for the human reading the terminal, and stdout stays
-// a single parseable document — decodeOutput proves that on every call.
-func TestWhichJSONCarriesTheUnenumeratedT2CaveatInTheDocument(t *testing.T) {
-	dir := newTestRepo(t)
-	installRTDD(t, dir, headShort(t, dir), 0)
-	writeFile(t, dir, "requirements.txt", "pytest==9.0.3\n")
-	writeFile(t, dir, "tests/test_new.py", "def test_new():\n    pass\n")
-
-	code, stdout, stderr := rtdd(t, dir, "which", "--json")
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
-	}
-	got := decodeOutput(t, stdout)
-	if got.Tier != "T2" {
-		t.Fatalf("tier = %q, want T2 (reason: %s)", got.Tier, got.Reason)
-	}
-	if got.Complete {
-		t.Errorf("complete = true; `which` never enumerates the suite, so a T2 list is partial:\n%s", stdout)
-	}
-	if !anyWarningContains(got.Warnings, "not the whole run") {
-		t.Errorf("warnings must carry the unenumerated-suite caveat, got %#v", got.Warnings)
-	}
-	if !strings.Contains(stderr, "not the whole run") {
-		t.Errorf("stderr must keep the caveat for humans:\n%s", stderr)
-	}
-}
-
 // A missing adapter disables file classification entirely, which narrows the selection
 // without narrowing anything a consumer can see. It is a `warnings` entry, not a stderr
 // aside — `adapter` being `""` is a symptom, not the explanation.

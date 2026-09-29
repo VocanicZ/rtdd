@@ -23,12 +23,10 @@ import (
 // A GENUINELY empty selection, one no failure caused, is exit 0 and is reported
 // explicitly, so it can never read as "all passed" (spec §5).
 //
-// `f` is UNIONED, never replaced (spec §4, decision D11, audit A4): a subset run
-// legitimately records less coverage than the seed, because import-time and
-// first-caller-wins lines migrate to whichever test ran first in that subset, and
-// a failing test records a truncated prefix of its real path. Only rtdd seed may
-// shrink a row, and TestOnlySeedCallsMapstoreReplace enforces that this file never
-// names Replace.
+// `f` is UNIONED, never replaced (spec §4, decision D11, audit A4): a failing unit
+// records a truncated prefix of its real path, so a run may record less than the seed
+// did. Only rtdd seed may shrink a row, and TestOnlySeedCallsMapstoreReplace enforces
+// that this file never names Replace.
 func cmdRun(args []string) int {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -66,10 +64,7 @@ func cmdRun(args []string) int {
 		fmt.Fprintln(os.Stderr, "rtdd:", err)
 		return 2
 	}
-	// A map older than MapVersion holds ids that are not units: read it as unseeded.
-	if mt.V < mapstore.MapVersion {
-		m = mapstore.New()
-	}
+	m = currentMap(m, mt)
 	// changedSet, not gitctx.ChangedSet: rtdd's own .rtdd/ writes must not select.
 	changes, err := changedSet(root, *base)
 	if err != nil {
@@ -177,10 +172,9 @@ func cmdRun(args []string) int {
 		return 3
 	}
 
-	// One subset invocation per adapter, each with ONLY its own selection's ids (spec
-	// §4.4). Handing a pytest nodeid to `npx vitest run` selects nothing and reports
-	// green, so the two lists never meet — not here, and not in the map rows below,
-	// which carry the adapter that produced them.
+	// One run per adapter, each over ONLY its own selected units (spec §4.4): one
+	// adapter's units never reach another adapter's runner — not here, and not in the
+	// map rows below, which carry the adapter that produced them.
 	//
 	// A per-adapter failure is RECOVERED, never returned: one broken toolchain does not
 	// void another adapter's selection or its results (spec §4.4, PRD #232 AC7). Each

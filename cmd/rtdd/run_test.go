@@ -43,9 +43,9 @@ func TestCmdRunUnionsAndNeverNarrows(t *testing.T) {
 	}
 
 	rows := readMapJSONL(t, repo)
-	add := rows["tests/test_a.py::test_add"]
+	add := rows["tests/test_a.py"]
 	if len(add.F) == 0 {
-		t.Fatalf("precondition: test_add has empty f")
+		t.Fatalf("precondition: tests/test_a.py has empty f")
 	}
 	widened := add
 	widened.F = append(append([]string{}, add.F...), "src/legacy_import_time_only.py")
@@ -65,16 +65,16 @@ func TestCmdRunUnionsAndNeverNarrows(t *testing.T) {
 		t.Fatalf("cmdRun = %d, want 0 or 1", code)
 	}
 
-	after := readMapJSONL(t, repo)["tests/test_a.py::test_add"]
+	after := readMapJSONL(t, repo)["tests/test_a.py"]
 	if !containsStr(after.F, "src/legacy_import_time_only.py") {
-		t.Fatalf("after run, test_add f = %v; the hand-added file was dropped.\n"+
+		t.Fatalf("after run, tests/test_a.py f = %v; the hand-added file was dropped.\n"+
 			"run MUST Union, never Replace (spec §4, D11, audit A4)", after.F)
 	}
 	if !containsStr(after.F, "src/logic.py") {
-		t.Fatalf("after run, test_add f = %v, want it to still contain src/logic.py", after.F)
+		t.Fatalf("after run, tests/test_a.py f = %v, want it to still contain src/logic.py", after.F)
 	}
 	if !sort.StringsAreSorted(after.F) {
-		t.Errorf("after run, test_add f = %v, want it sorted", after.F)
+		t.Errorf("after run, tests/test_a.py f = %v, want it sorted", after.F)
 	}
 	// The union merge driver leaves duplicate `t` lines; Load resolves them, and
 	// Save must emit exactly one line per test.
@@ -255,8 +255,8 @@ func TestCmdRunEndToEndProducesUsableRows(t *testing.T) {
 	if timed == 0 {
 		t.Error("no row carries a non-zero d; the report log's duration never reached the map")
 	}
-	if !containsStr(rows["tests/test_a.py::test_add"].F, "src/logic.py") {
-		t.Errorf("test_add f = %v, want src/logic.py", rows["tests/test_a.py::test_add"].F)
+	if !containsStr(rows["tests/test_a.py"].F, "src/logic.py") {
+		t.Errorf("tests/test_a.py f = %v, want src/logic.py", rows["tests/test_a.py"].F)
 	}
 }
 

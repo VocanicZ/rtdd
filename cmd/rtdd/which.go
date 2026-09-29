@@ -40,11 +40,6 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 
-	// A map older than MapVersion holds ids that are not units: read it as unseeded.
-	if e.meta.V < mapstore.MapVersion {
-		e.m = mapstore.New()
-	}
-
 	// changedSet, not gitctx.ChangedSet: rtdd's own .rtdd/ writes must not select.
 	changes, err := changedSet(e.root, *base)
 	if err != nil {

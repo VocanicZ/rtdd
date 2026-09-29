@@ -151,6 +151,7 @@ func loadEnv(adapterPath string, warn io.Writer) (*env, int, error) {
 	if e.meta, err = mapstore.LoadMeta(e.metaPath); err != nil {
 		return nil, 2, err
 	}
+	e.m = currentMap(e.m, e.meta)
 
 	abs := e.adPath
 	if !filepath.IsAbs(abs) {

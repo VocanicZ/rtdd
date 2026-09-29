@@ -30,6 +30,15 @@ func readMeta(repoRoot string) (meta, error) { return mapstore.LoadMeta(metaPath
 
 func writeMeta(repoRoot string, m meta) error { return mapstore.SaveMeta(metaPath(repoRoot), m) }
 
+// currentMap is m, or an empty map when mt says it predates MapVersion: an older map holds
+// ids that are not units, so every command reads it as unseeded.
+func currentMap(m *mapstore.Map, mt meta) *mapstore.Map {
+	if mt.V < mapstore.MapVersion {
+		return mapstore.New()
+	}
+	return m
+}
+
 // coverageAdapterName is meta.json's singular `adapter` for a detected set: the COVERAGE
 // adapter that produced the map (decision 4 of docs/plans/06-m6d-shipped-adapters.md), and
 // "" where every detected adapter is static.

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -90,55 +91,32 @@ func TestCmdSeedWritesTheMap(t *testing.T) {
 		t.Fatalf("cmdSeed = %d, want 1 (tests/test_b.py::test_fail fails on purpose)", code)
 	}
 
+	// One row per unit (test file), with the unit's own outcome.
 	rows := readMapJSONL(t, repo)
-	wantTests := []string{
-		"tests/test_a.py::test_add",
-		"tests/test_a.py::test_const",
-		"tests/test_a.py::test_param[1-one two]",
-		"tests/test_a.py::test_param[2-a-b]",
-		"tests/test_b.py::test_fail",
-		"tests/test_b.py::test_mul",
-		"tests/test_b.py::test_skipped",
-	}
 	var got []string
 	for k := range rows {
 		got = append(got, k)
 	}
 	sort.Strings(got)
-	if len(got) != len(wantTests) {
-		t.Fatalf("map has %d rows (%v), want %d (%v)", len(got), got, len(wantTests), wantTests)
-	}
-	for i := range wantTests {
-		if got[i] != wantTests[i] {
-			t.Fatalf("map row %d = %q, want %q", i, got[i], wantTests[i])
-		}
+	if want := []string{"tests/test_a.py", "tests/test_b.py"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("map rows = %v, want %v", got, want)
 	}
 
-	add := rows["tests/test_a.py::test_add"]
-	if add.S != "pass" {
-		t.Errorf("test_add s = %q, want pass", add.S)
+	a := rows["tests/test_a.py"]
+	if a.S != "pass" {
+		t.Errorf("tests/test_a.py s = %q, want pass", a.S)
 	}
-	if add.C == "" {
-		t.Error("test_add c is empty, want the short HEAD SHA")
+	if a.C == "" {
+		t.Error("tests/test_a.py c is empty, want the short HEAD SHA")
 	}
-	if !containsStr(add.F, "src/logic.py") {
-		t.Errorf("test_add f = %v, want it to contain src/logic.py", add.F)
+	if !containsStr(a.F, "src/logic.py") {
+		t.Errorf("tests/test_a.py f = %v, want it to contain src/logic.py", a.F)
 	}
-	if !sort.StringsAreSorted(add.F) {
-		t.Errorf("test_add f = %v, want it sorted", add.F)
+	if !sort.StringsAreSorted(a.F) {
+		t.Errorf("tests/test_a.py f = %v, want it sorted", a.F)
 	}
-	if rows["tests/test_b.py::test_fail"].S != "fail" {
-		t.Errorf("test_fail s = %q, want fail", rows["tests/test_b.py::test_fail"].S)
-	}
-	if rows["tests/test_b.py::test_skipped"].S != "skip" {
-		t.Errorf("test_skipped s = %q, want skip", rows["tests/test_b.py::test_skipped"].S)
-	}
-
-	// src/constants.py is import-time only (audit A1): no test may claim it.
-	for id, r := range rows {
-		if containsStr(r.F, "src/constants.py") {
-			t.Errorf("row %q claims import-time file src/constants.py", id)
-		}
+	if rows["tests/test_b.py"].S != "fail" {
+		t.Errorf("tests/test_b.py s = %q, want fail (test_fail fails on purpose)", rows["tests/test_b.py"].S)
 	}
 }
 
@@ -225,9 +203,9 @@ func TestCmdSeedMayShrinkARow(t *testing.T) {
 	if code := cmdSeed(nil, io.Discard, io.Discard); code != 1 {
 		t.Fatalf("first cmdSeed = %d, want 1", code)
 	}
-	before := readMapJSONL(t, repo)["tests/test_a.py::test_add"]
+	before := readMapJSONL(t, repo)["tests/test_a.py"]
 	if !containsStr(before.F, "src/logic.py") {
-		t.Fatalf("precondition: test_add f = %v, want src/logic.py", before.F)
+		t.Fatalf("precondition: tests/test_a.py f = %v, want src/logic.py", before.F)
 	}
 
 	// Hand-widen the row, then re-seed: seed replaces, so the phantom must go.
@@ -245,7 +223,7 @@ func TestCmdSeedMayShrinkARow(t *testing.T) {
 	if code := cmdSeed(nil, io.Discard, io.Discard); code != 1 {
 		t.Fatalf("second cmdSeed = %d, want 1", code)
 	}
-	after := readMapJSONL(t, repo)["tests/test_a.py::test_add"]
+	after := readMapJSONL(t, repo)["tests/test_a.py"]
 	if containsStr(after.F, "src/phantom.py") {
 		t.Fatalf("after re-seed f = %v, still contains src/phantom.py; seed must Replace, not Union", after.F)
 	}

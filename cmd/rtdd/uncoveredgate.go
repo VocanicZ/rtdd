@@ -22,12 +22,11 @@ func recordsCoverage(ad *adapter.Adapter) bool {
 // half's rows really are in the map, and dropping the count because a `coverage: none`
 // adapter sits beside it would hide a number that was measured.
 //
-// It reads the DETECTED set rather than the blocks that ran, so a coverage repository
-// whose subset invocation failed still reports its map the way it always has — what the
-// clause is about is the repository, not this run's luck.
+// It reads the DETECTED set rather than the blocks that ran, so a repository whose run
+// failed to start still reports its map — the clause is about the repository, not this
+// run's luck.
 //
-// An empty set keeps the coverage reading, for the same reason recordsCoverage's nil
-// adapter does.
+// An empty set keeps the coverage reading: nothing declared otherwise.
 func coverageWasRecorded(ads []*adapter.Adapter) bool {
 	if len(ads) == 0 {
 		return true
