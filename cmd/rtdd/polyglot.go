@@ -16,7 +16,7 @@ import (
 // TypeScript service with a Python tooling directory resolves two toolchains and the CLI
 // must answer once per toolchain rather than once per repository.
 //
-// The rule the whole file exists to keep: two adapters' ids never meet. A pytest nodeid
+// The rule the whole file exists to keep: two adapters' ids never meet. A Python test file
 // handed to `npx vitest run` selects nothing and reports green — a false pass wearing a
 // real id — which is what PRD #232 AC6 forbids. The enforcement is structural rather
 // than a filter applied afterwards: each adapter selects over a map that holds only its

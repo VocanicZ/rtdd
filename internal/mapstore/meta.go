@@ -19,7 +19,7 @@ type Meta struct {
 	// widened into a list: turning it into one would make every meta.json written before
 	// the detected set existed unreadable by the new binary and every meta.json written
 	// after it unreadable by the old one. It is also the answer to "whose is this untagged
-	// row?" that Map.TestsCoveringFor asks, and deleting the field deletes that answer.
+	// row?" that Map.ForAdapter asks, and deleting the field deletes that answer.
 	Adapter string `json:"adapter"`
 	// Adapters is the full detected set at seed time, sorted. `omitempty` for the same
 	// reason Row.A carries it: a repository that seeded before the set existed must not

@@ -216,7 +216,7 @@ func (m *Map) TestsCovering(files []string) []string {
 
 // TestsCoveringFor is TestsCovering restricted to one adapter's rows (PRD #232 AC6): a
 // row written by one adapter is never served to another. Serving a pytest row to the
-// vitest adapter hands `npx vitest run` a pytest nodeid, which selects nothing and
+// vitest adapter hands `npx vitest run` a Python test file, which selects nothing and
 // reports green — a false pass wearing a real id.
 //
 // legacyAdapter is .rtdd/meta.json's singular `adapter` field, which records the

@@ -103,8 +103,8 @@ func (u JSONUncovered) MarshalJSON() ([]byte, error) {
 // JSONAdapterSelection is ONE adapter's answer inside a polyglot document.
 //
 // It exists because `selection.tests` is a single list and two adapters' ids must never
-// become one: a pytest nodeid handed to `npx vitest run` selects nothing and reports
-// green. A consumer that means to invoke a runner reads `selections` and takes exactly
+// become one: a Python test file handed to `npx vitest run` selects nothing and
+// reports green. A consumer that means to invoke a runner reads `selections` and takes exactly
 // one block's ids; the flat `selection` stays what it always was — everything rtdd
 // selected, in rank order — for the consumers that only display it.
 type JSONAdapterSelection struct {

@@ -1,9 +1,9 @@
 // Package pytestfixture materialises a tiny, self-contained pytest project on
-// disk so the coverage, report and runner packages can be tested against the
-// real toolchain rather than against a mock of it.
+// disk so the runner and CLI can be tested against the real toolchain rather than
+// against a mock of it.
 //
-// The fixture's line numbers and test ids are pinned by fixture_test.go, because
-// every coverage assertion in M1b depends on them.
+// The fixture's line numbers are pinned by fixture_test.go, because the coverage
+// assertions depend on them.
 //
 // Test-only: nothing under cmd/ may import this package. It must also stay free of
 // `testing` on its dependency graph, which is why InitGit shells out to git inline
@@ -18,12 +18,12 @@ import (
 	"strings"
 )
 
-// PyProject makes the directory a pytest rootdir, which is what makes coverage
-// contexts and report-log nodeids repo-root-relative.
+// PyProject makes the directory a pytest rootdir, so pytest runs every unit from the
+// repo root.
 const PyProject = "[project]\nname = \"rtddfixture\"\nversion = \"0.1.0\"\n"
 
-// Constants is audit A1 in miniature: imported and asserted on by two passing
-// tests, attributed to zero test contexts. Import-time lines: 1, 3, 5, 6, 7.
+// Constants is imported and asserted on by two passing tests. Its lines 1, 3, 5, 6, 7
+// run at import; in an isolated unit those count as executed by that unit (spec §8).
 const Constants = `from dataclasses import dataclass
 
 MAX = 10
@@ -33,7 +33,7 @@ class Cfg:
     a: int = 1
 `
 
-// Logic has import-time lines 1, 4, 8, 12; add's body is line 5, mul's is line 9,
+// Logic's lines 1, 4, 8, 12 run at import; add's body is line 5, mul's is line 9,
 // and unused's line 13 is covered by nothing.
 const Logic = `from src.constants import MAX
 
@@ -50,8 +50,8 @@ def unused(x):
     return x - 1
 `
 
-// TestA produces the parametrised ids `test_param[1-one two]` (a space) and
-// `test_param[2-a-b]` (a hyphen), both of which must round-trip as selectors.
+// TestA holds a parametrised test whose ids contain a space and a hyphen
+// (`test_param[1-one two]`, `test_param[2-a-b]`).
 const TestA = `import pytest
 from src.logic import add
 from src.constants import MAX, Cfg

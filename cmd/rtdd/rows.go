@@ -65,10 +65,10 @@ func relToRoot(repoRoot, p string) string {
 // OUTCOME, each tagged with the adapter that produced it (PRD #232 AC6).
 //
 // The tag is what stops a row reaching a runner that cannot execute its id: a polyglot
-// repository holds a pytest nodeid and a vitest file path in one map.jsonl, and
-// Map.TestsCoveringFor serves each only to the adapter named here. The outcome list is the spine: `s` and `d` exist in no coverage report,
-// and a test that ran without recording a single measurable line still needs its
-// status refreshed.
+// repository holds a pytest test file and a vitest test file in one map.jsonl, and
+// Map.ForAdapter serves each only to the adapter named here. The outcome list is the
+// spine: `s` and `d` exist in no coverage report, and a test that ran without recording
+// a single measurable line still needs its status refreshed.
 //
 // `f` keeps EVERY repo-relative path coverage reported for the test, including the
 // test's own module and helpers under tests/. It is deliberately NOT filtered
