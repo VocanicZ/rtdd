@@ -4,8 +4,6 @@ Proves the `jest` adapter against a real repository layout.
 
 - **Detected by:** `jest.config.js`. `package.json` is committed but is not a marker
   (decision 1).
-- **Correspondence:** `src/calc.js` → `src/calc.test.js`, via `test_for`'s
-  `{dir}/{name}.test.js`. There is no `src/calc.test.ts`, so the earlier TypeScript
-  template falls through, which is the declaration order doing its job.
+- **Selection:** each test file is a unit run in its own process; the `TestPipeline*` test in `cmd/rtdd/` seeds this fixture and checks a changed source file selects the test file that executes it (skipped when the toolchain is absent).
 
-No runner is executed.
+The fixture is only ever run by the pipeline test, in a temporary copy.

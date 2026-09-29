@@ -964,6 +964,8 @@ under the same rules:
 - `"complete"` — `false` when the tier is T2 and the suite was not enumerated, i.e. when
   `tests` is a partial list of the run. Direct tests present in the list do not make it
   complete. The human output prints the matching note under the same condition.
+  **Superseded by schema 2:** T2 now lists every enumerated unit, so `complete` is always
+  `true`; `warnings`, not `complete`, says an empty selection is not a pass.
 - `"warnings"` — non-empty when the selection is narrower than it looks. In M1a the one
   warning is a missing adapter, which disables file classification entirely; `"adapter"`
   is `""` in that case. The human output prints the same text as a `WARNING:` line.

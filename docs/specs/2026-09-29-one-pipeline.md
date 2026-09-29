@@ -94,6 +94,8 @@ source_globs: ["**/*.go"]
 opaque: []
 full_escalate: ["go.mod", "go.sum"]
 requires: []                         # binaries doctor/init check for
+unit_files: {}                       # {relative-name: content}, written into the unit's {tmp}
+                                     # before unit_cmd runs; {tmp} is substituted in content
 ```
 
 Placeholders in `unit_cmd`: `{unit}` (the test file, repo-relative), `{dir}`, `{name}`
@@ -102,6 +104,12 @@ whitespace before substitution, never run through a shell — as today.
 
 `unit_names` is the one extra field any language may use when its runner cannot take a file
 path (Go). It is declared data, not a code path: the pipeline is identical.
+
+`unit_files` is the other extra field. It lets an adapter ship a small file the tool needs
+(Maven's JaCoCo `@argfile`, Gradle's init script, RSpec's SimpleCov loader) without touching
+the host repository. Keys are relative, clean names: no leading `/`, no `..`, no backslash,
+so a file can only land inside `{tmp}`. `{tmp}` is substituted in the content as it is in
+`unit_cmd`.
 
 Removed fields: `seed`, `subset`, `subset_plain`, `list`, `coverage`, `report`,
 `report_path`, `report_cmd`, `id_template`, `failfast_flag`, `test_flag`, `test_join`,
@@ -169,12 +177,12 @@ tier missed). The test skips when the toolchain is absent, and CI installs what 
 | go | as in §6 | gocover | CPU |
 | jest | `npx jest --ci --coverage --coverageReporters=lcovonly --coverageDirectory={tmp} {unit}` | lcov | CPU |
 | vitest | `npx vitest run --coverage.enabled --coverage.reporter=lcov --coverage.reportsDirectory={tmp} {unit}` | lcov | CPU |
-| cargo | `cargo llvm-cov --lcov --output-path {tmp}/lcov.info --test {name}` | lcov | 1 |
-| maven | JaCoCo agent via plugin goals on the command line, `-Dtest={name}` | jacoco | 1 |
-| gradle | JaCoCo applied by an rtdd-shipped `--init-script`, `--tests {name}` | jacoco | 1 |
-| dotnet | `dotnet test --collect "XPlat Code Coverage" --results-directory {tmp} --filter FullyQualifiedName~{name}` | cobertura | 1 |
-| phpunit | `phpunit --coverage-cobertura {tmp}/cobertura.xml {unit}` | cobertura | CPU |
-| rspec | `rspec {unit}` with simplecov + simplecov-lcov loaded via `RUBYOPT` | lcov | CPU |
+| cargo (adapter `cargo`) | `cargo llvm-cov --lcov --output-path {tmp}/lcov.info --test {name}` | lcov | 1 |
+| maven | `mvn -q -Dtest={name} ...` with the JaCoCo agent from plugin goals, then the JaCoCo CLI (`exec:exec`, an `@argfile` shipped via `unit_files`) writes `{tmp}/jacoco.xml` | jacoco | 1 |
+| gradle (not verified on a real toolchain in this change) | `./gradlew -q --init-script {tmp}/rtdd.init.gradle test --tests {name}`, the init script shipped via `unit_files` | jacoco | 1 |
+| dotnet | `dotnet test -p:CollectCoverage=true -p:CoverletOutputFormat=cobertura -p:CoverletOutput={tmp}/ --filter FullyQualifiedName~{name}` (coverlet.msbuild, referenced by the test project) | cobertura | 1 |
+| phpunit (not verified on a real toolchain in this change) | `vendor/bin/phpunit --coverage-cobertura {tmp}/cobertura.xml {unit}` | cobertura | CPU |
+| rspec (not verified on a real toolchain in this change) | `bundle exec rspec --require {tmp}/rtdd_simplecov.rb {unit}`, the SimpleCov loader shipped via `unit_files` | lcov | CPU |
 
 Exact commands are settled per adapter in the plan, against a real toolchain.
 

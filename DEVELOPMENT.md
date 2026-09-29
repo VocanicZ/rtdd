@@ -41,37 +41,53 @@ OS-provided DLLs. `scripts/release-preflight.sh` reports the same check on its o
 `Release binaries:` line.
 
 `CGO_ENABLED=0` is not optional. Spec D4 promises a binary with no runtime dependencies
-forced into the host repo; `modernc.org/sqlite` is chosen over `mattn/go-sqlite3`
-specifically because it is pure Go. A cgo dependency breaks that promise.
+forced into the host repo. A cgo dependency breaks that promise.
 
 ## Dependencies
 
-Only two third-party modules are permitted in the engine:
+Only one third-party module is permitted in the engine:
 
-- `modernc.org/sqlite` — reads `.coverage` directly (spec §4)
 - `gopkg.in/yaml.v3` — adapter definitions
 
-Adding a third requires a spec amendment. No test framework beyond stdlib `testing`.
+Adding another requires a spec amendment. No test framework beyond stdlib `testing`.
 
-## JUnit XML fixtures
+## One-pipeline adapter tests
 
-`internal/report/testdata/junit/` holds nine JUnit XML reports captured from nine real
-runner configurations — Vitest, Jest, Jest with `classNameTemplate` set to `{filepath}`,
-`go-junit-report`, Maven Surefire, RSpec, PHPUnit, cargo-nextest and `dotnet test` with
-JunitXml.TestLogger. Six back the parser; the other three back the shipped adapters'
-`id_template` round trip in `internal/report/shipped_id_test.go`. They are never
-hand-written and never hand-edited: when one contradicts the parser, the parser is
-what changes. `scripts/capture-junit-fixtures.sh` regenerates them by running each suite in
-a pinned container, so it needs Docker and the network and is deliberately NOT part of the
-CI gate:
+`cmd/rtdd/pipeline_*_test.go` seeds a fixture repo (`cmd/rtdd/testdata/fixtures/<adapter>/`)
+with each adapter's real coverage tool and asserts a changed source file selects the test file
+that executes it, including one that is not name-correspondent. Each test skips when its
+toolchain is absent, so `go test ./...` on a bare machine is green over zero coverage for that
+adapter. CI installs the toolchains and its "pipeline tests" step fails on a skip; locally,
+run one adapter with, for example:
 
 ```bash
-scripts/capture-junit-fixtures.sh            # all nine
-scripts/capture-junit-fixtures.sh rspec      # just one
+go test -count=1 -v -run '^TestPipelinePython$' ./cmd/rtdd/
 ```
 
-`internal/report/testdata/junit/README.md` records each fixture's runner version and the
-exact command that produced it, plus the checklist of what the six disagree about.
+What each needs: python `pytest pytest-cov`; jest/vitest node and npm (the test runs
+`npm install`); cargo `cargo-llvm-cov`; maven `mvn` and network; dotnet the SDK and network
+(NuGet); phpunit `php`, `composer` and `pcov` or `xdebug`; rspec `bundle` and network; gradle
+`gradle` (unverified). The gradle, phpunit and rspec adapters were written without a real
+toolchain, so a first real run may need adjustments. CI's gradle test may skip; the others
+must not.
+
+## Breaking changes in the one-pipeline release
+
+Unreleased. Every language now runs each test file in its own process under the language's
+stock coverage tool, and the map is built from that.
+
+- Map format is v2. A v1 map is not read: run `rtdd seed` again.
+- `--json` is schema 2. `selection_fidelity` and `import_time_lines` are gone; `complete`
+  is always `true` and `warnings` says an empty selection is not a pass.
+- `rtdd run --record` is removed; coverage is recorded on every run.
+- Adapter contract v3 (adds `unit_files`, `unit_names`). Adapters using the v2 fields
+  (`seed`, `subset`, `report`, `id_template`, `test_for`, `importscan`, and the rest listed in
+  the spec) are rejected at load, so host adapters in `.rtdd/adapters/` need rewriting.
+- The `cargo-nextest` adapter is renamed `cargo` (cargo-llvm-cov). A host adapter still named
+  `cargo-nextest` no longer overrides the built-in; rename it.
+- `rtdd doctor` text output changed shape, and its caveat now says once-per-process code is
+  attributed to every test file that runs it.
+- The static tier, the sqlite `.coverage` reader and the pytest reportlog path are deleted.
 
 ## Benchmark harnesses
 
@@ -187,7 +203,7 @@ never re-measures: `config.json` is left exactly as the run wrote it, an operato
 no record behind, by construction) are carried across from the published summary.
 
 `derive` is the other half of that idea, for an *arm* rather than an aggregation. The
-`static` arm models RTDD's `TS` tier and is a function of fields every replayed commit
+`static` arm models RTDD's `TS` tier (deleted in the one-pipeline release; the arm and its committed results are kept as the historical record) and is a function of fields every replayed commit
 already committed — its `changed` set, the `all_tests` it collected and the `importgraph`
 selection recorded beside it — so it is **computed from `commits.jsonl`, never executed**
 (`bench/replay/derive.py`). `derive` reads each admitted repo's records, drops any stale
