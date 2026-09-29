@@ -17,9 +17,11 @@
 #    no GUID dir. Cost: the test project references coverlet.msbuild.
 #  - a runsettings file via unit_files: not needed, and it would still need a fixed path.
 #
-# Limits: only the test project should reference coverlet.msbuild; two referencing projects
-# would both write {tmp}/coverage.cobertura.xml and the last one wins.
-# Verified on dotnet SDK 8.0 against the dotnet fixture.
+# Limits: a solution with several test projects runs every project for every unit (dotnet
+# test at the repo root), so it is slow, and each project referencing coverlet.msbuild writes
+# the same {tmp}/coverage.cobertura.xml, so the last project's file wins. Use a host adapter
+# targeting one project (dotnet test path/to/Tests.csproj) for such repos.
+# Verified on dotnet SDK 8.0 against the dotnet fixture, a single-test-project layout.
 name: dotnet
 detect: ["*.sln", "*.csproj", "*.fsproj"]
 unit_cmd: "dotnet test -p:CollectCoverage=true -p:CoverletOutputFormat=cobertura -p:CoverletOutput={tmp}/ --filter FullyQualifiedName~{name}"
