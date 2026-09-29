@@ -215,6 +215,7 @@ about this.
 - [Agent protocol](protocol/PROTOCOL.md) — the single source for every generated front-end
   under `dist/`. Edit it, run `rtdd-gen render`; CI fails if `dist/` is stale or if any
   front-end is wrong for its target.
+- [Full benchmark result](https://github.com/VocanicZ/rtdd-bench) comparion tdd vs rtdd on real project using go/python
 
 ## License
 
