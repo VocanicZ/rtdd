@@ -1,7 +1,8 @@
 # The Jest adapter on contract v3: one test file per process, jest's own lcov reporter.
 # `detect` does not list package.json; a repo configuring Jest under a "jest" key in
 # package.json detects nothing and needs a host adapter in .rtdd/adapters/.
-# unverified — settled in Task 8.
+# Verified against jest 30. test_globs are only *.test.* / *.spec.* files: jest exits 1 ("No tests
+# found") on a file its testMatch skips, so __tests__/ helpers must not become units.
 name: jest
 detect: ["jest.config.js", "jest.config.ts", "jest.config.mjs", "jest.config.cjs", "jest.config.json"]
 unit_cmd: "npx jest --ci --coverage --coverageReporters=lcovonly --coverageDirectory={tmp} {unit}"
@@ -10,7 +11,7 @@ coverage_format: lcov
 requires:
   - bin: npx
     reason: "the jest adapter runs jest through npx; jest must be a devDependency"
-test_globs: ["**/*.test.ts", "**/*.test.tsx", "**/*.test.js", "**/*.spec.js", "**/__tests__/**/*.js", "**/__tests__/**/*.ts"]
+test_globs: ["**/*.test.ts", "**/*.test.tsx", "**/*.test.js", "**/*.test.jsx", "**/*.spec.js", "**/*.spec.ts", "**/*.spec.tsx"]
 source_globs: ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/*.mjs"]
 opaque: ["**/*.json", "**/*.css", "**/*.html", "**/*.snap", "**/__snapshots__/**", "**/fixtures/**"]
 full_escalate: ["package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "jest.config.js", "jest.config.ts", "jest.config.mjs", "jest.config.cjs", "jest.config.json", "jest.setup.js", "babel.config.js", "tsconfig.json"]
