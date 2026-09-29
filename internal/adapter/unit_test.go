@@ -129,3 +129,14 @@ func TestUnitFileContentsSubstitutesTmp(t *testing.T) {
 		t.Errorf("UnitFileContents = %q", got)
 	}
 }
+
+// unit_names is compiled once, at load, not once per unit.
+func TestUnitNamesIsCompiledAtLoad(t *testing.T) {
+	a := v3(t, goV3)
+	if a.unitNamesRe == nil {
+		t.Fatal("unit_names regex not cached on the loaded adapter")
+	}
+	if allocs := testing.AllocsPerRun(20, func() { a.UnitNamesOf([]byte("func TestAdd(t *testing.T) {}\n")) }); allocs > 20 {
+		t.Errorf("UnitNamesOf allocates %.0f times per call; it is recompiling the regex", allocs)
+	}
+}

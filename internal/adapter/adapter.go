@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -49,6 +50,8 @@ type Adapter struct {
 	// content; content may use {tmp}). It ships a build-tool init script without touching
 	// the host's own build files.
 	UnitFiles map[string]string `yaml:"unit_files"`
+
+	unitNamesRe *regexp.Regexp // UnitNames compiled once by validate; nil on an unvalidated literal
 
 	// Src is the file this adapter was read from — an fs path inside the embedded set
 	// ("python.yaml") or an on-disk path for a host-authored one. It is never declared in

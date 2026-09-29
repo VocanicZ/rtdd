@@ -32,6 +32,7 @@ func (a *Adapter) validateV3() error {
 		if re.NumSubexp() < 1 {
 			return fmt.Errorf("unit_names %q: needs one capture group naming the test", a.UnitNames)
 		}
+		a.unitNamesRe = re
 	}
 	for k := range a.UnitFiles {
 		if k == "" || path.IsAbs(k) || path.Clean(k) != k || strings.Contains(k, `\`) || k == ".." || strings.HasPrefix(k, "../") {
@@ -89,7 +90,10 @@ func (a *Adapter) UnitNamesOf(body []byte) (string, bool) {
 	if a.UnitNames == "" {
 		return "", true
 	}
-	re := regexp.MustCompile("(?m)" + a.UnitNames)
+	re := a.unitNamesRe
+	if re == nil { // an Adapter literal that never went through validate
+		re = regexp.MustCompile("(?m)" + a.UnitNames)
+	}
 	var names []string
 	for _, m := range re.FindAllSubmatch(body, -1) {
 		names = append(names, regexp.QuoteMeta(string(m[1])))
