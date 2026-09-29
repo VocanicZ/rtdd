@@ -57,20 +57,21 @@ func RunUnits(a *adapter.Adapter, repoRoot string, units []string, failFast bool
 	)
 	sem := make(chan struct{}, jobs)
 	for i, u := range units {
+		sem <- struct{}{}
 		mu.Lock()
 		stop := stopped
 		mu.Unlock()
 		if stop {
+			<-sem
 			break
 		}
-		sem <- struct{}{}
 		wg.Add(1)
 		go func(i int, u string) {
 			defer wg.Done()
 			defer func() { <-sem }()
 			r := runUnit(a, repoRoot, u, repoFiles)
 			results[i] = r
-			if failFast && (r.outcome.Status == "fail" || r.outcome.Status == "error") {
+			if r.fatal != nil || (failFast && (r.outcome.Status == "fail" || r.outcome.Status == "error")) {
 				mu.Lock()
 				stopped = true
 				mu.Unlock()
@@ -156,6 +157,7 @@ func runUnit(a *adapter.Adapter, repoRoot, unit string, repoFiles []string) unit
 		return r
 	default:
 		r.outcome.Status = "error"
+		r.output = fmt.Sprintf("exit %d\n%s", code, r.output)
 		return r
 	}
 

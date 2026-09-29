@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -128,4 +129,32 @@ func contains(xs []string, x string) bool {
 		}
 	}
 	return false
+}
+
+func TestFailFastStopsSchedulingAfterTheFirstFailure(t *testing.T) {
+	dir, a := gofixRepo(t)
+	a.Jobs = 1
+	p := filepath.Join(dir, "calc/calc_test.go")
+	body, _ := os.ReadFile(p)
+	os.WriteFile(p, []byte(strings.Replace(string(body), "!= 3", "!= 4", 1)), 0o644)
+	res, err := Run(a, dir, []string{"calc/calc_test.go", "api/api_test.go"}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Outcomes) != 1 || res.Outcomes[0].Test != "calc/calc_test.go" {
+		t.Errorf("outcomes = %v, want only calc/calc_test.go", res.Outcomes)
+	}
+}
+
+func TestAFatalMappedExitStopsSchedulingAndIsReturned(t *testing.T) {
+	dir, a := gofixRepo(t)
+	a.Jobs = 1
+	os.WriteFile(filepath.Join(dir, "exit3.sh"), []byte("exit 3\n"), 0o644)
+	a.UnitCmd = "sh exit3.sh"
+	a.ExitCodes = map[int]string{3: "bad"}
+	_, err := Run(a, dir, []string{"calc/calc_test.go", "api/api_test.go"}, false)
+	var fe *FatalExitError
+	if !errors.As(err, &fe) {
+		t.Errorf("err = %v, want FatalExitError", err)
+	}
 }
