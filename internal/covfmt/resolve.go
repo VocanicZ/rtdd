@@ -7,11 +7,9 @@ import (
 )
 
 // Resolve maps each reported path onto a repo-relative path from repoFiles, merging lines
-// that arrive under two spellings. In order: an absolute path under root (exact match only);
-// the path itself (exact match); consensus prefix (drop leading segments using prefix chosen
-// by majority); the unique repo file ending in "/"+path (JaCoCo package paths). A path that
-// resolves to nothing, or to more than one file, is dropped — attributing a line to the
-// wrong file is worse than losing it.
+// that arrive under two spellings. For relative paths: exact match, then unique suffix match,
+// then consensus prefix (if support >= 2 distinct reported paths). Absolute paths: rel-to-root
+// exact match only. Paths that escape the repo (..) or resolve to nothing/ambiguously are dropped.
 func Resolve(root string, raw Lines, repoFiles []string) map[string][]int {
 	var err error
 	root, err = filepath.Abs(root)
@@ -41,11 +39,12 @@ func Resolve(root string, raw Lines, repoFiles []string) map[string][]int {
 	return out
 }
 
-// computeConsensusPrefix finds the prefix that, when stripped, best matches paths in set.
-// A prefix "counts" for a path if stripping it from the path yields a repo file.
-// Returns the prefix with the highest count; ties favor the shorter prefix.
+// computeConsensusPrefix finds the prefix that, when stripped, best resolves distinct reported paths.
+// A prefix "counts" for each distinct reported path that can be resolved by it (starts with prefix
+// and stripping yields a repo file). Only returns the prefix with highest count if count >= 2.
+// Skips absolute paths, exact matches, and ".." paths (which escape the repo).
 func computeConsensusPrefix(raw Lines, set map[string]bool) string {
-	prefixCount := make(map[string]int)
+	prefixPaths := make(map[string]map[string]bool) // map[prefix]map[path]bool to track distinct paths
 
 	for p := range raw {
 		p = filepath.ToSlash(strings.ReplaceAll(p, "\\", "/"))
@@ -57,6 +56,13 @@ func computeConsensusPrefix(raw Lines, set map[string]bool) string {
 
 		// Clean and normalize relative paths for exact match check.
 		cleaned := strings.TrimPrefix(path.Clean(p), "./")
+
+		// Skip paths that escape the repo (.. or ../)
+		if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+			continue
+		}
+
+		// Skip exact matches
 		if set[cleaned] {
 			continue
 		}
@@ -72,17 +78,22 @@ func computeConsensusPrefix(raw Lines, set map[string]bool) string {
 			prefix += segment + "/"
 			candidate := q[i+1:]
 			if candidate != "" && set[candidate] {
-				prefixCount[prefix]++
+				// This prefix resolves this path
+				if prefixPaths[prefix] == nil {
+					prefixPaths[prefix] = make(map[string]bool)
+				}
+				prefixPaths[prefix][cleaned] = true
 			}
 			q = candidate
 		}
 	}
 
-	// Pick the prefix with the highest count; ties: shorter prefix.
+	// Pick the prefix with highest count of distinct paths (>= 2); ties: shorter prefix.
 	var best string
 	bestCount := 0
-	for prefix, count := range prefixCount {
-		if count > bestCount || (count == bestCount && len(prefix) < len(best)) {
+	for prefix, paths := range prefixPaths {
+		count := len(paths)
+		if count >= 2 && (count > bestCount || (count == bestCount && len(prefix) < len(best))) {
 			best = prefix
 			bestCount = count
 		}
@@ -124,14 +135,6 @@ func resolveOne(root, p string, set map[string]bool, byBase map[string][]string,
 		return p, true
 	}
 
-	// Consensus prefix: strip if it matches.
-	if consensusPrefix != "" && strings.HasPrefix(p, consensusPrefix) {
-		candidate := strings.TrimPrefix(p, consensusPrefix)
-		if set[candidate] {
-			return candidate, true
-		}
-	}
-
 	// Suffix match: unique repo file ending in "/"+p.
 	match := ""
 	for _, f := range byBase[path.Base(p)] {
@@ -142,5 +145,17 @@ func resolveOne(root, p string, set map[string]bool, byBase map[string][]string,
 			match = f
 		}
 	}
-	return match, match != ""
+	if match != "" {
+		return match, true
+	}
+
+	// Consensus prefix: strip if it matches and resolves to set.
+	if consensusPrefix != "" && strings.HasPrefix(p, consensusPrefix) {
+		candidate := strings.TrimPrefix(p, consensusPrefix)
+		if set[candidate] {
+			return candidate, true
+		}
+	}
+
+	return "", false
 }

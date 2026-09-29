@@ -16,15 +16,16 @@ func TestResolve(t *testing.T) {
 		"/r/src/a.py":                {1, 3},
 		"./util.go":                  {2},
 		"example.com/m/calc/calc.go": {3, 4},
-		"com/foo/Bar.java":           {5},
-		"com/dup/X.java":             {6},    // ambiguous: dropped
+		"example.com/m/util.go":      {10},   // consensus prefix needs support >= 2
+		"com/foo/Bar.java":           {5},    // suffix matches src/main/java/com/foo/Bar.java
+		"com/dup/X.java":             {6},    // ambiguous suffix: dropped
 		"/elsewhere/lib.py":          {1},    // outside the root: dropped
 		"src/a.py":                   {3, 9}, // merges with the absolute spelling
 	}
 	got := Resolve("/r", raw, files)
 	want := map[string][]int{
 		"src/a.py":                       {1, 3, 9},
-		"util.go":                        {2},
+		"util.go":                        {2, 10},
 		"calc/calc.go":                   {3, 4},
 		"src/main/java/com/foo/Bar.java": {5},
 	}
@@ -49,33 +50,33 @@ func TestResolveEscapingPath(t *testing.T) {
 	}
 }
 
-func TestResolveAmbiguousSuffix(t *testing.T) {
-	// com/foo/Bar.java with root-level Bar.java and no src match → dropped.
-	files := []string{"Bar.java"} // no src/main/java/com/foo/Bar.java
+func TestResolveSuffixMatchWinsOverConsensus(t *testing.T) {
+	// Suffix match takes precedence over consensus prefix.
+	// com/foo/Bar.java → src/main/java/com/foo/Bar.java (suffix match).
+	files := []string{"Bar.java", "src/main/java/com/foo/Bar.java"}
 	raw := Lines{
 		"com/foo/Bar.java": {5},
 	}
 	got := Resolve("/r", raw, files)
 	want := map[string][]int{
-		"Bar.java": {5}, // consensus prefix com/foo/ strips to Bar.java
+		"src/main/java/com/foo/Bar.java": {5}, // suffix match wins
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Resolve = %v, want %v", got, want)
 	}
 }
 
-func TestResolveAmbiguousSuffixDropped(t *testing.T) {
-	// Suffix match is ambiguous when multiple files match.
-	files := []string{"Bar.java", "a/Bar.java", "b/Bar.java"}
+func TestResolveConsensusRequiresSupport2(t *testing.T) {
+	// Consensus prefix only valid if support >= 2.
+	// com/foo/Bar.java alone with only Bar.java → dropped (consensus support 1).
+	files := []string{"Bar.java"}
 	raw := Lines{
-		"Bar.java": {1},
+		"com/foo/Bar.java": {5},
 	}
 	got := Resolve("/r", raw, files)
-	want := map[string][]int{
-		"Bar.java": {1}, // exact match takes precedence
-	}
+	want := map[string][]int{} // dropped: consensus support 1 < 2
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Resolve = %v, want %v", got, want)
+		t.Errorf("Resolve = %v, want %v (support < 2)", got, want)
 	}
 }
 
@@ -100,17 +101,17 @@ func TestResolveConsensusPrefix(t *testing.T) {
 	}
 }
 
-func TestResolveAbsoluteWithAmbiguousSuffix(t *testing.T) {
-	// Absolute /r/vendor/a.py with root a.py present but vendor/a.py absent → dropped
-	// Absolute paths only match exactly in the set, no suffix fallback.
+func TestResolveAbsoluteExactOnly(t *testing.T) {
+	// Absolute paths only use exact match (no suffix fallback).
+	// /r/vendor/a.py with root a.py present but vendor/a.py absent → dropped.
 	files := []string{"a.py"} // vendor/a.py not in repo
 	raw := Lines{
 		"/r/vendor/a.py": {1},
 	}
 	got := Resolve("/r", raw, files)
-	want := map[string][]int{} // dropped: vendor/a.py not in set (only a.py is)
+	want := map[string][]int{} // dropped: vendor/a.py not in set
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Resolve = %v, want %v (dropped: vendor/a.py not in repo)", got, want)
+		t.Errorf("Resolve = %v, want %v", got, want)
 	}
 }
 
@@ -129,15 +130,18 @@ func TestResolveJacocoDefaultPackage(t *testing.T) {
 	}
 }
 
-func TestResolveCRLFInput(t *testing.T) {
+func TestResolveBackslashNormalization(t *testing.T) {
 	// Backslashes in paths are normalized to forward slashes (Windows paths).
-	files := []string{"calc.go"}
+	// Consensus prefix "example\com\" needs support >= 2, so we provide two paths.
+	files := []string{"calc.go", "util.go"}
 	raw := Lines{
 		"example\\com\\calc.go": {1}, // Windows-style path
+		"example\\com\\util.go": {2}, // Consensus prefix needs 2 paths
 	}
 	got := Resolve("/r", raw, files)
 	want := map[string][]int{
-		"calc.go": {1}, // "example\com\calc.go" → "example/com/calc.go" → drop "example/com/" → "calc.go"
+		"calc.go": {1}, // "example\com\calc.go" → "example/com/calc.go" → prefix "example/com/" → "calc.go"
+		"util.go": {2},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Resolve = %v, want %v", got, want)
@@ -154,6 +158,25 @@ func TestResolveAbsoluteRootNormalization(t *testing.T) {
 	got := Resolve("/home/user/project", raw, files)
 	want := map[string][]int{
 		"a.py": {1},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Resolve = %v, want %v", got, want)
+	}
+}
+
+func TestResolveEscapingPathDoesntVote(t *testing.T) {
+	// Paths that escape (.. or ../) are dropped AND don't vote in consensus prefix.
+	// ../lib/x.py doesn't vote, but example.com/m/a.go and example.com/m/b.go do (support = 2).
+	files := []string{"a.go", "b.go"}
+	raw := Lines{
+		"../lib/x.py":        {1}, // escapes: dropped and doesn't vote
+		"example.com/m/a.go": {2},
+		"example.com/m/b.go": {3},
+	}
+	got := Resolve("/r", raw, files)
+	want := map[string][]int{
+		"a.go": {2}, // consensus prefix "example.com/m/" supports 2 paths
+		"b.go": {3},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Resolve = %v, want %v", got, want)
