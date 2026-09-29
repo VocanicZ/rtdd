@@ -5,10 +5,14 @@
 # NOT VERIFIED ON A REAL TOOLCHAIN in the change that introduced it: gradle was not
 # installed where it was written. The init script follows Gradle's documented jacoco
 # plugin API; expect to adjust it on first real use. It reports per project, so a
-# multi-project build would have the last project's report win {tmp}/jacoco.xml.
+# multi-project build would have the last project's report win {tmp}/jacoco.xml, and
+# --tests fails a subproject that has no matching class (add failOnNoMatchingTests=false
+# via the init script if that bites). `--tests {name}` (no package) matches the simple
+# class name per the Gradle test-filtering docs, so ApiTest does not select FooApiTest;
+# from memory of those docs, unconfirmed here. {name} cannot carry a package.
 name: gradle
 detect: ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]
-unit_cmd: "./gradlew -q --init-script {tmp}/rtdd.init.gradle test --tests *{name}"
+unit_cmd: "./gradlew -q --init-script {tmp}/rtdd.init.gradle test --tests {name}"
 unit_files:
   rtdd.init.gradle: |
     allprojects {

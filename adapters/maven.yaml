@@ -7,7 +7,13 @@
 # property), so the report is made by the JaCoCo CLI instead: dependency:copy fetches
 # org.jacoco.cli into {tmp}, and exec:exec runs it from an @argfile shipped through
 # unit_files (unit_cmd is whitespace-split, so a multi-word -Dexec.args cannot be one
-# token). It reads target/classes, Maven's default output dir. Verified on maven 3.9 with
+# token). It reads target/classes, Maven's default output dir.
+#
+# Limits: multi-module reactors are not supported (the report reads only the current
+# module's target/classes, and the last module's report wins). A pom that sets <argLine>
+# without @{argLine} drops the JaCoCo agent, so units then error for a missing or empty
+# coverage file. For either, write a host adapter.
+# Verified on maven 3.9 with
 # java 25 against the maven fixture.
 name: maven
 detect: ["pom.xml"]

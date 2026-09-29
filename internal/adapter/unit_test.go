@@ -107,8 +107,8 @@ func TestRequiresEntriesNeedABinAndAReason(t *testing.T) {
 }
 
 func TestUnitFilesKeysMustBeCleanRelativePaths(t *testing.T) {
-	for _, key := range []string{"/abs", "../x", "a/../b", "a//b", "./a", "a/", ""} {
-		body := goV3 + "unit_files:\n  " + strings.ReplaceAll(`K: "x"`, "K", `"`+key+`"`) + "\n"
+	for _, key := range []string{"/abs", "../x", "a/../b", "a//b", "./a", "a/", "", `a\b`} {
+		body := goV3 + "unit_files:\n  " + "'" + key + "': x" + "\n"
 		_, err := parse([]byte(body), "test.yaml")
 		if err == nil || !strings.Contains(err.Error(), "unit_files") {
 			t.Errorf("key %q: err = %v, want unit_files rejection", key, err)

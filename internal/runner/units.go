@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -123,7 +124,12 @@ func runUnit(a *adapter.Adapter, repoRoot, unit string, repoFiles []string) unit
 	defer os.RemoveAll(tmp)
 	for k, v := range a.UnitFileContents(tmp) {
 		f := filepath.Join(tmp, filepath.FromSlash(k))
-		err := os.MkdirAll(filepath.Dir(f), 0o755)
+		var err error
+		if rel, rerr := filepath.Rel(tmp, f); rerr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			err = fmt.Errorf("resolves outside the unit tmp dir")
+		} else {
+			err = os.MkdirAll(filepath.Dir(f), 0o755)
+		}
 		if err == nil {
 			err = os.WriteFile(f, []byte(v), 0o644)
 		}

@@ -34,7 +34,7 @@ func (a *Adapter) validateV3() error {
 		}
 	}
 	for k := range a.UnitFiles {
-		if k == "" || path.IsAbs(k) || path.Clean(k) != k || k == ".." || strings.HasPrefix(k, "../") {
+		if k == "" || path.IsAbs(k) || path.Clean(k) != k || strings.Contains(k, `\`) || k == ".." || strings.HasPrefix(k, "../") {
 			return fmt.Errorf("unit_files key %q: must be a clean relative slash path inside {tmp}", k)
 		}
 	}
