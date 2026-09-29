@@ -244,11 +244,9 @@ func buildSelections(in OutputInput) []JSONAdapterSelection {
 			Tier:              blk.Selection.Tier.String(),
 			Reason:            blk.Selection.Reason,
 			SelectionFidelity: selectionFidelity(blk.Selection.Tier),
-			Complete:          blk.Selection.Tier != selector.TierT2 || blk.SuiteEnumerated,
-			Selection: buildSelection(OutputInput{
-				Sel:            blk.Selection,
-				ImportFallback: blk.ImportFallback,
-			}),
+			// T2 lists every unit (runner.Units), so a block is always complete.
+			Complete:  true,
+			Selection: buildSelection(OutputInput{Sel: blk.Selection}),
 		})
 	}
 	return out

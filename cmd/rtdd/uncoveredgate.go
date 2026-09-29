@@ -8,24 +8,11 @@ import (
 	"github.com/VocanicZ/rtdd/internal/uncovered"
 )
 
-// recordsCoverage reports whether this adapter's run produces coverage at all.
-//
-// It is the gate on both halves of issue #345, because both defects have the same
-// cause: `rtdd run` printed the coverage vocabulary over an adapter that declares
-// `coverage: none`. Nothing is instrumented, so no changed line can be KNOWN to be
-// uncovered — with `coverage: none` EVERY changed line reported UNCOVERED
-// unconditionally — and no map row can be recorded either.
-//
-// It reads the coverage axis rather than the selection axis on purpose. Both spell the
-// same adapters today (Validate rejects `coverage: none` outside `selection: static`,
-// and `selection: static` outside `coverage: none`), but what makes an uncovered report
-// dishonest is that nothing was instrumented, and coverage is the field that says so.
-//
-// A nil adapter keeps the coverage reading — nothing declared otherwise, and that is the
-// reading every existing repository has. This is the convention unmappedNoticeApplies
-// already follows on the `which` surface.
+// recordsCoverage reports whether this adapter's run produces coverage: every adapter
+// does on the one pipeline (each unit's run is read for coverage). Only a missing
+// adapter does not.
 func recordsCoverage(ad *adapter.Adapter) bool {
-	return ad == nil || ad.Coverage != adapter.CoverageNone
+	return ad != nil
 }
 
 // coverageWasRecorded reports whether ANY DETECTED adapter records coverage.

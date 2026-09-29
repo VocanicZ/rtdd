@@ -12,8 +12,7 @@ import (
 // impure lists the standard-library packages that can only be there to touch the world.
 // Select's contract is that it makes no git call, touches no filesystem and spawns no
 // process: everything it needs about the repository arrives through Inputs, which is why
-// Distance, ImportOnly, Exists and ImportDistance are injected functions rather than
-// resolvers this package could call itself.
+// Distance is an injected function rather than a resolver this package could call itself.
 var impure = map[string]string{
 	"os":            "the filesystem and the environment",
 	"os/exec":       "subprocesses",
@@ -44,7 +43,7 @@ func TestSelectorPackageStaysPure(t *testing.T) {
 				}
 				if why, bad := impure[p]; bad {
 					t.Errorf("%s imports %q (%s); Select is pure — inject the answer "+
-						"through Inputs instead, as Exists and ImportDistance are",
+						"through Inputs instead, as Distance is",
 						name, p, why)
 				}
 			}

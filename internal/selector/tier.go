@@ -76,7 +76,7 @@ type Inputs struct {
 	Changes  []gitctx.Change
 	Adapter  *adapter.Adapter
 	Cfg      Config
-	AllTests []string             // from adapter.List; needed for T2 and for direct-tier discovery
+	AllTests []string             // every unit (runner.Units); the T2 list
 	Distance func(sha string) int // wraps gitctx.CommitDistance; -1 means unknown
 	Cycles   int                  // from meta.json, for DriftGuard
 
@@ -92,17 +92,5 @@ type Inputs struct {
 	// a repository escalating.
 	EscalateDigest           string
 	EscalateDigestAtLastFull string
-	Merge                    bool                      // HEAD is a merge commit; escalates to T1
-	ImportOnly               func(rel string) []string // static-import fallback; see M2
-
-	// Exists reports whether the repository has this repo-relative path. It resolves
-	// test_for templates (spec §4.2) without the selector touching a filesystem.
-	// nil means level-1 correspondence is skipped, not that it failed.
-	Exists func(rel string) bool
-
-	// ImportDistance maps a changed file to the test files that transitively import it,
-	// valued by the shortest number of import hops. It is the level-2 signal of spec
-	// §4.1. nil — an adapter declaring no importscan — means level 2 is skipped, not
-	// that it failed.
-	ImportDistance func(changed string) map[string]int
+	Merge                    bool // HEAD is a merge commit; escalates to T1
 }

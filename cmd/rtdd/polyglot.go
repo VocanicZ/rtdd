@@ -34,41 +34,6 @@ type AdapterSelection struct {
 	// about one adapter's map, and answering it from the union would report a Python
 	// file as covered because a Vitest row happened to name it.
 	Signal SignalOutput
-
-	// ImportFallback is what the static-import fallback produced for this adapter, per
-	// file — `selection.import_fallback` in the JSON document.
-	ImportFallback map[string][]string
-
-	// FallbackErr and ScanErr are degradations, never failures: a scan that could not run
-	// narrows the selection, and the notes say so. They are carried here so the command
-	// that renders the block can name the adapter the degradation belongs to.
-	FallbackErr error
-	ScanErr     error
-
-	// SuiteEnumerated is true when a T2 selection listed the whole suite rather than the
-	// map rows rtdd happened to know. `which` never enumerates; `run` does, for T2 only.
-	SuiteEnumerated bool
-
-	// SuiteResult is the enumeration's own outcomes, for the adapter whose enumeration
-	// was itself a full-suite RUN — a `report: junit-xml` adapter lists from report_path,
-	// and only a run writes one. It is what runSelection returns instead of invoking the
-	// same suite a second time; nil for a collection, which executed nothing.
-	SuiteResult *runner.RunResult
-
-	// EnumErr is THIS adapter's enumeration failing, carried rather than returned. For a
-	// junit-xml adapter enumerating is running, so an enumeration that cannot start is the
-	// same class of failure as a subset that cannot start — and PRD #232 AC7 makes it one
-	// adapter's failure, not the command's. It is reported per adapter and folded into the
-	// exit code; the adapter itself is not run, because its selection is a knowingly
-	// partial list and running that would report a narrowed suite as a completed one.
-	EnumErr error
-}
-
-// suiteRun is what enumerating one adapter's suite produced: the ids, and — when the
-// enumeration was itself a run — the outcomes of that run.
-type suiteRun struct {
-	Tests  []string
-	Result *runner.RunResult
 }
 
 // selectionContext is everything a selection needs that does NOT vary by adapter: the
@@ -87,12 +52,6 @@ type selectionContext struct {
 	// tier rule stops re-escalating on an edit that is still in an uncommitted diff.
 	EscalateDigest           string
 	EscalateDigestAtLastFull string
-
-	// Enumerate lists an adapter's whole suite, for a T2 escalation only. A nil Enumerate
-	// means the suite is not enumerated — `rtdd which` deliberately does not pay a
-	// collection run — and a T2 selection is then a partial list, which whichNotes says
-	// in as many words.
-	Enumerate func(ad *adapter.Adapter) (suiteRun, error)
 }
 
 // selectPerAdapter runs the existing pure selector once per detected adapter, each over
@@ -128,59 +87,30 @@ func selectFor(root string, ad *adapter.Adapter, ads []*adapter.Adapter, m *maps
 	sub := rowsVisibleTo(ad, ads, m, mt)
 
 	// Cov is nil: this is the map-only signal, which answers "which changed files does no
-	// row of this adapter's cover" — precisely the import fallback's trigger (spec §6,
-	// D14). A run's post-execution signal, classified against fresh coverage, is a
-	// separate call and stays that way.
+	// row of this adapter's cover". A run's post-execution signal, classified against
+	// fresh coverage, is a separate call and stays that way.
 	blk.Signal = BuildSignal(SignalInput{
 		Changes:          ctx.Changes,
 		IsInstrumentable: instrumentableOf(ad),
 		Map:              sub,
 	})
 
-	fb := newImportFallback(root, sub, blk.Signal.UnmappedFiles)
-	exists, importDistance, scanErr := staticResolvers(root, ad)
-
-	choose := func(allTests []string) selector.Selection {
-		return selector.Select(selector.Inputs{
-			Map:                      sub,
-			Changes:                  ctx.Changes,
-			Adapter:                  ad,
-			Cfg:                      ctx.Cfg,
-			AllTests:                 allTests,
-			Cycles:                   ctx.Cycles,
-			Merge:                    ctx.Merge,
-			EscalateDigest:           ctx.EscalateDigest,
-			EscalateDigestAtLastFull: ctx.EscalateDigestAtLastFull,
-			Distance:                 ctx.Distance,
-			ImportOnly:               fb.testsImporting,
-			Exists:                   exists,
-			ImportDistance:           importDistance,
-		})
+	units, err := runner.Units(ad, root)
+	if err != nil {
+		return blk, err
 	}
-	blk.Selection = choose(nil)
-
-	// Enumerating the suite costs a full collection run, and T2 is the one tier whose
-	// test list IS the whole suite — AllTests reaches no other branch of Select. Paying
-	// it on every T0 run would put a collection on the critical path of the loop this
-	// tool exists to make fast.
-	if ctx.Enumerate != nil && blk.Selection.Tier == selector.TierT2 && ad != nil {
-		sr, err := ctx.Enumerate(ad)
-		switch {
-		case err != nil:
-			// SuiteEnumerated stays false, so the document's `complete` says the T2 list
-			// is partial — which it is. The error itself is the block's, not the loop's.
-			blk.EnumErr = err
-		default:
-			blk.Selection = choose(sr.Tests)
-			blk.SuiteEnumerated = true
-			blk.SuiteResult = sr.Result
-		}
-	}
-
-	// Read AFTER selection: the declared scan runs inside Select, through the resolver.
-	blk.ImportFallback = fb.fired
-	blk.FallbackErr = fb.err()
-	blk.ScanErr = scanErr()
+	blk.Selection = selector.Select(selector.Inputs{
+		Map:                      sub,
+		Changes:                  ctx.Changes,
+		Adapter:                  ad,
+		Cfg:                      ctx.Cfg,
+		AllTests:                 units,
+		Cycles:                   ctx.Cycles,
+		Merge:                    ctx.Merge,
+		EscalateDigest:           ctx.EscalateDigest,
+		EscalateDigestAtLastFull: ctx.EscalateDigestAtLastFull,
+		Distance:                 ctx.Distance,
+	})
 	return blk, nil
 }
 
@@ -254,18 +184,16 @@ func tierBreadth(t selector.Tier) int {
 // split, and a consumer that means to invoke a runner reads one block from there. Folding
 // exists so a document written before polyglot repositories were possible still parses
 // and still means something — not so that two adapters' ids can be handed to one runner.
-func foldBlocks(blocks []AdapterSelection) (selector.Selection, SignalOutput, map[string][]string, bool) {
+func foldBlocks(blocks []AdapterSelection) (selector.Selection, SignalOutput) {
 	if len(blocks) == 0 {
-		return selector.Selection{}, SignalOutput{}, map[string][]string{}, true
+		return selector.Selection{}, SignalOutput{}
 	}
 	if len(blocks) == 1 {
-		return blocks[0].Selection, blocks[0].Signal, blocks[0].ImportFallback, blocks[0].SuiteEnumerated
+		return blocks[0].Selection, blocks[0].Signal
 	}
 	var (
 		sel       selector.Selection
 		sig       SignalOutput
-		fallback  = map[string][]string{}
-		complete  = true
 		unmapped  = map[string]bool{}
 		seenTest  = map[string]bool{}
 		seenDirct = map[string]bool{}
@@ -274,9 +202,6 @@ func foldBlocks(blocks []AdapterSelection) (selector.Selection, SignalOutput, ma
 	for _, blk := range blocks {
 		if tierBreadth(blk.Selection.Tier) > tierBreadth(sel.Tier) {
 			sel.Tier = blk.Selection.Tier
-		}
-		if blk.Selection.Tier == selector.TierT2 && !blk.SuiteEnumerated {
-			complete = false
 		}
 		for _, id := range blk.Selection.Tests {
 			if !seenTest[id] {
@@ -302,16 +227,13 @@ func foldBlocks(blocks []AdapterSelection) (selector.Selection, SignalOutput, ma
 				unmapped[f] = true
 			}
 		}
-		for f, ids := range blk.ImportFallback {
-			fallback[f] = ids
-		}
 	}
 	for f := range unmapped {
 		sig.UnmappedFiles = append(sig.UnmappedFiles, f)
 	}
 	sort.Strings(sig.UnmappedFiles)
 	sel.Reason = fmt.Sprintf("%d adapters answered; each adapter's own list is in selections", len(blocks))
-	return sel, sig, fallback, complete
+	return sel, sig
 }
 
 // blocksAdapterName is the document's flat `adapter` field. One adapter names itself; a
@@ -436,26 +358,7 @@ func renderAdapterRuns(runs []AdapterRun) string {
 // suite is actually invoked. It is runner.Run and nothing else.
 var runSubset = runner.Run
 
-// runSubsetPlain is the same seam for the uninstrumented invocation.
-var runSubsetPlain = runner.RunPlain
-
-// runSelection executes one adapter's selection, or returns the outcomes an enumeration
-// of the same suite already produced.
-//
-// The reuse is the plan's decision 12 consequence: for a `report: junit-xml` adapter a T2
-// escalation reads its ids from report_path, and only a full-suite run writes one — so by
-// the time the selection exists, the suite has already run, and running it again as a
-// subset buys the identical answer at twice the cost on the loop this tool exists to make
-// fast. A collection produced no outcomes (SuiteResult is nil) and is still run.
-func runSelection(blk AdapterSelection, root string, failFast bool, record bool) (*runner.RunResult, error) {
-	if blk.EnumErr != nil {
-		return nil, blk.EnumErr
-	}
-	if blk.SuiteEnumerated && blk.SuiteResult != nil {
-		return blk.SuiteResult, nil
-	}
-	if !record && blk.Ad.CanRunPlain() {
-		return runSubsetPlain(blk.Ad, root, blk.Selection.Tests, failFast)
-	}
+// runSelection executes one adapter's selection.
+func runSelection(blk AdapterSelection, root string, failFast bool) (*runner.RunResult, error) {
 	return runSubset(blk.Ad, root, blk.Selection.Tests, failFast)
 }

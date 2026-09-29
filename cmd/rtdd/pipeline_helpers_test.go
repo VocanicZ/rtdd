@@ -63,11 +63,14 @@ func pipelineCheck(t *testing.T, dir, storeFile, appended string, hitOffset int,
 		t.Fatalf("which tier=%q tests=%v, want T0 [%s]\n%s", w.Tier, w.Selection.Tests, wantTest, out.String())
 	}
 
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"run", "--json"}, &out, &errb); code != 0 {
-		t.Fatalf("run = %d\nstdout:\n%s\nstderr:\n%s", code, out.String(), errb.String())
+	// cmdRun writes to os.Stdout, not to run's writer.
+	var code int
+	runOut := captureStdout(t, func() { code = run([]string{"run", "--json"}, &out, &errb) })
+	if code != 0 {
+		t.Fatalf("run = %d\nstdout:\n%s", code, runOut)
 	}
+	out.Reset()
+	out.WriteString(runOut)
 	var r struct {
 		Uncovered struct {
 			Files []JSONFileReport `json:"files"`

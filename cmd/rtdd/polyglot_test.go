@@ -8,6 +8,7 @@ import (
 
 	"github.com/VocanicZ/rtdd/internal/adapter"
 	"github.com/VocanicZ/rtdd/internal/gitctx"
+	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
 	"github.com/VocanicZ/rtdd/internal/mapstore"
 )
 
@@ -41,7 +42,7 @@ func polyglotMap() *mapstore.Map {
 // adapter selects a test file that EXISTS, and repoExists reads the real filesystem.
 func staticRepo(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
+	dir := gittest.Init(t) // units are listed through git
 	if err := os.MkdirAll(filepath.Join(dir, "src"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +119,7 @@ func TestSelectPerAdapterServesAnUntaggedRowOnlyToTheAdapterMetaNames(t *testing
 // spec §4.1 promises to hold byte-identical.
 func TestSelectPerAdapterOnOneAdapterIsOneBlockNamingIt(t *testing.T) {
 	ads := twoAdapters()[:1]
-	got, err := selectPerAdapter(t.TempDir(), ads, polyglotMap(),
+	got, err := selectPerAdapter(gittest.Init(t), ads, polyglotMap(),
 		mapstore.Meta{V: 1, Adapter: "python"},
 		selectionContext{Changes: bothFilesChanged()})
 	if err != nil {
@@ -133,7 +134,7 @@ func TestSelectPerAdapterOnOneAdapterIsOneBlockNamingIt(t *testing.T) {
 // disabled and `which` says so, which is the behaviour that predates detection returning
 // a set. One block with no adapter is how that survives the loop.
 func TestSelectPerAdapterWithNoAdapterStillAnswersOnce(t *testing.T) {
-	got, err := selectPerAdapter(t.TempDir(), nil, polyglotMap(), mapstore.Meta{V: 1},
+	got, err := selectPerAdapter(gittest.Init(t), nil, polyglotMap(), mapstore.Meta{V: 1},
 		selectionContext{Changes: bothFilesChanged()})
 	if err != nil {
 		t.Fatalf("selectPerAdapter: %v", err)
@@ -167,7 +168,7 @@ func TestRenderSelectionsNamesEachAdapterInAPolyglotRepository(t *testing.T) {
 // A one-adapter repository prints EXACTLY what it printed before the loop existed. The
 // heading is per-adapter disambiguation, and there is nothing to disambiguate.
 func TestRenderSelectionsAddsNoHeadingForASingleAdapter(t *testing.T) {
-	blocks, err := selectPerAdapter(t.TempDir(), twoAdapters()[:1], polyglotMap(),
+	blocks, err := selectPerAdapter(gittest.Init(t), twoAdapters()[:1], polyglotMap(),
 		mapstore.Meta{V: 1, Adapter: "python"},
 		selectionContext{Changes: bothFilesChanged()})
 	if err != nil {

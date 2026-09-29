@@ -334,20 +334,6 @@ func TestSelectEscalatesToT1(t *testing.T) {
 			reasonHas: "unreachable",
 			wantHas:   "tests/test_auth.py::test_logout",
 		},
-		{
-			name: "import-time-only fallback contributes tests",
-			mutate: func(in *Inputs) {
-				in.Changes = []gitctx.Change{mod("src/constants.py")}
-				in.ImportOnly = func(rel string) []string {
-					if rel == "src/constants.py" {
-						return []string{"tests/test_db.py::test_query"}
-					}
-					return nil
-				}
-			},
-			reasonHas: "import-time-only",
-			wantHas:   "tests/test_db.py::test_query",
-		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -472,155 +458,12 @@ func TestSelectStaleReasonNamesTheSameRowEveryRun(t *testing.T) {
 	}
 }
 
-// The static tier answers where the coverage relation cannot: no map, an adapter that
-// declares selection: static, and a test_for template naming a file that exists.
-// Both admitting levels reach the selection, and the fourth test — near the change but
-// vouched for by neither level — does not.
-func TestSelectResolvesTS(t *testing.T) {
-	in := staticInputs()
-
-	got := Select(in)
-
-	if got.Tier != TierTS {
-		t.Fatalf("Tier = %v (%s), want TierTS", got.Tier, got.Reason)
-	}
-	want := []string{
-		"src/auth/token.test.ts",   // level 1, declared correspondence
-		"src/auth/session.test.ts", // level 2, 1 hop
-		"src/api/gateway.test.ts",  // level 2, 3 hops
-	}
-	if len(got.Tests) != len(want) {
-		t.Fatalf("Tests = %#v, want the three related tests and not the fourth", got.Tests)
-	}
-	for i := range want {
-		if got.Tests[i] != want[i] {
-			t.Fatalf("Tests = %#v, want %#v: correspondence first, then shortest import path",
-				got.Tests, want)
-		}
-	}
-}
-
-// The whole point of spec §2's two-axis split: a static selection must never describe
-// itself with the words an execution-derived one uses.
-func TestSelectTSReasonNamesItsEvidenceAndNotCoverage(t *testing.T) {
-	got := Select(staticInputs())
-	if contains(got.Reason, "recorded coverage") {
-		t.Errorf("Reason = %q, must not contain %q", got.Reason, "recorded coverage")
-	}
-	if !contains(got.Reason, "correspondence") && !contains(got.Reason, "import") {
-		t.Errorf("Reason = %q, want it to name correspondence or imports", got.Reason)
-	}
-}
-
-// PRD #230 AC7. An adapter's importscan key is optional by contract, so an adapter that
-// omits it is not a broken adapter: level 2 is skipped, the other levels still produce a
-// TS selection, and no error, no warning and no escalation follows from the absence.
-func TestSelectWithoutImportscanIsSkippedNotFatal(t *testing.T) {
-	in := staticInputs()
-	in.ImportDistance = nil // the adapter declares no importscan
-
-	got := Select(in)
-
-	if got.Tier != TierTS {
-		t.Fatalf("Tier = %v (%s), want TierTS: a missing importscan skips a level, "+
-			"it does not escalate", got.Tier, got.Reason)
-	}
-	if len(got.Tests) != 1 || got.Tests[0] != "src/auth/token.test.ts" {
-		t.Errorf("Tests = %#v, want only the corresponding test", got.Tests)
-	}
-	for _, unwanted := range []string{"importscan", "error", "recorded coverage"} {
-		if contains(got.Reason, unwanted) {
-			t.Errorf("Reason = %q, must not contain %q: the absence is not a fault",
-				got.Reason, unwanted)
-		}
-	}
-}
-
-// A selection resting on imports alone says so, and still never borrows the words an
-// execution-derived selection uses.
-func TestSelectTSImportDerivedReasonNamesImports(t *testing.T) {
-	in := staticInputs()
-	ad := staticFixtureAdapter()
-	ad.TestFor = nil // imports are the only evidence there is
-	ad.Importscan = &adapter.Importscan{Command: "node {script}", Script: "scan.js"}
-	in.Adapter = ad
-
-	got := Select(in)
-
-	if got.Tier != TierTS {
-		t.Fatalf("Tier = %v (%s), want TierTS", got.Tier, got.Reason)
-	}
-	if !contains(got.Reason, "import") {
-		t.Errorf("Reason = %q, want it to name imports", got.Reason)
-	}
-	if contains(got.Reason, "recorded coverage") {
-		t.Errorf("Reason = %q, must not contain %q", got.Reason, "recorded coverage")
-	}
-	want := []string{"src/auth/session.test.ts", "src/api/gateway.test.ts"}
-	for i := range want {
-		if got.Tests[i] != want[i] {
-			t.Fatalf("Tests = %#v, want %#v: shortest import path first", got.Tests, want)
-		}
-	}
-}
-
-// Decision 2 of docs/plans/06-m6b-static-tier.md: fidelity none declares selection:
-// static, so the gate opens, but it can produce no candidate and path proximity may not
-// fill the gap. The honest answer is the full suite at T2, with a reason naming what the
-// adapter is missing — the same fact its rtdd doctor line reports.
-func TestSelectFidelityNoneIsAFullSuiteThatSaysWhy(t *testing.T) {
-	in := staticInputs()
-	ad := staticFixtureAdapter()
-	ad.TestFor = nil
-	in.Adapter = ad
-	in.ImportDistance = nil // no test_for and no importscan: fidelity none
-
-	got := Select(in)
-
-	if got.Tier != TierT2 {
-		t.Fatalf("Tier = %v (%s), want TierT2", got.Tier, got.Reason)
-	}
-	if len(got.Tests) != len(in.AllTests) {
-		t.Errorf("Tests = %#v, want the full suite", got.Tests)
-	}
-	for _, want := range []string{"typescript", "test_for", "importscan"} {
-		if !contains(got.Reason, want) {
-			t.Errorf("Reason = %q, want it to mention %q", got.Reason, want)
-		}
-	}
-	if contains(got.Reason, "recorded coverage") {
-		t.Errorf("Reason = %q, must not contain %q", got.Reason, "recorded coverage")
-	}
-}
-
-// A static adapter that HAS declarations but finds nothing for this particular change is
-// also the full suite, with its own reason — never an empty TS, which would report a tier
-// that narrowed nothing.
-func TestSelectAStaticAdapterThatFindsNothingIsAFullSuite(t *testing.T) {
-	in := staticInputs()
-	in.Exists = existsIn() // the templates expand, and name nothing that is there
-	in.ImportDistance = func(string) map[string]int { return nil }
-
-	got := Select(in)
-
-	if got.Tier != TierT2 {
-		t.Fatalf("Tier = %v (%s), want TierT2", got.Tier, got.Reason)
-	}
-	if len(got.Tests) != len(in.AllTests) {
-		t.Errorf("Tests = %#v, want the full suite", got.Tests)
-	}
-	if contains(got.Reason, "recorded coverage") {
-		t.Errorf("Reason = %q, must not contain %q", got.Reason, "recorded coverage")
-	}
-}
-
 // A seeded map that covers nothing in the changed set is an honest empty. Turning it into
 // a speculative static selection would replace a true "nothing is related" with a guess:
 // TS is for a map that CANNOT answer, not for one that answered zero.
 func TestSelectASeededMapSelectingNothingStaysEmpty(t *testing.T) {
 	in := baseInputs()
 	in.Changes = []gitctx.Change{mod("src/untouched.py")}
-	in.Exists = existsIn("tests/test_untouched.py")
 	in.Adapter = fixtureAdapter()
 	in.Adapter.TestFor = []string{"tests/test_{name}.py"}
 
@@ -647,7 +490,7 @@ func TestSelectAnUnseededCoverageRepoIsUnchanged(t *testing.T) {
 	if got.Tier != TierT2 {
 		t.Fatalf("Tier = %v, want TierT2", got.Tier)
 	}
-	const want = "the map is unseeded, so no selection is trustworthy: run rtdd seed"
+	const want = "map is unseeded or from an older rtdd; run `rtdd seed`"
 	if got.Reason != want {
 		t.Errorf("Reason = %q, want %q", got.Reason, want)
 	}
@@ -800,5 +643,24 @@ func TestAnUncommittedSessionStopsPinningTheFullSuite(t *testing.T) {
 	}
 	if tiers[len(tiers)-1] == TierT2 {
 		t.Error("the last cycle is still T2; the escalation is still sticky")
+	}
+}
+
+func TestEmptyMapIsT2WithTheSeedReason(t *testing.T) {
+	a := fixtureAdapter()
+	sel := Select(Inputs{
+		Map:      mapstore.New(),
+		Changes:  []gitctx.Change{{Path: "src/a.py", Status: gitctx.Modified}},
+		Adapter:  a,
+		AllTests: []string{"tests/test_a.py", "tests/test_b.py"},
+	})
+	if sel.Tier != TierT2 || !strings.Contains(sel.Reason, "rtdd seed") {
+		t.Fatalf("tier=%v reason=%q, want T2 naming rtdd seed", sel.Tier, sel.Reason)
+	}
+	if !reflect.DeepEqual(sel.Tests, []string{"tests/test_a.py", "tests/test_b.py"}) {
+		t.Errorf("tests = %v, want every unit", sel.Tests)
+	}
+	if sel.Reason != "map is unseeded or from an older rtdd; run `rtdd seed`" {
+		t.Errorf("reason = %q", sel.Reason)
 	}
 }

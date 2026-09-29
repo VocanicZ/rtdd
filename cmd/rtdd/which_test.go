@@ -305,6 +305,6 @@ func importFallbackRepo(t *testing.T) string {
 	}
 	gittest.Write(t, dir, ".rtdd/adapter.yaml", string(ad))
 	gittest.Write(t, dir, ".rtdd/meta.json",
-		`{"v":1,"adapter":"python","seeded_at":"`+sha+`","cycles":`+strconv.Itoa(0)+"}\n")
+		`{"v":2,"adapter":"python","seeded_at":"`+sha+`","cycles":`+strconv.Itoa(0)+"}\n")
 	return dir
 }

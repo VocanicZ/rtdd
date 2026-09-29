@@ -13,6 +13,7 @@ import (
 
 	"github.com/VocanicZ/rtdd/internal/gitctx"
 	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
+	"github.com/VocanicZ/rtdd/internal/mapstore"
 	"github.com/VocanicZ/rtdd/internal/pytestfixture"
 )
 
@@ -202,8 +203,8 @@ func TestCmdSeedWritesMeta(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readMeta: %v", err)
 	}
-	if m.V != 1 {
-		t.Errorf("meta.V = %d, want 1", m.V)
+	if m.V != mapstore.MapVersion {
+		t.Errorf("meta.V = %d, want %d", m.V, mapstore.MapVersion)
 	}
 	if m.Adapter != "python" {
 		t.Errorf("meta.Adapter = %q, want python", m.Adapter)

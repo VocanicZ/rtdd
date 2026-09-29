@@ -5,14 +5,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"sort"
 	"strings"
 	"testing"
-
-	"github.com/VocanicZ/rtdd/internal/adapter"
-	"github.com/VocanicZ/rtdd/internal/gitctx"
-	"github.com/VocanicZ/rtdd/internal/mapstore"
-	"github.com/VocanicZ/rtdd/internal/selector"
 )
 
 func requirePython(t *testing.T) {
@@ -215,65 +209,5 @@ func TestScannerErrorDegradesRatherThanFailing(t *testing.T) {
 	}
 	if s.Err() != first {
 		t.Fatalf("Err() = %v, want the FIRST error %v retained", s.Err(), first)
-	}
-}
-
-func TestScannerSatisfiesSelectorImportOnly(t *testing.T) {
-	requirePython(t)
-	root := cycleFixture(t)
-	s := NewScanner(root, allTests())
-
-	// The assignability is the contract: selector.Inputs.ImportOnly takes this method value.
-	var importOnly func(rel string) []string = s.TestsImporting
-	if got := importOnly("src/constants.py"); len(got) != 2 {
-		t.Fatalf("importOnly() = %#v, want 2 tests", got)
-	}
-	in := selector.Inputs{}
-	in.ImportOnly = s.TestsImporting
-	if in.ImportOnly == nil {
-		t.Fatal("selector.Inputs.ImportOnly was not assigned")
-	}
-}
-
-// TestScannerWiredIntoSelectPicksUpImporters is the acceptance case: a changed file no
-// map row covers — which is exactly what an import-time-only file looks like, since
-// import-time lines are attributed to no test — reaches T1 through the scanner.
-func TestScannerWiredIntoSelectPicksUpImporters(t *testing.T) {
-	requirePython(t)
-	root := cycleFixture(t)
-	s := NewScanner(root, allTests())
-
-	m := mapstore.New()
-	// The map is seeded (so no T2 escalation) but records nothing about src/constants.py.
-	m.Replace(mapstore.Row{T: "tests/test_unrelated.py", F: []string{"src/other.py"}, C: "abc1234", D: 5, S: "pass"})
-
-	a := &adapter.Adapter{
-		Name:        "python",
-		TestGlobs:   []string{"tests/**/*.py"},
-		SourceGlobs: []string{"src/**/*.py"},
-	}
-
-	sel := selector.Select(selector.Inputs{
-		Map:        m,
-		Changes:    []gitctx.Change{{Path: "src/constants.py", Status: gitctx.Modified}},
-		Adapter:    a,
-		AllTests:   allTests(),
-		ImportOnly: s.TestsImporting,
-	})
-
-	if sel.Tier != selector.TierT1 {
-		t.Fatalf("Tier = %v (%s), want T1", sel.Tier, sel.Reason)
-	}
-	want := []string{"tests/test_direct.py", "tests/test_trans.py"}
-	got := append([]string{}, sel.Tests...)
-	sort.Strings(got)
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("Tests\n got: %#v\nwant: %#v", got, want)
-	}
-	if !strings.Contains(sel.Reason, "import-time-only file changed: src/constants.py") {
-		t.Fatalf("Reason = %q, want the import-time-only escalation", sel.Reason)
-	}
-	if err := s.Err(); err != nil {
-		t.Fatalf("Err() = %v, want nil", err)
 	}
 }

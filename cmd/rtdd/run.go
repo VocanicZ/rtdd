@@ -12,7 +12,6 @@ import (
 	"github.com/VocanicZ/rtdd/internal/gitctx"
 	"github.com/VocanicZ/rtdd/internal/mapstore"
 	"github.com/VocanicZ/rtdd/internal/report"
-	"github.com/VocanicZ/rtdd/internal/runner"
 	"github.com/VocanicZ/rtdd/internal/selector"
 	"github.com/VocanicZ/rtdd/internal/uncovered"
 )
@@ -20,7 +19,7 @@ import (
 // cmdRun selects, executes, refreshes the map, and reports.
 //
 // It exits nonzero when a test failed, and when an adapter never got as far as running —
-// a subset or an enumeration that could not start is an environment failure, not a pass.
+// a run that could not start is an environment failure, not a pass.
 // A GENUINELY empty selection, one no failure caused, is exit 0 and is reported
 // explicitly, so it can never read as "all passed" (spec §5).
 //
@@ -36,8 +35,6 @@ func cmdRun(args []string) int {
 	base := fs.String("base", "HEAD", "diff base ref for the changed set")
 	failFast := fs.Bool("fail-fast", false, "stop at the first failure (opt-in only)")
 	asJSON := fs.Bool("json", false, "machine-readable output (schema v1)")
-	record := fs.String("record", recordAlways, "when to record coverage: "+
-		recordAlways+" (every cycle) or "+recordAuto+" (only when the map has something to learn)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -69,6 +66,10 @@ func cmdRun(args []string) int {
 		fmt.Fprintln(os.Stderr, "rtdd:", err)
 		return 2
 	}
+	// A map older than MapVersion holds ids that are not units: read it as unseeded.
+	if mt.V < mapstore.MapVersion {
+		m = mapstore.New()
+	}
 	// changedSet, not gitctx.ChangedSet: rtdd's own .rtdd/ writes must not select.
 	changes, err := changedSet(root, *base)
 	if err != nil {
@@ -81,13 +82,6 @@ func cmdRun(args []string) int {
 	// One selection per detected adapter (spec §4.4), through the same selectPerAdapter
 	// `rtdd which` calls: the advisory command and the executing command disagreeing
 	// about one tree is a defect this package has already shipped once.
-	//
-	// Enumerate is supplied here and nowhere else: enumerating costs a full collection —
-	// and, for a junit-xml adapter, a full suite RUN, because that adapter's ids live in
-	// report_path and only a run writes one — and T2 is the one tier whose test list IS
-	// the whole suite, so paying it on every T0 run would put a collection on the critical
-	// path of the loop this tool exists to make fast. What that run produced is carried on
-	// the block and reused below rather than paid for twice.
 	escalateNow := escalateDigest(root, ads, changes)
 	blocks, err := selectPerAdapter(root, ads, m, mt, selectionContext{
 		Changes:                  changes,
@@ -97,16 +91,12 @@ func cmdRun(args []string) int {
 		EscalateDigest:           escalateNow,
 		EscalateDigestAtLastFull: mt.EscalateDigest,
 		Distance:                 memoDistance(root),
-		Enumerate: func(ad *adapter.Adapter) (suiteRun, error) {
-			res, tests, err := runner.ListRun(ad, root)
-			return suiteRun{Tests: tests, Result: res}, err
-		},
 	})
 	if err != nil {
 		return reportRunErr(err)
 	}
 
-	sel, pre, importFallback, suiteEnumerated := foldBlocks(blocks)
+	sel, pre := foldBlocks(blocks)
 
 	// Under --json the document is the WHOLE of stdout: a consumer pipes it straight
 	// into a parser, and a human-readable tier line ahead of it is a syntax error. The
@@ -115,24 +105,15 @@ func cmdRun(args []string) int {
 		fmt.Print(renderRunTiers(blocks))
 	}
 
-	// A failed scan DEGRADES selection; it never fails the command (internal/importscan:
-	// Scanner.Err). It stays on stderr for a human — that keeps --json's stdout a single
-	// document — and reaches the document itself as a `warnings` entry, because a --json
-	// consumer normally discards stderr and would otherwise never learn the selection was
-	// narrowed.
+	// Caveats reach the document as `warnings`, because a --json consumer normally
+	// discards stderr.
 	var warnings []string
 	for _, blk := range blocks {
-		if blk.FallbackErr != nil {
-			fmt.Fprintf(os.Stderr, "rtdd run: %s\n", importScanNote(blk.FallbackErr))
-		}
-		if blk.ScanErr != nil && blk.Ad != nil {
-			fmt.Fprintf(os.Stderr, "rtdd run: %s\n", adapterImportScanNote(blk.Ad.Name, blk.ScanErr))
-		}
 		// Attributed in a polyglot repository, for the reason whichNotes attributes its
 		// own: "an empty selection is not a pass" is a sentence about ONE adapter, and
 		// unattributed it reads as a claim about the whole run — which just executed
 		// another adapter's tests.
-		for _, n := range runNotes(blk.Selection, blk.FallbackErr, adapterScanWarning(blk.Ad, blk.ScanErr)) {
+		for _, n := range runNotes(blk.Selection, nil) {
 			if len(blocks) > 1 {
 				n = blk.Adapter + ": " + n
 			}
@@ -151,19 +132,6 @@ func cmdRun(args []string) int {
 	}
 
 	if selectionIsEmpty(sel) {
-		// An adapter whose enumeration failed is reported HERE too, and folds its code.
-		// The empty selection is a CONSEQUENCE of that failure — a T2 block whose
-		// enumeration never returned a list has nothing to run — so returning 0 from this
-		// branch, ahead of the loop below that exists to report EnumErr, turns a broken
-		// toolchain into "nothing to do here" on both output paths (PRD #232 AC7).
-		enumRuns := enumFailures(blocks)
-		for _, r := range enumRuns {
-			warnings = append(warnings, adapterFailureNote(r.Adapter, r.Err, true))
-		}
-		code := FoldExitCodes(enumRuns)
-		if anyAdapterFailedToRun(enumRuns) {
-			fmt.Fprint(os.Stderr, renderAdapterRuns(enumRuns))
-		}
 		if *asJSON {
 			// Nothing executed, so there is no fresh coverage and therefore no honest
 			// uncovered report: UncoveredOK stays false and `files` is omitted rather
@@ -177,19 +145,17 @@ func cmdRun(args []string) int {
 				Changes:         changes,
 				Instrumentable:  pre.Instrumentable,
 				UnmappedFiles:   pre.UnmappedFiles,
-				ImportFallback:  importFallback,
-				SuiteEnumerated: suiteEnumerated,
+				SuiteEnumerated: true,
 				Warnings:        warnings,
 				Blocks:          blocks,
 			})
-			out.ExitCode = code
 			if err := emitJSON(out); err != nil {
 				return 2
 			}
-			return finishCycle(root, mt, code)
+			return finishCycle(root, mt, 0)
 		}
 		fmt.Println("EMPTY SELECTION - nothing ran. This is not a pass.")
-		return finishCycle(root, mt, code)
+		return finishCycle(root, mt, 0)
 	}
 
 	sha, err := gitctx.HeadSHA(root)
@@ -235,39 +201,24 @@ func cmdRun(args []string) int {
 	// back an uncovered report at all.
 	var (
 		noCoverage  []string
-		notRecorded []string
 		coverageRan bool
+		output      = map[string]string{}
 	)
-	recordThisCycle, recordWhy := shouldRecord(*record, sel, pre.UnmappedFiles, ads)
-	if !recordThisCycle {
-		warnings = append(warnings, recordWhy)
-	}
 	for _, blk := range blocks {
-		// An adapter whose enumeration failed is reported even with nothing to run: the
-		// empty selection is a CONSEQUENCE of the failure, and skipping it silently would
-		// turn a broken toolchain into "nothing to do here".
-		if blk.EnumErr == nil && selectionIsEmpty(blk.Selection) {
+		if selectionIsEmpty(blk.Selection) {
 			continue
 		}
-		res, err := runSelection(blk, root, *failFast, recordThisCycle)
+		res, err := runSelection(blk, root, *failFast)
 		if err != nil {
 			code, hints := runErrClass(err)
 			runs = append(runs, AdapterRun{Adapter: blk.Adapter, Err: err, Code: code, Hints: hints})
 			// The warning reaches the --json document too: a consumer discards stderr,
 			// and a run whose Maven half never started must not read as a green one.
-			warnings = append(warnings, adapterFailureNote(blk.Adapter, err, blk.EnumErr != nil))
+			warnings = append(warnings, adapterFailureNote(blk.Adapter, err, false))
 			continue
 		}
-		// The map is refreshed only from an adapter that records coverage, and issue
-		// #345's investigation is why. The rows a `coverage: none` adapter produced were
-		// real rows — one per outcome, carrying t, s and d — but every one of them had an
-		// EMPTY f, so none could ever be selected through: Select routes a static adapter
-		// down the TS tier before any map lookup happens (mapCannotAnswer), and `rtdd
-		// seed` refuses such an adapter outright because it has nothing to record. So the
-		// count the summary line printed was not miscounted — it was of rows that should
-		// never have existed, and writing them left map.jsonl claiming a coverage
-		// relation the adapter had already declared it cannot produce.
-		if recordThisCycle && recordsCoverage(blk.Ad) {
+		// Every executed unit's row is refreshed from the coverage its own run produced.
+		if recordsCoverage(blk.Ad) {
 			for _, row := range rowsFrom(res, sha, blk.Adapter) {
 				// UNION, NEVER REPLACE. See the doc comment on cmdRun. UnionFor rather
 				// than Union because an untagged row IS this adapter's row when meta.json
@@ -294,11 +245,6 @@ func cmdRun(args []string) int {
 		switch {
 		case !recordsCoverage(blk.Ad):
 			noCoverage = append(noCoverage, blk.Adapter)
-		case !recordThisCycle:
-			// The adapter records coverage and simply was not asked to this cycle. It
-			// gets its own reason, because reporting it as `coverage: none` would state
-			// a permanent incapacity for a per-cycle choice.
-			notRecorded = append(notRecorded, blk.Adapter)
 		default:
 			reports = append(reports, blkSig.Reports...)
 			coverageRan = true
@@ -314,6 +260,9 @@ func cmdRun(args []string) int {
 
 		outcomes = append(outcomes, res.Outcomes...)
 		failed = append(failed, res.Failed...)
+		for u, o := range res.Output {
+			output[u] = o
+		}
 		ran += len(res.Outcomes)
 
 		// A non-empty uncovered report NEVER moves the exit code: RTDD reports, it does
@@ -370,10 +319,9 @@ func cmdRun(args []string) int {
 			// fresh coverage backs; an empty `files` list would read as "nothing
 			// uncovered", which is the fabrication AC9a is about.
 			UncoveredOK:     coverageRan,
-			UncoveredReason: uncoveredAbsentReason(noCoverage, notRecorded),
+			UncoveredReason: uncoveredAbsentReason(noCoverage, nil),
 			UnmappedFiles:   sig.UnmappedFiles,
-			ImportFallback:  importFallback,
-			SuiteEnumerated: suiteEnumerated,
+			SuiteEnumerated: true,
 			Warnings:        warnings,
 			Blocks:          blocks,
 		})
@@ -388,7 +336,13 @@ func cmdRun(args []string) int {
 	for _, id := range failed {
 		fmt.Printf("FAILED %s\n", id)
 	}
-	if s := RenderUncoveredFor(reports, noCoverage, notRecorded); s != "" {
+	for _, u := range failed {
+		fmt.Printf("--- %s ---\n%s", u, output[u])
+		if o := output[u]; o != "" && !strings.HasSuffix(o, "\n") {
+			fmt.Println()
+		}
+	}
+	if s := RenderUncoveredFor(reports, noCoverage, nil); s != "" {
 		fmt.Fprint(os.Stdout, "\n"+s)
 	}
 	return finishCycle(root, mt, code)
@@ -525,22 +479,6 @@ func finishCycle(root string, mt meta, code int) int {
 		return 3
 	}
 	return code
-}
-
-// enumFailures is the per-adapter report for every block whose enumeration failed, with
-// the same exit code and operator hints the subset path derives from a runner error: for
-// a `report: junit-xml` adapter enumerating IS running, so the two are one class of
-// failure and must not be classified two ways.
-func enumFailures(blocks []AdapterSelection) []AdapterRun {
-	var runs []AdapterRun
-	for _, blk := range blocks {
-		if blk.EnumErr == nil {
-			continue
-		}
-		code, hints := runErrClass(blk.EnumErr)
-		runs = append(runs, AdapterRun{Adapter: blk.Adapter, Err: blk.EnumErr, Code: code, Hints: hints})
-	}
-	return runs
 }
 
 // adapterFailureNote is the document warning for an adapter that produced no results,

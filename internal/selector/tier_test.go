@@ -130,18 +130,3 @@ func TestTierTSIsOrderedBetweenT1AndT2(t *testing.T) {
 			int(TierT1), int(TierTS), int(TierT2))
 	}
 }
-
-// The static tier's two questions — "does this file exist" and "which tests import this
-// file, how far away" — arrive as injected functions so Select stays pure.
-func TestInputsCarriesTheStaticResolvers(t *testing.T) {
-	in := Inputs{
-		Exists:         func(rel string) bool { return rel == "src/a.test.ts" },
-		ImportDistance: func(string) map[string]int { return map[string]int{"src/a.test.ts": 2} },
-	}
-	if !in.Exists("src/a.test.ts") || in.Exists("nope.ts") {
-		t.Error("Inputs.Exists did not round-trip")
-	}
-	if got := in.ImportDistance("src/a.ts")["src/a.test.ts"]; got != 2 {
-		t.Errorf("Inputs.ImportDistance(...)[src/a.test.ts] = %d, want 2", got)
-	}
-}

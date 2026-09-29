@@ -1078,17 +1078,17 @@ func TestDocumentedResolutionOrderMatchesTheSelector(t *testing.T) {
 		t.Fatal("internal/selector/select.go declares no `func Select(in Inputs) Selection`")
 	}
 	var at []int
-	for _, step := range []string{"T2 escalations", "T1 escalations", "4. T0", "5. TS", "6. TierEmpty"} {
+	for _, step := range []string{"1. the direct set", "2. T2 escalations", "3. T1 escalations", "4. T0", "5. TierEmpty"} {
 		i := strings.Index(head, step)
 		if i < 0 {
 			t.Fatalf("Select's header comment names no %q step; the documented order is "+
-				"T2 escalations, T1 escalations, T0, TS, empty", step)
+				"direct, T2 escalations, T1 escalations, T0, empty", step)
 		}
 		at = append(at, i)
 	}
 	if !slices.IsSorted(at) {
 		t.Errorf("Select's header comment lists the steps out of order (offsets %v); the "+
-			"documented order is T2 escalations, T1 escalations, T0, TS, empty", at)
+			"documented order is direct, T2 escalations, T1 escalations, T0, empty", at)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 
 	"github.com/VocanicZ/rtdd/internal/adapter"
 	"github.com/VocanicZ/rtdd/internal/gitctx"
+	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
 	"github.com/VocanicZ/rtdd/internal/mapstore"
 	"github.com/VocanicZ/rtdd/internal/selector"
 )
@@ -105,7 +106,7 @@ func TestUntaggedLegacyRowsAreNotServedToAStaticAdapterAfterARun(t *testing.T) {
 		t.Errorf("python is served %d rows, want its own 1 — the legacy map is python's", got.Len())
 	}
 
-	blocks, err := selectPerAdapter(t.TempDir(), ads, m, mt, selectionContext{
+	blocks, err := selectPerAdapter(gittest.Init(t), ads, m, mt, selectionContext{
 		Changes: []gitctx.Change{{Path: "src/calc.py", Status: gitctx.Modified}},
 	})
 	if err != nil {

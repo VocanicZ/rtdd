@@ -7,6 +7,10 @@ import (
 	"path/filepath"
 )
 
+// MapVersion is the map format this rtdd writes: rows keyed by unit (test file). A map
+// with an older meta `v` holds test-case ids and is read as unseeded.
+const MapVersion = 2
+
 // Meta is .rtdd/meta.json. It is kept out of map.jsonl because the JSONL is union-merged
 // and these fields must not be duplicated by a merge.
 type Meta struct {

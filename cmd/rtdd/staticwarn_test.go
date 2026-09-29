@@ -236,7 +236,7 @@ func mixedFidelityRepo(t *testing.T) string {
 	writeFile(t, dir, ".rtdd/map.jsonl",
 		`{"t":"tests/test_logic.py::test_add","f":["src/logic.py"],"c":"`+sha+`","d":11,"s":"pass"}`+"\n")
 	writeFile(t, dir, ".rtdd/meta.json",
-		`{"v":1,"adapter":"python","seeded_at":"`+sha+`","cycles":0}`+"\n")
+		`{"v":2,"adapter":"python","seeded_at":"`+sha+`","cycles":0}`+"\n")
 
 	// Both halves change, so both adapters answer: the Python one over its map, the
 	// vitest one over its declared correspondence.

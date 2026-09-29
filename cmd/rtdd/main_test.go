@@ -67,7 +67,7 @@ func installRTDD(t *testing.T, dir, seedSHA string, cycles int) {
 	}
 	gittest.Write(t, dir, ".rtdd/adapter.yaml", string(ad))
 
-	meta := `{"v":1,"adapter":"python","seeded_at":"` + seedSHA + `","cycles":` +
+	meta := `{"v":2,"adapter":"python","seeded_at":"` + seedSHA + `","cycles":` +
 		strconv.Itoa(cycles) + "}\n"
 	gittest.Write(t, dir, ".rtdd/meta.json", meta)
 }

@@ -44,32 +44,13 @@ func cmdSeed(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "rtdd:", err)
 		return 2
 	}
-	// Decision 6: a mixed repository seeds its coverage half and NAMES its static half.
-	// The exit-2 refusal is for a repository whose coverage half is empty — refusing here
-	// would strand the map the Python half of a polyglot repository genuinely needs.
-	//
-	// Exiting 0 having built no map is the worse failure of the two: it leaves the caller
-	// believing a map exists, and every later command is then read against a map that was
-	// never written. So an empty coverage half is exit 2 — the adapters' own declarations
-	// are what make the request impossible, which is a configuration error.
-	plan, msg := seedPlan(detected)
-	if len(plan) == 0 {
-		fmt.Fprint(stderr, msg)
-		return 2
-	}
-	// The static half's sentence goes to stdout beside the work, not to stderr: nothing
-	// went wrong, and the reader needs it to know why the map holds no vitest row.
-	if msg != "" {
-		fmt.Fprint(stdout, msg)
-	}
-
 	sha, err := gitctx.HeadSHA(root)
 	if err != nil {
 		fmt.Fprintln(stderr, "rtdd:", err)
 		return 3
 	}
 
-	// One instrumented run per coverage adapter, each row tagged with the adapter that
+	// One run per detected adapter, each row tagged with the adapter that
 	// produced it so no adapter is ever served another's ids (PRD #232 AC6).
 	//
 	// A run that fails outright still returns here rather than folding a per-adapter code:
@@ -78,8 +59,8 @@ func cmdSeed(args []string, stdout, stderr io.Writer) int {
 	m := mapstore.New()
 	code := 0
 	var failed []string
-	for _, ad := range plan {
-		fmt.Fprintf(stdout, "seeding with the %s adapter (one full instrumented run)\n", ad.Name)
+	for _, ad := range detected {
+		fmt.Fprintf(stdout, "seeding with the %s adapter (every unit, instrumented)\n", ad.Name)
 		res, err := runner.Seed(ad, root)
 		if err != nil {
 			return reportRunErr(err)
@@ -108,7 +89,7 @@ func cmdSeed(args []string, stdout, stderr io.Writer) int {
 	// of a map seeded by an older rtdd are. With several coverage adapters the singular
 	// names the first — every row this seed wrote carries its own tag, so the singular is
 	// only ever consulted for rows an older binary left behind.
-	if err := writeMeta(root, meta{V: 1, Adapter: coverageAdapterName(detected), Adapters: detectedSet(detected),
+	if err := writeMeta(root, meta{V: mapstore.MapVersion, Adapter: coverageAdapterName(detected), Adapters: detectedSet(detected),
 		SeededAt: sha, Cycles: 0}); err != nil {
 		fmt.Fprintln(stderr, "rtdd:", err)
 		return 3

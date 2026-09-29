@@ -16,7 +16,7 @@ import (
 )
 
 // cmdWhich answers "what should I run?" without running anything. It costs one map load,
-// one git diff and — only for a changed file no map row covers — one static import scan.
+// one git diff and one listing of the tracked files.
 // It is the primary agent integration point. Every tier exits 0: an empty selection is a
 // signal, and the human output says so in as many words.
 //
@@ -38,6 +38,11 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintf(stderr, "rtdd which: %v\n", err)
 		return code
+	}
+
+	// A map older than MapVersion holds ids that are not units: read it as unseeded.
+	if e.meta.V < mapstore.MapVersion {
+		e.m = mapstore.New()
 	}
 
 	// changedSet, not gitctx.ChangedSet: rtdd's own .rtdd/ writes must not select.
@@ -64,9 +69,7 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 	distance := memoDistance(e.root)
 
 	// One block per detected adapter (spec §4.4): each adapter selects over its own rows,
-	// so no adapter can ever be handed another's test ids. Enumerate stays nil — `which`
-	// does not pay a collection run, so a T2 selection is a partial list and the note
-	// below says so in as many words.
+	// so no adapter can ever be handed another's test ids.
 	blocks, err := selectPerAdapter(e.root, e.ads, e.m, e.meta, selectionContext{
 		Changes:                  changes,
 		Cfg:                      selector.DefaultConfig(),
@@ -83,7 +86,7 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 
 	// The flat half of the output is the fold of the blocks, and with one adapter it IS
 	// that block — which is what keeps a single-adapter repository's output byte-identical.
-	sel, sig, importFallback, _ := foldBlocks(blocks)
+	sel, sig := foldBlocks(blocks)
 
 	var notes []string
 	for _, blk := range blocks {
@@ -99,7 +102,7 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 		for _, n := range notes {
 			fmt.Fprintf(stderr, "rtdd which: %s\n", n)
 		}
-		return emitWhichJSON(stdout, stderr, blocks, *base, changes, sel, sig, importFallback, notes)
+		return emitWhichJSON(stdout, stderr, blocks, *base, changes, sel, sig, notes)
 	}
 
 	fmt.Fprintf(stdout, "base:     %s\n", *base)
@@ -144,24 +147,6 @@ func whichNotes(e *env, blk AdapterSelection, multi bool) []string {
 	}
 	if blk.Selection.Tier == selector.TierEmpty {
 		note("an empty selection is not a pass. Nothing was checked.")
-	}
-	// Gated on the suite being unenumerated, not on the selection being empty: a T2
-	// selection that also carries a direct test is still a partial list of the full suite,
-	// and reading it as "T2 satisfied by one test" is exactly the under-run this note
-	// exists to prevent.
-	if blk.Selection.Tier == selector.TierT2 && !blk.SuiteEnumerated {
-		note("T2 means the full suite. rtdd does not enumerate it here, "+
-			"so the %d test id(s) listed above are not the whole run.", len(blk.Selection.Tests))
-	}
-	if blk.FallbackErr != nil {
-		note("%s", importScanNote(blk.FallbackErr))
-	}
-	// A DECLARED scanner that failed is a level that could not run. Without this note the
-	// selection is narrower than the adapter promises and nothing says so — and the tier's
-	// own reason, which only knows the resolver was supplied, reads as though the imports
-	// were checked and found nothing.
-	if blk.ScanErr != nil && blk.Ad != nil {
-		note("%s", adapterImportScanNote(blk.Ad.Name, blk.ScanErr))
 	}
 	// Last, because it qualifies the whole of this adapter's answer rather than naming
 	// one thing that went wrong with it: a static selection is a working selection, and
@@ -255,8 +240,7 @@ func testFileOf(id string) string {
 // emitWhichJSON writes the frozen v1 document — the same schema `rtdd run --json` emits,
 // so a front-end binds once and reads both.
 func emitWhichJSON(stdout, stderr io.Writer, blocks []AdapterSelection, base string,
-	changes []gitctx.Change, sel selector.Selection, sig SignalOutput,
-	importFallback map[string][]string, warnings []string) int {
+	changes []gitctx.Change, sel selector.Selection, sig SignalOutput, warnings []string) int {
 	out := BuildOutput(OutputInput{
 		Command:        "which",
 		Base:           base,
@@ -266,12 +250,10 @@ func emitWhichJSON(stdout, stderr io.Writer, blocks []AdapterSelection, base str
 		Instrumentable: sig.Instrumentable,
 		Executed:       false,
 		UncoveredOK:    false,
-		// which never enumerates the suite — that costs a collection run it does not
-		// pay — so a T2 selection here is always reported as incomplete.
-		SuiteEnumerated: false,
+		// T2 lists every unit (runner.Units), so the list is the whole run.
+		SuiteEnumerated: true,
 		Warnings:        warnings,
 		UnmappedFiles:   sig.UnmappedFiles,
-		ImportFallback:  importFallback,
 		Blocks:          blocks,
 	})
 

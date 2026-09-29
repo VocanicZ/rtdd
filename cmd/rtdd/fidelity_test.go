@@ -156,10 +156,8 @@ func TestFlatSelectionFidelityIsTheWeakestOfTheAnsweringAdapters(t *testing.T) {
 					Selection: selector.Selection{Tier: tier},
 				})
 			}
-			folded, _, fallback, _ := foldBlocks(blocks)
-			out := BuildOutput(OutputInput{
-				Command: "which", Sel: folded, ImportFallback: fallback, Blocks: blocks,
-			})
+			folded, _ := foldBlocks(blocks)
+			out := BuildOutput(OutputInput{Command: "which", Sel: folded, Blocks: blocks})
 			if out.SelectionFidelity != tc.want {
 				t.Errorf("flat selection_fidelity = %q, want %q", out.SelectionFidelity, tc.want)
 			}
@@ -212,10 +210,8 @@ func TestEveryFixtureAdapterReportsAWireFidelityForItsSelection(t *testing.T) {
 			if berr != nil {
 				t.Fatalf("selectPerAdapter: %v", berr)
 			}
-			folded, _, fallback, _ := foldBlocks(blocks)
-			out := BuildOutput(OutputInput{
-				Command: "which", Sel: folded, ImportFallback: fallback, Blocks: blocks,
-			})
+			folded, _ := foldBlocks(blocks)
+			out := BuildOutput(OutputInput{Command: "which", Sel: folded, Blocks: blocks})
 			if !wireFidelities[out.SelectionFidelity] {
 				t.Fatalf("selection_fidelity = %q", out.SelectionFidelity)
 			}

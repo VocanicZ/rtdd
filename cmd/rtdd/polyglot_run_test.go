@@ -10,10 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/VocanicZ/rtdd/internal/adapter"
-	"github.com/VocanicZ/rtdd/internal/gitctx"
 	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
-	"github.com/VocanicZ/rtdd/internal/mapstore"
 	"github.com/VocanicZ/rtdd/internal/report"
 	"github.com/VocanicZ/rtdd/internal/runner"
 )
@@ -92,85 +89,6 @@ func TestRenderAdapterRunsNamesEachAdaptersOwnOutcome(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered runs %q do not name %q", out, want)
 		}
-	}
-}
-
-// Decision 12's consequence: for a `report: junit-xml` adapter a T2 escalation ALREADY
-// ran the whole suite to enumerate it — its ids come from report_path, which only a run
-// writes. Running the same suite again as a subset pays for the identical answer twice,
-// on the loop this tool exists to make fast.
-func TestAT2SuiteEnumerationIsNotRunASecondTimeAsASubset(t *testing.T) {
-	root := staticRepo(t)
-	ad := &adapter.Adapter{
-		Name: "vitest", Detect: []string{"vitest.config.ts"},
-		Selection: adapter.SelectionStatic, Coverage: adapter.CoverageNone,
-		Report: "junit-xml", ReportPath: ".rtdd/junit.xml", IDTemplate: "{classname}",
-		TestGlobs: []string{"**/*.test.ts"}, SourceGlobs: []string{"src/**/*.ts"},
-		FullEscalate: []string{"package.json"},
-	}
-	enumerated := &runner.RunResult{
-		Outcomes: []report.Outcome{{Test: "src/calc.test.ts", Status: "pass"}},
-	}
-
-	listed := 0
-	blocks, err := selectPerAdapter(root, []*adapter.Adapter{ad}, polyglotMap(),
-		mapstore.Meta{V: 1, Adapters: []string{"vitest"}}, selectionContext{
-			Changes: []gitctx.Change{{Path: "package.json", Status: gitctx.Modified}},
-			Enumerate: func(*adapter.Adapter) (suiteRun, error) {
-				listed++
-				return suiteRun{Tests: []string{"src/calc.test.ts"}, Result: enumerated}, nil
-			},
-		})
-	if err != nil {
-		t.Fatalf("selectPerAdapter: %v", err)
-	}
-	if len(blocks) != 1 || !blocks[0].SuiteEnumerated {
-		t.Fatalf("blocks = %+v, want one enumerated T2 block", blocks)
-	}
-
-	subsets := 0
-	restore := runSubset
-	runSubset = func(*adapter.Adapter, string, []string, bool) (*runner.RunResult, error) {
-		subsets++
-		return &runner.RunResult{}, nil
-	}
-	defer func() { runSubset = restore }()
-
-	res, err := runSelection(blocks[0], root, false, true)
-	if err != nil {
-		t.Fatalf("runSelection: %v", err)
-	}
-	if res != enumerated {
-		t.Errorf("runSelection returned %p, want the enumeration's own result %p", res, enumerated)
-	}
-	if listed+subsets != 1 {
-		t.Errorf("the suite was invoked %d times (%d list, %d subset), want exactly 1", listed+subsets, listed, subsets)
-	}
-}
-
-// A coverage adapter's enumeration is a COLLECTION, not a run — `pytest --collect-only`
-// executes no test and produces no outcome — so its selection still has to be run.
-func TestACollectOnlyEnumerationStillRunsTheSubset(t *testing.T) {
-	blk := AdapterSelection{
-		Adapter:         "python",
-		Ad:              &adapter.Adapter{Name: "python"},
-		SuiteEnumerated: true,
-	}
-	blk.Selection.Tests = []string{"tests/test_calc.py::test_add"}
-
-	subsets := 0
-	restore := runSubset
-	runSubset = func(*adapter.Adapter, string, []string, bool) (*runner.RunResult, error) {
-		subsets++
-		return &runner.RunResult{}, nil
-	}
-	defer func() { runSubset = restore }()
-
-	if _, err := runSelection(blk, t.TempDir(), false, true); err != nil {
-		t.Fatalf("runSelection: %v", err)
-	}
-	if subsets != 1 {
-		t.Errorf("the subset ran %d times, want 1: a collection produced no outcomes to reuse", subsets)
 	}
 }
 
@@ -280,78 +198,6 @@ func writeRepoFile(t *testing.T, repo, rel, body string) {
 	}
 	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
 		t.Fatalf("write %s: %v", rel, err)
-	}
-}
-
-// AC7 one stage earlier: for a `report: junit-xml` adapter, enumerating IS running, so an
-// enumeration that cannot start is the same class of failure as a subset that cannot start
-// — and it must not take the other adapter's selection down with it. Returning it from the
-// selection loop discarded every other adapter's answer before a single test ran.
-func TestAnEnumerationFailureDoesNotVoidAnotherAdaptersSelection(t *testing.T) {
-	ads := twoAdapters()
-	for _, ad := range ads {
-		// Both escalate on the same changed file, so both reach the enumeration branch.
-		ad.FullEscalate = []string{"package.json"}
-	}
-	boom := errors.New("npx: command not found")
-
-	blocks, err := selectPerAdapter(staticRepo(t), ads, polyglotMap(),
-		mapstore.Meta{V: 1, Adapter: "python", Adapters: []string{"python", "vitest"}},
-		selectionContext{
-			Changes: []gitctx.Change{{Path: "package.json", Status: gitctx.Modified}},
-			Enumerate: func(ad *adapter.Adapter) (suiteRun, error) {
-				if ad.Name == "vitest" {
-					return suiteRun{}, boom
-				}
-				return suiteRun{Tests: []string{"tests/test_calc.py::test_add"}}, nil
-			},
-		})
-	if err != nil {
-		t.Fatalf("selectPerAdapter = %v, want no error: one adapter's enumeration failing is that adapter's failure", err)
-	}
-	if len(blocks) != 2 {
-		t.Fatalf("got %d blocks, want one per detected adapter", len(blocks))
-	}
-	byName := map[string]AdapterSelection{}
-	for _, blk := range blocks {
-		byName[blk.Adapter] = blk
-	}
-	if got := byName["vitest"].EnumErr; !errors.Is(got, boom) {
-		t.Errorf("vitest's block carries EnumErr %v, want %v", got, boom)
-	}
-	if byName["vitest"].SuiteEnumerated {
-		t.Error("vitest's block claims the suite was enumerated; the enumeration failed")
-	}
-	if py := byName["python"]; py.EnumErr != nil || !py.SuiteEnumerated || len(py.Selection.Tests) == 0 {
-		t.Errorf("python's block was damaged by vitest's failure: %+v", py)
-	}
-}
-
-// An adapter whose enumeration failed is NOT run: its T2 selection is the partial list the
-// map happened to hold, and running that would report a narrowed suite as a completed one.
-// It is reported as the failure it is instead.
-func TestAnAdapterWhoseEnumerationFailedIsReportedRatherThanRunPartially(t *testing.T) {
-	blk := AdapterSelection{Adapter: "vitest", Ad: &adapter.Adapter{Name: "vitest"},
-		EnumErr: errors.New("npx: command not found")}
-	blk.Selection.Tests = []string{"src/calc.test.ts"}
-
-	subsets := 0
-	restore := runSubset
-	runSubset = func(*adapter.Adapter, string, []string, bool) (*runner.RunResult, error) {
-		subsets++
-		return &runner.RunResult{}, nil
-	}
-	defer func() { runSubset = restore }()
-
-	res, err := runSelection(blk, t.TempDir(), false, true)
-	if err == nil {
-		t.Fatal("runSelection = nil error, want the enumeration's own failure")
-	}
-	if res != nil {
-		t.Errorf("runSelection returned %+v alongside an error", res)
-	}
-	if subsets != 0 {
-		t.Errorf("the subset ran %d times over a knowingly partial T2 list, want 0", subsets)
 	}
 }
 
