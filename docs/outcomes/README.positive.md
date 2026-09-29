@@ -162,8 +162,11 @@ questions — does RTDD save time, and does it miss anything the full suite woul
 
 **Every number in this section was measured on the release before the one-pipeline change**
 (per-test-case Python coverage): the time table, 4 of 4, the 0.757 fraction, the 12 uncovered
-reports with 0 wrong, 486 tests with 16 selected, and 167 ms for `rtdd which`. Re-measurement
-on the one pipeline is pending.
+reports with 0 wrong, 486 tests with 16 selected, and 167 ms for `rtdd which`. A first
+mechanical measurement on the one pipeline is in
+[one-pipeline-first-measure.md](docs/results/one-pipeline-first-measure.md): Go now selects
+from a recorded map, and on those small suites `rtdd run` is slower than the full suite. The
+agent-session re-measurement is pending.
 
 ### It saves time
 

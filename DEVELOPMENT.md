@@ -88,6 +88,8 @@ stock coverage tool, and the map is built from that.
 - `rtdd doctor` text output changed shape, and its caveat now says once-per-process code is
   attributed to every test file that runs it.
 - The static tier, the sqlite `.coverage` reader and the pytest reportlog path are deleted.
+- First measurement of the one pipeline (seed/which/run vs the full suite on the rtdd-bench
+  workspaces): [docs/results/one-pipeline-first-measure.md](docs/results/one-pipeline-first-measure.md).
 
 ## Benchmark harnesses
 
