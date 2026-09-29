@@ -7,7 +7,8 @@
 # property), so the report is made by the JaCoCo CLI instead: dependency:copy fetches
 # org.jacoco.cli into {tmp}, and exec:exec runs it from an @argfile shipped through
 # unit_files (unit_cmd is whitespace-split, so a multi-word -Dexec.args cannot be one
-# token). It reads target/classes, Maven's default output dir.
+# token). It reads target/classes, Maven's default output dir. The {tmp} paths are quoted,
+# in the argfile and in exec.args, so a TMPDIR with a space still works.
 #
 # Limits: multi-module reactors are not supported (the report reads only the current
 # module's target/classes, and the last module's report wins). A pom that sets <argLine>
@@ -17,9 +18,9 @@
 # java 25 against the maven fixture.
 name: maven
 detect: ["pom.xml"]
-unit_cmd: "mvn -q -Dtest={name} -Dsurefire.failIfNoSpecifiedTests=false -Djacoco.destFile={tmp}/jacoco.exec org.jacoco:jacoco-maven-plugin:0.8.13:prepare-agent test org.apache.maven.plugins:maven-dependency-plugin:3.8.1:copy -Dartifact=org.jacoco:org.jacoco.cli:0.8.13:jar:nodeps -DoutputDirectory={tmp} org.codehaus.mojo:exec-maven-plugin:3.5.0:exec -Dexec.executable=java -Dexec.args=@{tmp}/jacoco.args"
+unit_cmd: "mvn -q -Dtest={name} -Dsurefire.failIfNoSpecifiedTests=false -Djacoco.destFile={tmp}/jacoco.exec org.jacoco:jacoco-maven-plugin:0.8.13:prepare-agent test org.apache.maven.plugins:maven-dependency-plugin:3.8.1:copy -Dartifact=org.jacoco:org.jacoco.cli:0.8.13:jar:nodeps -DoutputDirectory={tmp} org.codehaus.mojo:exec-maven-plugin:3.5.0:exec -Dexec.executable=java -Dexec.args=\"@{tmp}/jacoco.args\""
 unit_files:
-  jacoco.args: "-jar {tmp}/org.jacoco.cli-0.8.13-nodeps.jar report {tmp}/jacoco.exec --classfiles target/classes --xml {tmp}/jacoco.xml"
+  jacoco.args: '-jar "{tmp}/org.jacoco.cli-0.8.13-nodeps.jar" report "{tmp}/jacoco.exec" --classfiles target/classes --xml "{tmp}/jacoco.xml"'
 coverage_file: "{tmp}/jacoco.xml"
 coverage_format: jacoco
 jobs: 1
