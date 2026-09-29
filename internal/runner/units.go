@@ -121,6 +121,17 @@ func runUnit(a *adapter.Adapter, repoRoot, unit string, repoFiles []string) unit
 		return r
 	}
 	defer os.RemoveAll(tmp)
+	for k, v := range a.UnitFileContents(tmp) {
+		f := filepath.Join(tmp, filepath.FromSlash(k))
+		err := os.MkdirAll(filepath.Dir(f), 0o755)
+		if err == nil {
+			err = os.WriteFile(f, []byte(v), 0o644)
+		}
+		if err != nil {
+			r.outcome.Status, r.output = "error", fmt.Sprintf("unit_files %q: %v", k, err)
+			return r
+		}
+	}
 	argv, err := a.UnitArgv(unit, tmp, names)
 	if err != nil {
 		r.fatal = err

@@ -33,6 +33,11 @@ func (a *Adapter) validateV3() error {
 			return fmt.Errorf("unit_names %q: needs one capture group naming the test", a.UnitNames)
 		}
 	}
+	for k := range a.UnitFiles {
+		if k == "" || path.IsAbs(k) || path.Clean(k) != k || k == ".." || strings.HasPrefix(k, "../") {
+			return fmt.Errorf("unit_files key %q: must be a clean relative slash path inside {tmp}", k)
+		}
+	}
 	if a.Jobs < 0 {
 		return fmt.Errorf("jobs %d: must be 0 (CPU count) or positive", a.Jobs)
 	}
@@ -64,6 +69,14 @@ func (a *Adapter) CoveragePath(tmp string) string {
 func (a *Adapter) UnitEnv(tmp string) map[string]string {
 	out := make(map[string]string, len(a.Env))
 	for k, v := range a.Env {
+		out[k] = strings.ReplaceAll(v, "{tmp}", tmp)
+	}
+	return out
+}
+
+func (a *Adapter) UnitFileContents(tmp string) map[string]string {
+	out := make(map[string]string, len(a.UnitFiles))
+	for k, v := range a.UnitFiles {
 		out[k] = strings.ReplaceAll(v, "{tmp}", tmp)
 	}
 	return out

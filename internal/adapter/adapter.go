@@ -45,6 +45,10 @@ type Adapter struct {
 	CoverageFile   string `yaml:"coverage_file"`
 	CoverageFormat string `yaml:"coverage_format"`
 	Jobs           int    `yaml:"jobs"`
+	// UnitFiles are written into each unit's {tmp} before unit_cmd runs (relative path ->
+	// content; content may use {tmp}). It ships a build-tool init script without touching
+	// the host's own build files.
+	UnitFiles map[string]string `yaml:"unit_files"`
 
 	// Src is the file this adapter was read from — an fs path inside the embedded set
 	// ("python.yaml") or an on-disk path for a host-authored one. It is never declared in

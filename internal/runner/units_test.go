@@ -168,3 +168,51 @@ func TestMergeEnvReplacesRatherThanAppends(t *testing.T) {
 		t.Fatalf("mergeEnv = %v, want %v", got, want)
 	}
 }
+
+// A unit_cmd that reads its unit_files: `go test` runs a test that reads the file whose
+// path arrives through env, and the run only passes (with coverage) when it is there.
+func TestUnitFilesAreWrittenIntoTheUnitsTmp(t *testing.T) {
+	dir, _ := gofixRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, "calc", "unitfile_test.go"), []byte(`package calc
+
+import (
+	"os"
+	"testing"
+)
+
+func TestUnitFile(t *testing.T) {
+	b, err := os.ReadFile(os.Getenv("RTDD_UF"))
+	if err != nil || string(b) != "hi "+os.Getenv("RTDD_TMP") {
+		t.Fatalf("unit file = %q, %v", b, err)
+	}
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := gittest.InitRepo(dir, "again"); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(t.TempDir(), "go.yaml")
+	yaml := goAdapter + "env: { RTDD_UF: \"{tmp}/sub/x.txt\", RTDD_TMP: \"{tmp}\" }\nunit_files:\n  sub/x.txt: \"hi {tmp}\"\n"
+	if err := os.WriteFile(p, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a, err := adapter.Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := runUnit(a, dir, "calc/unitfile_test.go", []string{"calc/calc.go", "calc/unitfile_test.go"})
+	if r.fatal != nil || r.outcome.Status != "pass" {
+		t.Fatalf("status %q fatal %v\n%s", r.outcome.Status, r.fatal, r.output)
+	}
+}
+
+func TestAnUnwritableUnitFileIsAnErrorUnit(t *testing.T) {
+	dir, a := gofixRepo(t)
+	// "x" is both a file and a parent directory: the second write cannot succeed.
+	a.UnitFiles = map[string]string{"x": "a", "x/y": "b"}
+	r := runUnit(a, dir, "calc/calc_test.go", nil)
+	if r.outcome.Status != "error" || !strings.Contains(r.output, "unit_files") {
+		t.Fatalf("status %q output %q, want error naming unit_files", r.outcome.Status, r.output)
+	}
+}

@@ -105,3 +105,24 @@ func TestRequiresEntriesNeedABinAndAReason(t *testing.T) {
 		}
 	}
 }
+
+func TestUnitFilesKeysMustBeCleanRelativePaths(t *testing.T) {
+	for _, key := range []string{"/abs", "../x", "a/../b", "a//b", "./a", "a/", ""} {
+		body := goV3 + "unit_files:\n  " + strings.ReplaceAll(`K: "x"`, "K", `"`+key+`"`) + "\n"
+		_, err := parse([]byte(body), "test.yaml")
+		if err == nil || !strings.Contains(err.Error(), "unit_files") {
+			t.Errorf("key %q: err = %v, want unit_files rejection", key, err)
+		}
+	}
+	a := v3(t, goV3+"unit_files:\n  rtdd.init.gradle: x\n  sub/dir/y.txt: y\n")
+	if len(a.UnitFiles) != 2 {
+		t.Errorf("UnitFiles = %v", a.UnitFiles)
+	}
+}
+
+func TestUnitFileContentsSubstitutesTmp(t *testing.T) {
+	a := v3(t, goV3+"unit_files:\n  x.txt: \"at {tmp}/out\"\n")
+	if got := a.UnitFileContents("/tmp/u1")["x.txt"]; got != "at /tmp/u1/out" {
+		t.Errorf("UnitFileContents = %q", got)
+	}
+}
