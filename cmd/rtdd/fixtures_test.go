@@ -23,7 +23,7 @@ var shippedFixtures = []fixtureCase{
 	{"vitest", "vitest", "src/calc.ts", "src/calc.test.ts"},
 	{"jest", "jest", "src/calc.js", "src/calc.test.js"},
 	{"go", "go", "calc/calc.go", "calc/calc_test.go"},
-	{"cargo-nextest", "cargo-nextest", "src/calc.rs", "tests/calc.rs"},
+	{"cargo", "cargo", "src/calc.rs", "tests/calc.rs"},
 	{"maven", "maven", "src/main/java/calc/Calc.java", "src/test/java/calc/CalcTest.java"},
 	{"gradle", "gradle", "src/main/java/calc/Calc.java", "src/test/java/calc/CalcTest.java"},
 	{"rspec", "rspec", "lib/calc.rb", "spec/calc_spec.rb"},

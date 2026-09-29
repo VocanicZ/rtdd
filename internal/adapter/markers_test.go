@@ -10,17 +10,17 @@ import (
 func TestUnsupportedToolchainsNamesTheMarkerAndTheLanguage(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, "package.json", "{}\n")
-	write(t, dir, "Cargo.toml", "[package]\n")
+	write(t, dir, "Gemfile", "source\n")
 
 	got := UnsupportedToolchains(dir)
 	joined := strings.Join(got, ", ")
-	for _, want := range []string{"package.json (JavaScript/TypeScript)", "Cargo.toml (Rust)"} {
+	for _, want := range []string{"package.json (JavaScript/TypeScript)", "Gemfile (Ruby)"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("UnsupportedToolchains = %q, want it to name %q", joined, want)
 		}
 	}
 	// Sorted, so one repo always produces one message.
-	if len(got) != 2 || got[0] != "Cargo.toml (Rust)" {
+	if len(got) != 2 || got[0] != "Gemfile (Ruby)" {
 		t.Errorf("UnsupportedToolchains = %#v, want it sorted", got)
 	}
 }

@@ -1,9 +1,9 @@
 # The Rust adapter on contract v3: one integration test file (tests/{name}.rs) per
-# process under cargo-llvm-cov. Unit tests inside src/ are not units: "a .rs file holding
-# #[cfg(test)]" is not expressible as a glob. jobs: 1 because every unit shares target/.
-# unverified — settled in Task 9 (renamed to `cargo`, detected by Cargo.toml).
-name: cargo-nextest
-detect: [".config/nextest.toml"]
+# process under cargo-llvm-cov. Unit tests inside src/ (#[cfg(test)]) are not units: "a
+# .rs file holding #[cfg(test)]" is not expressible as a glob, so only tests/*.rs ship.
+# jobs: 1 because every unit shares target/.
+name: cargo
+detect: ["Cargo.toml"]
 unit_cmd: "cargo llvm-cov --lcov --output-path {tmp}/lcov.info --test {name}"
 coverage_file: "{tmp}/lcov.info"
 coverage_format: lcov
@@ -14,4 +14,4 @@ requires:
 test_globs: ["tests/*.rs"]
 source_globs: ["src/**/*.rs", "tests/**/*.rs", "benches/**/*.rs"]
 opaque: ["**/*.toml", "**/*.json", "**/testdata/**", "**/snapshots/**"]
-full_escalate: ["Cargo.toml", "Cargo.lock", ".config/nextest.toml", "rust-toolchain.toml", "build.rs"]
+full_escalate: ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "build.rs"]

@@ -26,15 +26,13 @@ import (
 // shipped set therefore removed `go.mod`, `pom.xml`, `build.gradle`, `build.gradle.kts`
 // and `*.csproj` from this table when the go, maven, gradle and dotnet adapters shipped.
 //
-// The four that remain are the ones whose ecosystem RTDD serves only through a NARROWER
+// The ones that remain are the ones whose ecosystem RTDD serves only through a NARROWER
 // marker — the runner's own config file rather than the ecosystem's manifest (plan
-// 06-m6d decision 1). `package.json` is not a vitest or jest marker, `Cargo.toml` is not
-// a cargo-nextest one, `Gemfile` is not an rspec one and `composer.json` is not a phpunit
-// one, so a repo of that ecosystem with no runner config detects nothing — and this is
+// 06-m6d decision 1). `package.json` is not a vitest or jest marker, `Gemfile` is not an rspec one and
+// `composer.json` is not a phpunit one, so a repo of that ecosystem with no runner config detects nothing — and this is
 // the message that tells it so, and points at the six-line .rtdd/adapters/ fix.
 var UnsupportedMarkers = map[string]string{
 	"package.json":  "JavaScript/TypeScript",
-	"Cargo.toml":    "Rust",
 	"Gemfile":       "Ruby",
 	"composer.json": "PHP",
 	"mix.exs":       "Elixir",

@@ -14,7 +14,7 @@ func TestBuiltinShipsTenAdaptersAndAllOfThemLoad(t *testing.T) {
 		t.Fatalf("Builtin: %v", err)
 	}
 	want := []string{
-		"cargo-nextest", "dotnet", "go", "gradle", "jest",
+		"cargo", "dotnet", "go", "gradle", "jest",
 		"maven", "phpunit", "python", "rspec", "vitest",
 	}
 	if len(all) != len(want) {
@@ -51,15 +51,15 @@ func TestFullEscalateNamesTheLockfileAndRunnerConfig(t *testing.T) {
 		t.Fatalf("Builtin: %v", err)
 	}
 	want := map[string][]string{
-		"vitest":        {"package-lock.json", "pnpm-lock.yaml", "vitest.config.ts"},
-		"jest":          {"package-lock.json", "jest.config.js"},
-		"go":            {"go.sum"},
-		"cargo-nextest": {"Cargo.lock", ".config/nextest.toml"},
-		"maven":         {"pom.xml"},
-		"gradle":        {"gradle/wrapper/gradle-wrapper.properties", "build.gradle"},
-		"rspec":         {"Gemfile.lock", ".rspec"},
-		"dotnet":        {"Directory.Packages.props"},
-		"phpunit":       {"composer.lock", "phpunit.xml"},
+		"vitest":  {"package-lock.json", "pnpm-lock.yaml", "vitest.config.ts"},
+		"jest":    {"package-lock.json", "jest.config.js"},
+		"go":      {"go.sum"},
+		"cargo":   {"Cargo.lock"},
+		"maven":   {"pom.xml"},
+		"gradle":  {"gradle/wrapper/gradle-wrapper.properties", "build.gradle"},
+		"rspec":   {"Gemfile.lock", ".rspec"},
+		"dotnet":  {"Directory.Packages.props"},
+		"phpunit": {"composer.lock", "phpunit.xml"},
 	}
 	byName := map[string]*Adapter{}
 	for _, a := range all {
