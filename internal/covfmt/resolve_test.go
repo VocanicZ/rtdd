@@ -214,3 +214,29 @@ func TestResolveRelativeRoot(t *testing.T) {
 		t.Errorf("Resolve = %v, want %v", got, want)
 	}
 }
+
+// A repo reached through a symlink (macOS /var -> /private/var, a symlinked checkout) is
+// reported by tools under its real path. Those absolute paths are under the root too.
+func TestResolveAcceptsAbsolutePathsUnderTheRealRoot(t *testing.T) {
+	base := t.TempDir()
+	real := filepath.Join(base, "real")
+	if err := os.MkdirAll(filepath.Join(real, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skip("symlinks unsupported:", err)
+	}
+	realRoot, err := filepath.EvalSymlinks(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := Lines{
+		filepath.ToSlash(filepath.Join(realRoot, "src", "a.py")): {1},
+		filepath.ToSlash(filepath.Join(link, "src", "a.py")):     {2},
+	}
+	got := Resolve(link, raw, []string{"src/a.py"})
+	if want := map[string][]int{"src/a.py": {1, 2}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Resolve = %v, want %v", got, want)
+	}
+}

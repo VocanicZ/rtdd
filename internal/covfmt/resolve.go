@@ -11,6 +11,7 @@ import (
 // call Resolve per unit: the repo-file index is the expensive part.
 type Resolver struct {
 	root   string
+	roots  []string // root, and root with symlinks evaluated when that differs
 	set    map[string]bool
 	byBase map[string][]string
 }
@@ -24,6 +25,11 @@ func NewResolver(root string, repoFiles []string) *Resolver {
 		return r
 	}
 	r.root = filepath.ToSlash(filepath.Clean(abs))
+	r.roots = []string{r.root}
+	// Tools report the real path of a repo reached through a symlink.
+	if real, err := filepath.EvalSymlinks(abs); err == nil && filepath.ToSlash(real) != r.root {
+		r.roots = append(r.roots, filepath.ToSlash(real))
+	}
 	for _, f := range repoFiles {
 		r.set[f] = true
 		r.byBase[path.Base(f)] = append(r.byBase[path.Base(f)], f)
@@ -48,7 +54,7 @@ func (r *Resolver) Resolve(raw Lines) map[string][]int {
 	}
 	consensusPrefix := computeConsensusPrefix(raw, r.set)
 	for p, lines := range raw {
-		rel, ok := resolveOne(r.root, p, r.set, r.byBase, consensusPrefix)
+		rel, ok := resolveOne(r.roots, p, r.set, r.byBase, consensusPrefix)
 		if !ok {
 			continue
 		}
@@ -126,23 +132,23 @@ func computeConsensusPrefix(raw Lines, set map[string]bool) string {
 	return best
 }
 
-func resolveOne(root, p string, set map[string]bool, byBase map[string][]string, consensusPrefix string) (string, bool) {
+func resolveOne(roots []string, p string, set map[string]bool, byBase map[string][]string, consensusPrefix string) (string, bool) {
 	p = filepath.ToSlash(strings.ReplaceAll(p, "\\", "/"))
 
-	// Handle absolute paths: must be under root, exact match only.
+	// Handle absolute paths: must be under a root, exact match only.
 	if path.IsAbs(p) || filepath.IsAbs(p) {
-		r, err := filepath.Rel(root, filepath.FromSlash(p))
-		if err != nil {
-			return "", false
-		}
-		r = filepath.ToSlash(r)
-		if r == ".." || strings.HasPrefix(r, "../") {
-			return "", false
-		}
-		p = r
-		// For absolute paths, only exact match in set.
-		if set[p] {
-			return p, true
+		for _, root := range roots {
+			r, err := filepath.Rel(root, filepath.FromSlash(p))
+			if err != nil {
+				continue
+			}
+			r = filepath.ToSlash(r)
+			if r == ".." || strings.HasPrefix(r, "../") {
+				continue
+			}
+			if set[r] {
+				return r, true
+			}
 		}
 		return "", false
 	}
