@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/VocanicZ/rtdd/internal/gitctx"
 	"github.com/VocanicZ/rtdd/internal/mapstore"
@@ -62,6 +63,19 @@ func cmdSeed(args []string, stdout, stderr io.Writer) int {
 		if err != nil {
 			return reportRunErr(err)
 		}
+		for _, u := range res.Failed {
+			o := res.Output[u]
+			if o != "" && !strings.HasSuffix(o, "\n") {
+				o += "\n"
+			}
+			fmt.Fprintf(stdout, "--- %s ---\n%s", u, o)
+		}
+		// Every unit errored: nothing was recorded, and a map of error rows would read as
+		// seeded. Write nothing (the previous map, if any, stays) and say the environment broke.
+		if allErrored(res.Outcomes) {
+			fmt.Fprintf(stderr, "rtdd: every %s unit errored; nothing was recorded and the map was not written\n", ad.Name)
+			return 3
+		}
 		for _, row := range rowsFrom(res, sha, ad.Name) {
 			m.Replace(row) // seed only; see the doc comment above
 		}
@@ -94,4 +108,15 @@ func cmdSeed(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "%d failed during seeding: %v\n", len(failed), failed)
 	}
 	return code
+}
+
+// allErrored reports whether an adapter's units all errored — none passed, failed or
+// skipped. Zero units is not that.
+func allErrored(outcomes []runner.Outcome) bool {
+	for _, o := range outcomes {
+		if o.Status != "error" {
+			return false
+		}
+	}
+	return len(outcomes) > 0
 }
