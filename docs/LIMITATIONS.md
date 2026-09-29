@@ -18,6 +18,9 @@
 - **Test files that depend on each other can behave differently.** Shared state on disk,
   ordering, a fixed port: run one per process, they may pass or fail differently than in the
   full suite, and the map records only what each did alone.
+- **Units run in parallel.** Up to one per CPU at once (`jobs`). Test files that share a
+  database, a port or a fixed path on disk collide; give that repository a host adapter
+  (`.rtdd/adapters/<name>.yaml`, a copy of the built-in) with `jobs: 1`.
 - **Some adapters are unverified.** The gradle, phpunit and rspec adapters were written
   without a real toolchain to run them on; expect to adjust them on first use. Multi-module
   Maven reactors and multi-project Gradle or .NET solutions need a host adapter.

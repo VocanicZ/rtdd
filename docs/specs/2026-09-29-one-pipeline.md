@@ -52,8 +52,9 @@ the selected units; a T2 cycle over all units.
    (a path under `{tmp}`) in the adapter's `coverage_format`, producing
    `file -> hit lines` for that unit.
 4. **Outcome from the exit code.** 0 is pass, 1 is fail. Any other code is looked up in the
-   adapter's `exit_codes` (e.g. pytest's 5, "no tests collected", is fatal), and an unlisted
-   one is an error. A unit that exits 0 or 1 but leaves no coverage file is an error — it
+   adapter's `exit_codes`: a code labelled `no-tests-collected` (pytest's 5) is a skip, any
+   other listed code (pytest's 4, arguments rejected) is fatal, and an unlisted one is an
+   error. A unit that exits 0 or 1 but leaves no coverage file is an error — it
    never reads as a pass. A failing unit's captured output (tail) is shown.
 5. **Update the map.** One row per unit: `{t: test file, f: files hit, c: HEAD, d: ms,
    s: pass|fail|error, a: adapter}`. Seed replaces rows; run unions them, as today.
