@@ -16,7 +16,9 @@ import (
 //
 // The golden was captured from the commit before per-adapter selection existed. It is
 // not to be regenerated to make a change pass — a diff here means the change is visible
-// to every existing Python repository, which is the thing being ruled out.
+// to every existing Python repository, which is the thing being ruled out. (Re-captured
+// once, when map rows became test files: a row naming a non-existent unit is now dropped
+// as stale, so the old test-case ids could no longer be selected.)
 func TestWhichOutputForASeededPythonRepositoryIsByteIdentical(t *testing.T) {
 	// Resolved BEFORE rtdd() chdirs into the fixture repository: a relative testdata
 	// path would then name a file inside the fixture, not this package's.

@@ -35,7 +35,8 @@ func newTestRepo(t *testing.T) string {
 	gittest.Write(t, dir, "src/db.py", "def query():\n    return 2\n")
 	gittest.Write(t, dir, "src/render.py", "def page():\n    return 3\n")
 	gittest.Write(t, dir, "templates/page.html", "<p>hi</p>\n")
-	gittest.Write(t, dir, "tests/test_auth.py", "def test_login():\n    pass\n")
+	gittest.Write(t, dir, "tests/test_auth.py", "def test_logout():\n    pass\n")
+	gittest.Write(t, dir, "tests/test_login.py", "def test_login():\n    pass\n")
 	gittest.Write(t, dir, "tests/test_db.py", "def test_query():\n    pass\n")
 	gittest.Write(t, dir, "tests/test_render.py", "def test_page():\n    pass\n")
 	// The test repo ignores .rtdd/ so the fixture map and adapter never show up in the
@@ -250,8 +251,8 @@ func TestWhichRanksT0(t *testing.T) {
 	if !strings.Contains(stdout, "tier: T0") {
 		t.Fatalf("want tier T0:\n%s", stdout)
 	}
-	logout := strings.Index(stdout, "tests/test_auth.py::test_logout")
-	login := strings.Index(stdout, "tests/test_auth.py::test_login\n")
+	logout := strings.Index(stdout, "tests/test_auth.py\n")
+	login := strings.Index(stdout, "tests/test_login.py\n")
 	if logout < 0 || login < 0 {
 		t.Fatalf("both auth tests must be selected:\n%s", stdout)
 	}
@@ -328,7 +329,7 @@ func TestWhichReportsDeletionsAndRespectsBase(t *testing.T) {
 	if !strings.Contains(stdout, "deleted   src/render.py") {
 		t.Errorf("a deletion must be shown:\n%s", stdout)
 	}
-	if !strings.Contains(stdout, "tests/test_render.py::test_page") {
+	if !strings.Contains(stdout, "tests/test_render.py") {
 		t.Errorf("a deleted path must still select the tests whose F contains it:\n%s", stdout)
 	}
 }
@@ -379,8 +380,8 @@ func TestWhichJSON(t *testing.T) {
 	}
 	want := []string{
 		"tests/test_brand_new.py",
-		"tests/test_auth.py::test_logout",
-		"tests/test_auth.py::test_login",
+		"tests/test_auth.py",
+		"tests/test_login.py",
 	}
 	if !reflect.DeepEqual(got.Selection.Tests, want) {
 		t.Errorf("selection.tests = %#v, want %#v", got.Selection.Tests, want)
@@ -484,7 +485,7 @@ func TestWhichReportsARename(t *testing.T) {
 	}
 	hit := false
 	for _, id := range got.Selection.Tests {
-		if id == "tests/test_render.py::test_page" {
+		if id == "tests/test_render.py" {
 			hit = true
 		}
 	}

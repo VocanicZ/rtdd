@@ -30,13 +30,13 @@ func twoAdapters() []*adapter.Adapter {
 
 func polyglotMap() *mapstore.Map {
 	m := mapstore.New()
-	m.Replace(mapstore.Row{T: "tests/test_calc.py::test_add", F: []string{"src/calc.py"}, A: "python", S: "pass"})
+	m.Replace(mapstore.Row{T: "tests/test_calc.py", F: []string{"src/calc.py"}, A: "python", S: "pass"})
 	m.Replace(mapstore.Row{T: "src/calc.test.ts", F: []string{"src/calc.ts"}, A: "vitest", S: "pass"})
 	return m
 }
 
-// staticRepo is a repository the correspondence resolver can answer over: a static
-// adapter selects a test file that EXISTS, and repoExists reads the real filesystem.
+// staticRepo is a repository whose map rows name test files that EXIST: a selected id that
+// is not a current unit is dropped as a stale row.
 func staticRepo(t *testing.T) string {
 	t.Helper()
 	dir := gittest.Init(t) // units are listed through git
@@ -46,6 +46,7 @@ func staticRepo(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(dir, "src", "calc.test.ts"), []byte("test('x', () => {})\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	gittest.Write(t, dir, "tests/test_calc.py", "def test_add():\n    pass\n")
 	return dir
 }
 
@@ -77,7 +78,7 @@ func TestSelectPerAdapterKeepsEachAdaptersIDsInItsOwnBlock(t *testing.T) {
 			if blk.Adapter == "python" && id == "src/calc.test.ts" {
 				t.Errorf("python's block contains vitest's id %q", id)
 			}
-			if blk.Adapter == "vitest" && id == "tests/test_calc.py::test_add" {
+			if blk.Adapter == "vitest" && id == "tests/test_calc.py" {
 				t.Errorf("vitest's block contains python's id %q", id)
 			}
 		}
@@ -89,7 +90,7 @@ func TestSelectPerAdapterKeepsEachAdaptersIDsInItsOwnBlock(t *testing.T) {
 // handed to the vitest runner.
 func TestSelectPerAdapterServesAnUntaggedRowOnlyToTheAdapterMetaNames(t *testing.T) {
 	m := mapstore.New()
-	m.Replace(mapstore.Row{T: "tests/test_calc.py::test_add", F: []string{"src/calc.py", "src/calc.ts"}, S: "pass"})
+	m.Replace(mapstore.Row{T: "tests/test_calc.py", F: []string{"src/calc.py", "src/calc.ts"}, S: "pass"})
 
 	got, err := selectPerAdapter(staticRepo(t), twoAdapters(), m,
 		mapstore.Meta{V: 1, Adapter: "python"},
@@ -105,7 +106,7 @@ func TestSelectPerAdapterServesAnUntaggedRowOnlyToTheAdapterMetaNames(t *testing
 			t.Fatal("vitest selected nothing at all; the assertion below would then be vacuous")
 		}
 		for _, id := range blk.Selection.Tests {
-			if id == "tests/test_calc.py::test_add" {
+			if id == "tests/test_calc.py" {
 				t.Errorf("vitest's block contains the untagged python row %q", id)
 			}
 		}
@@ -152,7 +153,7 @@ func TestRenderSelectionsNamesEachAdapterInAPolyglotRepository(t *testing.T) {
 	}
 	out := RenderSelections(blocks)
 	for _, want := range []string{"adapter: python", "adapter: vitest",
-		"tests/test_calc.py::test_add", "src/calc.test.ts"} {
+		"tests/test_calc.py", "src/calc.test.ts"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered selection %q does not contain %q", out, want)
 		}

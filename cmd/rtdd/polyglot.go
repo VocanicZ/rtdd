@@ -111,7 +111,39 @@ func selectFor(root string, ad *adapter.Adapter, ads []*adapter.Adapter, m *maps
 		EscalateDigestAtLastFull: ctx.EscalateDigestAtLastFull,
 		Distance:                 ctx.Distance,
 	})
+	if ad != nil {
+		blk.Selection = dropStale(blk.Selection, units)
+	}
 	return blk, nil
+}
+
+// dropStale removes every selected id that is not a current unit: a row outlives its test
+// file until the next seed, and handing a deleted file to the runner errors every run. It
+// applies after Select so it holds for every tier.
+func dropStale(sel selector.Selection, units []string) selector.Selection {
+	cur := make(map[string]bool, len(units))
+	for _, u := range units {
+		cur[u] = true
+	}
+	var keep, dropped []string
+	for _, id := range sel.Tests {
+		if cur[id] {
+			keep = append(keep, id)
+		} else {
+			dropped = append(dropped, id)
+		}
+	}
+	if len(dropped) == 0 {
+		return sel
+	}
+	sel.Tests = keep
+	for _, id := range dropped {
+		sel.Reason += fmt.Sprintf("; stale row: %s no longer exists; `rtdd seed` prunes it", id)
+	}
+	if len(keep) == 0 {
+		sel.Tier = selector.TierEmpty
+	}
+	return sel
 }
 
 // rowsVisibleTo is the map this adapter may select from.

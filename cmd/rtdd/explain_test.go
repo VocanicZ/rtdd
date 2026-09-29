@@ -86,8 +86,8 @@ func TestExplainCommandListsCoveringTestsAscendingByDuration(t *testing.T) {
 	// The id column widens to the longest id, so the durations stay in one column.
 	want := "" +
 		"src/db.py is covered by 2 tests:\n" +
-		"    tests/test_db.py::test_query    15ms  pass\n" +
-		"    tests/test_auth.py::test_login 412ms  pass\n"
+		"    tests/test_db.py           15ms  pass\n" +
+		"    tests/test_login.py       412ms  pass\n"
 	if stdout != want {
 		t.Fatalf("explain output\n got:\n%s\nwant:\n%s", stdout, want)
 	}

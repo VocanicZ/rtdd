@@ -64,6 +64,12 @@ func cmdRun(args []string) int {
 		return 2
 	}
 	m = currentMap(m, mt)
+	files, err := gitctx.ListFiles(root)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "rtdd:", err)
+		return 3
+	}
+	pruneMissing(m, files)
 	// changedSet, not gitctx.ChangedSet: rtdd's own .rtdd/ writes must not select.
 	changes, err := changedSet(root, *base)
 	if err != nil {
@@ -307,6 +313,21 @@ func cmdRun(args []string) int {
 		fmt.Fprint(os.Stdout, "\n"+s)
 	}
 	return finishCycle(root, mt, code)
+}
+
+// pruneMissing deletes every row whose unit file no longer exists, so a deleted test file's
+// row does not survive the next map save. Removing a whole row is not shrinking one: the
+// file it names is gone and no run can refresh it.
+func pruneMissing(m *mapstore.Map, files []string) {
+	have := make(map[string]bool, len(files))
+	for _, f := range files {
+		have[f] = true
+	}
+	for _, r := range m.Rows() {
+		if !have[r.T] {
+			m.Delete(r.T)
+		}
+	}
 }
 
 // renderRunTiers is the tier line, one per adapter. The heading appears only when more
