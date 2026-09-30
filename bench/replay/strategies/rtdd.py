@@ -37,11 +37,29 @@ class Rtdd:
         w = rtddio.which(ctx.work, binary=self.binary, base="HEAD")
         reason = w.tier if not w.reason else f"{w.tier}: {w.reason}"
         return Selection(
-            tests=w.tests,
+            tests=expand_files(w.tests, ctx.all_tests),
             escalated=w.escalated(),
             reason=reason,
             select_ms=w.wall_ms,
         )
+
+
+def expand_files(selected: tuple[str, ...], all_tests: tuple[str, ...]) -> tuple[str, ...]:
+    """Turn each selected test file into every collected id in it.
+
+    The one pipeline selects whole test files (`tests/test_a.py`), while recall is
+    scored per id (`tests/test_a.py::test_x`); `derive.level1_tests` makes the same
+    move for the static arm. An entry that is already an id passes through, and a
+    file with no collected id is kept as-is so stale handling still sees it.
+    """
+    out: list[str] = []
+    for sel in selected:
+        if "::" in sel:
+            out.append(sel)
+            continue
+        ids = [t for t in all_tests if t.split("::", 1)[0] == sel]
+        out.extend(ids or [sel])
+    return tuple(dict.fromkeys(out))
 
 
 register(Rtdd())

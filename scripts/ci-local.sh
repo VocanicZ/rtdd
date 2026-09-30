@@ -55,7 +55,7 @@ file /tmp/rtdd | grep -q 'statically linked'
 # released artifacts, so cross-build the whole .goreleaser.yaml matrix and inspect
 # each one by executable format (ELF, Mach-O, PE).
 echo "==> every release artifact is statically linked"
-go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' .
+go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' ./internal/installtest/
 
 # PRD #232 AC11: the shipped adapter set's two gates, named as their own steps so a red
 # build points straight at the adapter set. `go test ./...` above runs both already; what
@@ -98,19 +98,19 @@ scripts/release-snapshot.sh --skip=before
 # here: `go test -run` on a pattern that matches nothing exits 0, so a deleted or renamed
 # gate would sail through as a pass over zero executed tests.
 echo "==> release archives ship every shipped path (#368 AC7)"
-listed="$(go test -list '^TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippedPath$' .)"
+listed="$(go test -list '^TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippedPath$' ./internal/installtest/)"
 case "$listed" in
   *TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippedPath*) ;;
-  *) echo "the release-archive contents gate is gone from the root package"; exit 1 ;;
+  *) echo "the release-archive contents gate is gone from internal/installtest"; exit 1 ;;
 esac
-go test -count=1 -run '^TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippedPath$' .
+go test -count=1 -run '^TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippedPath$' ./internal/installtest/
 
 echo "==> installer end to end against the real snapshot archives (#368 AC8)"
-listed="$(go test -list '^TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion$' .)"
+listed="$(go test -list '^TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion$' ./internal/installtest/)"
 case "$listed" in
   *TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion*) ;;
-  *) echo "the end-to-end install gate is gone from the root package"; exit 1 ;;
+  *) echo "the end-to-end install gate is gone from internal/installtest"; exit 1 ;;
 esac
-go test -count=1 -run '^TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion$' .
+go test -count=1 -run '^TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion$' ./internal/installtest/
 
 echo "==> ci-local: PASS"

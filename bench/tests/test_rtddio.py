@@ -510,12 +510,13 @@ def test_real_binary_honours_the_consumed_schema(synth, monkeypatch):
 
     w = rtddio.which(synth.path)
     assert w.tier in {"empty", "direct", "T0", "T1", "T2"}
-    assert "tests/test_alpha.py::test_add" in w.tests
+    # The one pipeline selects whole test files; strategies expand them to ids.
+    assert "tests/test_alpha.py" in w.tests
     assert "src/alpha.py" in w.changed
 
     r = rtddio.run(synth.path)
     assert r.exit_code == 1
-    assert r.failures == ("tests/test_alpha.py::test_add",)
+    assert r.failures == ("tests/test_alpha.py",)
     assert r.uncovered_available is True
 
 
