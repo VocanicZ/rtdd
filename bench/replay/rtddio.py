@@ -16,8 +16,8 @@ JSON, an unknown ``schema`` value, or a document with no ``selection`` all raise
 manufactured from a failure, because that scores as "RTDD chose to run nothing"
 — a perfect recall miss attributed to the tool rather than to the harness.
 
-**The consumed schema is v1**, as defined in ``docs/plans/00-interfaces.md`` and
-emitted by ``cmd/rtdd/jsonout.go``. Task 9 of the M3 plan sketched a flatter
+**The consumed schema is v2**, emitted by ``cmd/rtdd/jsonout.go``. v2 dropped
+``selection_fidelity`` and ``import_time_lines``, neither of which is read here. Task 9 of the M3 plan sketched a flatter
 shape; the shipped M2 binary emits the nested one, and Task 9 says explicitly
 that this file is where that difference is reconciled. Two consequences worth
 naming:
@@ -51,7 +51,7 @@ import subprocess
 import time
 from collections.abc import Iterable
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 CLASS_UNCOVERED = "uncovered"
 CLASS_IMPORT_TIME = "import-time"
@@ -167,7 +167,7 @@ def _changed_paths(changed: list) -> tuple[str, ...]:
 
 
 def parse_which(payload: dict, wall_ms: int, cycles: int = 0) -> WhichResult:
-    """Parse a schema-v1 ``rtdd which`` document.
+    """Parse a schema-v2 ``rtdd which`` document.
 
     ``cycles`` is passed in rather than read from the document: v1 does not carry
     it, and :func:`which` supplies it from ``.rtdd/meta.json``.
@@ -196,7 +196,7 @@ def parse_which(payload: dict, wall_ms: int, cycles: int = 0) -> WhichResult:
 
 
 def parse_run(payload: dict, wall_ms: int) -> RunOutput:
-    """Parse a schema-v1 ``rtdd run`` document."""
+    """Parse a schema-v2 ``rtdd run`` document."""
     payload = _require_schema(payload, "run")
     tier = _require(payload, "tier", "run")
     selection = _require(payload, "selection", "run")

@@ -27,10 +27,10 @@ from replay.rtddio import (
 )
 
 # A trimmed but structurally faithful `rtdd which --base HEAD --json` document,
-# schema v1 (docs/plans/00-interfaces.md). Real output carries every changed path
+# schema v2 (cmd/rtdd/jsonout.go). Real output carries every changed path
 # including untracked noise; the shape is what matters here.
 WHICH_PAYLOAD = {
-    "schema": 1,
+    "schema": 2,
     "command": "which",
     "base": "HEAD",
     "adapter": "python",
@@ -77,7 +77,7 @@ WHICH_PAYLOAD = {
 }
 
 RUN_PAYLOAD = {
-    "schema": 1,
+    "schema": 2,
     "command": "run",
     "base": "HEAD",
     "adapter": "python",
@@ -220,7 +220,7 @@ def test_parse_which_carries_complete_and_warnings():
 
 def test_parse_which_rejects_an_unknown_schema_version():
     with pytest.raises(RtddError, match="schema"):
-        parse_which(dict(WHICH_PAYLOAD, schema=2), wall_ms=1)
+        parse_which(dict(WHICH_PAYLOAD, schema=99), wall_ms=1)
 
 
 def test_parse_which_rejects_a_document_with_no_schema_key():

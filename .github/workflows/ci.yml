@@ -142,19 +142,19 @@ jobs:
       # nothing exits 0, so a deleted or renamed gate would pass silently over zero tests.
       - name: release archives ship every shipped path
         run: |
-          listed="$(go test -list '^TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippedPath$' .)"
+          listed="$(go test -list '^TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippedPath$' ./internal/installtest/)"
           case "$listed" in
             *TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippedPath*) ;;
-            *) echo "the release-archive contents gate is gone from the root package"; exit 1 ;;
+            *) echo "the release-archive contents gate is gone from internal/installtest"; exit 1 ;;
           esac
           go test -count=1 -run '^TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippedPath$' ./internal/installtest/
 
       - name: installer end to end against the real snapshot archives
         run: |
-          listed="$(go test -list '^TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion$' .)"
+          listed="$(go test -list '^TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion$' ./internal/installtest/)"
           case "$listed" in
             *TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion*) ;;
-            *) echo "the end-to-end install gate is gone from the root package"; exit 1 ;;
+            *) echo "the end-to-end install gate is gone from internal/installtest"; exit 1 ;;
           esac
           go test -count=1 -run '^TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion$' ./internal/installtest/
 
