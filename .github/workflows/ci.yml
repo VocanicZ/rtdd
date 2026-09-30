@@ -97,7 +97,7 @@ jobs:
       # .goreleaser.yaml matrix and inspects each one by executable format. `go test ./...`
       # above runs it too; naming it here points a red build straight at the artifacts.
       - name: every release artifact is statically linked
-        run: go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' .
+        run: go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' ./internal/installtest/
 
       # PRD #232 AC11: the shipped adapter set's two gates. `go test ./...` above runs
       # both; naming them points a red build at the adapter set. The `-list` line guards
@@ -147,7 +147,7 @@ jobs:
             *TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippedPath*) ;;
             *) echo "the release-archive contents gate is gone from the root package"; exit 1 ;;
           esac
-          go test -count=1 -run '^TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippedPath$' .
+          go test -count=1 -run '^TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippedPath$' ./internal/installtest/
 
       - name: installer end to end against the real snapshot archives
         run: |
@@ -156,7 +156,7 @@ jobs:
             *TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion*) ;;
             *) echo "the end-to-end install gate is gone from the root package"; exit 1 ;;
           esac
-          go test -count=1 -run '^TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion$' .
+          go test -count=1 -run '^TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion$' ./internal/installtest/
 
   prereg:
     runs-on: ubuntu-latest
