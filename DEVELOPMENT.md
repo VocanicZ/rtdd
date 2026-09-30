@@ -28,11 +28,11 @@ It runs exactly what `.github/workflows/ci.yml` runs:
 go build ./... && go vet ./... && gofmt -l . && go test ./... -count=1
 CGO_ENABLED=0 go build -o /tmp/rtdd ./cmd/rtdd   # must produce a STATIC binary
 file /tmp/rtdd | grep -q 'statically linked' || echo "FAIL: not static"
-go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' .   # all four artifacts
+go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' ./internal/installtest/   # all four artifacts
 ```
 
 The `file` check above only ever sees the linux/amd64 host build. PRD #6 criterion 5 is
-about every published artifact, so `release_artifacts_test.go` cross-builds the whole
+about every published artifact, so `internal/installtest/release_artifacts_test.go` cross-builds the whole
 `.goreleaser.yaml` matrix and inspects each binary in its own format: ELF must be
 statically linked (no PT_INTERP, no dynamic section, no imported libraries), Mach-O must
 load nothing beyond the base-system dylibs — Go on darwin always links `libSystem`, so
@@ -73,7 +73,7 @@ must not.
 
 ## Breaking changes in the one-pipeline release
 
-Unreleased. Every language now runs each test file in its own process under the language's
+Released in v0.2.0. Every language now runs each test file in its own process under the language's
 stock coverage tool, and the map is built from that.
 
 - Map format is v2. A v1 map is not read: run `rtdd seed` again.
@@ -268,7 +268,7 @@ Three things about the run are worth knowing before reading a table:
 ## `rtdd update` and the network boundary
 
 `internal/selfupdate` is the only package in this module that can open a connection, and
-`TestOnlySelfupdateReachesTheNetwork` (`network_test.go`) fails the build if any other
+`TestOnlySelfupdateReachesTheNetwork` (`internal/installtest/network_test.go`) fails the build if any other
 non-test file imports `net` or `net/http`. Before `rtdd update` existed nothing here made a
 network call at all; that was a property of the tool worth keeping true on every other code
 path, and a property is only kept by something that fails when it stops being true.
@@ -283,9 +283,9 @@ Two consequences worth knowing before you touch this package:
   that keeps an old literal in a comment while computing something else still fails it.
 - **`net/http` costs the darwin artifacts two framework links.** `crypto/x509` verifies
   server certificates against the macOS trust store, which is `CoreFoundation` and
-  `Security`. Both are in `baseSystemDylibs` (`release_artifacts_test.go`) for the same
+  `Security`. Both are in `baseSystemDylibs` (`internal/installtest/release_artifacts_test.go`) for the same
   reason `libresolv` already was: Apple ships them inside macOS and no user installs them.
-  `linkage_allowlist_test.go` stops that list widening any further - every entry must sit
+  `internal/installtest/linkage_allowlist_test.go` stops that list widening any further - every entry must sit
   under `/usr/lib/` or `/System/Library/Frameworks/`, and `foreignDylibs` is tested against
   a synthetic Homebrew path so the check can still fail.
 
