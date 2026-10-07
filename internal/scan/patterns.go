@@ -70,14 +70,29 @@ func init() {
 		with import from using package require end fi done esac`) {
 		controlKeywords[k] = true
 	}
+	for _, k := range strings.Fields(`def fn func function fun sub proc class struct interface
+		trait impl module object enum`) {
+		definitionKeywords[k] = true
+	}
 }
+
+// definitionKeywords are §4.2's definition keywords. One captured as a name is an
+// anonymous literal (`func(x int) {`, `onDone: function (err) {`), not a node: its body
+// belongs to the node that encloses it.
+var definitionKeywords = map[string]bool{}
 
 // methodTail is what may follow a method's parameter list on its definition line.
 var methodTail = regexp.MustCompile(`\)\s*(?:[\w$<>\[\],.?&:]+\s*)*\{?\s*$`)
 
-// matchDefinition reports whether line defines a node, and its shape and name.
-func matchDefinition(line string) (string, shape, bool) {
+// matchDefinition reports whether line defines a node, and its shape and name. inBody is
+// whether line lies inside a callable's or test's body, where a `<type> Name(` line is a
+// statement (`x, len(y), z(w),`), so the method row does not apply; a nested definition
+// is still found by the other rows.
+func matchDefinition(line string, inBody bool) (string, shape, bool) {
 	for i, p := range patterns {
+		if inBody && i == len(patterns)-1 {
+			continue
+		}
 		m := p.re.FindStringSubmatch(line)
 		if m == nil {
 			continue
@@ -91,7 +106,7 @@ func matchDefinition(line string) (string, shape, bool) {
 					return "", 0, false
 				}
 			}
-			if controlKeywords[m[2]] || !methodTail.MatchString(line) {
+			if controlKeywords[m[2]] || definitionKeywords[m[2]] || !methodTail.MatchString(line) {
 				return "", 0, false
 			}
 			return m[2], p.shape, true
@@ -99,7 +114,13 @@ func matchDefinition(line string) (string, shape, bool) {
 		if p.shape == shapeTest {
 			return m[1], p.shape, true
 		}
-		return lastSegment(m[1]), p.shape, true
+		// After a definition keyword a control keyword is a real name (`fn new(`,
+		// `function M.print(`); only another definition keyword is not.
+		name := lastSegment(m[1])
+		if definitionKeywords[name] {
+			return "", 0, false
+		}
+		return name, p.shape, true
 	}
 	return "", 0, false
 }
@@ -113,7 +134,7 @@ func lastSegment(s string) string {
 
 // spanRules versions the language-agnostic rules in scan.go. Bump it with any change to
 // how spans, ownership or edges are computed, so every cached graph is rebuilt.
-const spanRules = "1"
+const spanRules = "2"
 
 // Fingerprint identifies this scanner: the pattern table, the keyword set, the call-site
 // expressions and the span rules. The graph cache is valid only for the fingerprint that
@@ -123,11 +144,15 @@ func Fingerprint() string {
 	for _, p := range patterns {
 		fmt.Fprintf(h, "%d %s\n", p.shape, p.re)
 	}
-	keys := make([]string, 0, len(controlKeywords))
-	for k := range controlKeywords {
+	fmt.Fprintf(h, "%s\n%s\n%s\n%s\n%s\n%s\n%s\n", methodTail, callSite, commandSite, declared, sortedKeys(controlKeywords), sortedKeys(definitionKeywords), spanRules)
+	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+func sortedKeys(set map[string]bool) string {
+	keys := make([]string, 0, len(set))
+	for k := range set {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	fmt.Fprintf(h, "%s\n%s\n%s\n%s\n%s\n%s\n", methodTail, callSite, commandSite, declared, strings.Join(keys, " "), spanRules)
-	return hex.EncodeToString(h.Sum(nil))[:16]
+	return strings.Join(keys, " ")
 }

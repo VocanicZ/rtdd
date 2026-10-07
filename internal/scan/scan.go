@@ -56,12 +56,18 @@ func ScanFile(rel string, src []byte) FileResult {
 	}
 
 	var defs []def
+	var open []int // defs whose span holds the current line, outermost first
 	for i, line := range lines {
-		name, sh, ok := matchDefinition(line)
+		for len(open) > 0 && defs[open[len(open)-1]].end < i {
+			open = open[:len(open)-1]
+		}
+		inBody := len(open) > 0 && defs[open[len(open)-1]].shape != shapeClass
+		name, sh, ok := matchDefinition(line, inBody)
 		if !ok {
 			continue
 		}
 		defs = append(defs, def{name: name, shape: sh, start: i, end: endLine(lines, i), indent: indentOf(lines[i]), parent: -1})
+		open = append(open, len(defs)-1)
 	}
 
 	// Nesting: a node's parent is the nearest earlier node whose span holds its start;

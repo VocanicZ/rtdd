@@ -163,13 +163,6 @@ func TestSkillRejectsAnUnknownSubcommand(t *testing.T) {
 	}
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // A successful `rtdd update` leaves a NEW binary behind, and that binary renders a
 // different global skill than the one on disk. Without a refresh the machine keeps
 // whichever skill the first install wrote, forever, while the binary moves on — so the
