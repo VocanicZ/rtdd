@@ -24,10 +24,10 @@ func renderReal(t *testing.T) map[string]string {
 }
 
 // The global front-ends are what an agent reads in a repository rtdd has never touched, so
-// their job is the opposite of the project skill's. The project skill assumes a map already
-// exists; these have to say what to do when none does. A global front-end that omitted the
-// setup section would send an agent to `rtdd which` in a repo with no .rtdd/map.jsonl —
-// the exact dead end it exists to prevent.
+// their job is the opposite of the project skill's. The project skill assumes the repository
+// is already set up; these have to say what to do when it is not. A global front-end that
+// omitted the setup section would send an agent to `rtdd which` in a repo with no
+// .rtdd/config.yaml — the exact dead end it exists to prevent.
 func TestGlobalFrontEndsTeachInit(t *testing.T) {
 	out := renderReal(t)
 	for _, path := range []string{GlobalSkillPath, GlobalAgentsPath} {
@@ -42,12 +42,12 @@ func TestGlobalFrontEndsTeachInit(t *testing.T) {
 }
 
 // The project skill's description scopes itself to "a repository that has a
-// .rtdd/map.jsonl". Copying that verbatim into a machine-wide skill would tell the agent to
-// stand down in precisely the repositories the global skill exists to bootstrap, so the two
+// .rtdd/config.yaml". Copying that verbatim into a machine-wide skill would tell the agent to
+// stand down in precisely the repositories the global skill exists to set up, so the two
 // descriptions must differ.
-func TestGlobalSkillDescriptionDoesNotRequireAMap(t *testing.T) {
+func TestGlobalSkillDescriptionDoesNotRequireASetUpRepository(t *testing.T) {
 	if GlobalSkillDescription == SkillDescription {
-		t.Fatal("the global skill reuses the project skill's description; it must not require an existing map")
+		t.Fatal("the global skill reuses the project skill's description; it must not require a set-up repository")
 	}
 	if !strings.Contains(GlobalSkillDescription, "rtdd init") {
 		t.Error("GlobalSkillDescription does not name `rtdd init`, so the skill will not fire on an un-inited repo")

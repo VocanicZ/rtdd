@@ -20,8 +20,8 @@ what body
 which body
 <!-- rtdd:endsection -->
 
-<!-- rtdd:section id=run title="rtdd run" targets=skill,agents,mdc,global,global-agents order=30 -->
-run body
+<!-- rtdd:section id=process title="The process" targets=skill,agents,mdc,global,global-agents order=30 -->
+process body
 <!-- rtdd:endsection -->
 
 <!-- rtdd:section id=uncovered title="The uncovered report" targets=skill,agents,mdc,global,global-agents order=40 -->

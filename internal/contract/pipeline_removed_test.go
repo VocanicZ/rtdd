@@ -29,8 +29,6 @@ var v02State = []string{".rtdd/map.jsonl", ".rtdd/meta.json", ".rtdd/adapters/"}
 // removing v0.2 state from a host repository or rewriting the front-ends is PRD #411's.
 // An entry that no longer spells one is an error: the list only shrinks.
 var v02StateAllowed = map[string]string{
-	"internal/protocol/targets.go":               "front-end descriptions; PRD #411 rewrites them",
-	"internal/protocol/global_test.go":           "pins those descriptions; PRD #411 rewrites them",
 	"internal/install/uninstall.go":              "removes the v0.2 merge-driver line from a host repository",
 	"internal/install/uninstall_test.go":         "proves uninstall leaves v0.2 state it does not own",
 	"internal/contract/pipeline_removed_test.go": "this guard",

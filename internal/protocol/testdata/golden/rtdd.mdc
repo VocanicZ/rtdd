@@ -1,6 +1,6 @@
 ---
-description: Which tests cover the code you changed, from recorded coverage.
-globs: **/*.{py,go,js,jsx,ts,tsx,rs,java,kt,cs,php,rb}
+description: Which tests a code change needs, in rounds; rtdd runs no tests.
+globs: **/*
 alwaysApply: false
 ---
 
@@ -8,24 +8,27 @@ alwaysApply: false
 
 # rtdd
 
-## Before the first selection
+## What rtdd does
 
-rtdd selects from `.rtdd/map.jsonl`. If that file does not exist, every selection is the full
-suite (tier T2, reason "map is unseeded"), which is no faster than not using rtdd. Run
-`rtdd seed` once — one instrumented run of the whole suite — and commit `.rtdd/map.jsonl`.
-After that, `rtdd run` keeps the rows of the tests it runs fresh, so seed again only when a
-T2 reason asks for it.
+rtdd answers one question fast: which tests does this change need, and in what order. It
+builds a graph of the repository's functions, methods and classes, links every test to the
+code it calls, and reads the lines you changed against it:
 
-## What rtdd reports
+- **Round 1** — the tests linked to the code you changed, and every test you changed.
+- **Round 2** — the tests linked to that code's direct neighbours, its callers and its
+  callees, minus Round 1.
+- **Round 3** — the full suite, once, at the end of the task.
 
-`rtdd` reports which tests cover the code you just changed, and which of the lines you just
-changed nothing covers. In every language rtdd supports, both come from coverage recorded by
-running each test file in its own process under the language's stock coverage tool, not from
-a static call graph, so the relation includes edges reached through dynamic dispatch,
-dependency injection, plugin registries, and monkeypatching, and omits any path no test has
-ever taken.
+rtdd runs no tests. You run each round with the project's own test command, the one you
+would use without rtdd. Nothing rtdd prints is a pass or a fail.
 
-It reports. It does not gate, block, or fail anything on policy.
+## The process
+
+1. Edit code (test first, per TDD).
+2. Run `rtdd which`. If `untested` names a node you changed, write its test first.
+3. Run **Round 1** with the project's own test command. Fix until green.
+4. Run **Round 2**. Fix until green; return to step 2 after any further edit.
+5. When the task is done — before committing or handing off — run the **full suite once**.
 
 ## rtdd which
 
@@ -33,49 +36,25 @@ It reports. It does not gate, block, or fail anything on policy.
 rtdd which [--base <ref>] [--json]
 ```
 
-Prints the ranked selection for the current changed set and the uncovered report, and runs
-nothing. It costs one map lookup and one `git diff`, so it is cheap to consult often.
+Prints the changed nodes — the innermost function, method or class around each changed
+line — then Round 1, Round 2, Round 3, the `untested` list and where the graph came from. It
+runs nothing and answers in about a second, so ask it again after every edit.
 
-The changed set is the union of `git diff --name-only <base>` and
-`git status --porcelain -uall`, so untracked files count — a file you just wrote is in the
-changed set before you commit it.
+The changed set is everything that differs from `--base` (default `HEAD`): committed since
+it, staged, unstaged and untracked, so a file you just wrote counts before you commit it. A
+changed line outside every function, such as an import, belongs to its file's `<module>`
+node.
 
-Ranking is by descending share of each test's recorded file set that your change touches,
-then last-failed first, then smallest file set, then fastest.
+`untested` lists the changed nodes no test in Round 1 or Round 2 reaches. Write a test for
+each one you changed before you run the rounds.
 
-## rtdd run
+## Empty rounds are not a pass
 
-```
-rtdd run [--base <ref>] [--fail-fast] [--json]
-```
-
-Runs the selection, refreshes the map rows for the tests it executed, and prints the
-uncovered report computed from fresh post-run coverage. It exits non-zero only when a test
-fails. An empty selection and a non-empty uncovered report are both exit 0.
-
-`--fail-fast` is opt-in and never implied.
-
-## The uncovered report
-
-The report classifies your changed lines into two classes:
-
-- **covered** — a test file's own run executed these changed lines this cycle.
-- **uncovered** — no test file's run executed them.
-
-Each test file runs in its own process, so a line executed while importing a module is
-executed by that test file and counts as covered.
-
-An uncovered range is information about the suite, not a verdict on the patch.
-
-## An empty selection is not green
-
-When nothing is selected, `rtdd` says so explicitly. An empty selection is a distinct
-outcome from "all selected tests passed", because every under-selection path terminates
-there. Treat it as "the map has nothing to say about this change", not as a pass.
+When Rounds 1 and 2 are empty, `rtdd which` prints `no linked test`. Read it as exactly
+that — no linked test, never a pass: nothing in the graph links a test to the code you
+changed. Write the test the change needs. Round 3 still runs the full suite once at the end.
 
 ## What it cannot see
 
-Coverage only knows paths some test actually took; a never-exercised branch has no edge.
-Each test file runs in its own process, so once-per-process code (`@lru_cache`, singletons,
-session fixtures) is attributed to every test file that runs it. Selection is file-level, and
-the cost is one process per test file. `rtdd verify` does not replace CI.
+Links are by name, so a common name over-links; a call through reflection, a string or a
+framework hook has no edge; depth is one, and Round 3 is the safety net.
