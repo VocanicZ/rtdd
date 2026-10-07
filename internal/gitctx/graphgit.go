@@ -48,3 +48,13 @@ func BlobIDs(repoRoot string) (map[string]string, error) {
 	}
 	return out, nil
 }
+
+// CommitKnown reports whether sha names a commit this repository has — false for a sha
+// rebased away, never fetched (a shallow clone), or malformed (spec §5 step 4).
+func CommitKnown(repoRoot, sha string) bool {
+	if strings.TrimSpace(sha) == "" || strings.HasPrefix(sha, "-") {
+		return false
+	}
+	_, err := git(repoRoot, "cat-file", "-e", sha+"^{commit}")
+	return err == nil
+}

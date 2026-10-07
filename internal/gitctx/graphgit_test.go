@@ -2,6 +2,7 @@ package gitctx_test
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/VocanicZ/rtdd/internal/gitctx"
@@ -59,5 +60,23 @@ func TestBlobIDsOnAnUnbornHeadIsEmpty(t *testing.T) {
 	got, err := gitctx.BlobIDs(dir)
 	if err != nil || len(got) != 0 {
 		t.Errorf("BlobIDs(unborn) = %v, %v; want empty, nil", got, err)
+	}
+}
+
+func TestCommitKnown(t *testing.T) {
+	dir := gittest.Init(t)
+	gittest.Write(t, dir, "a.py", "x = 1\n")
+	sha := gittest.Commit(t, dir, "one")
+	full := strings.TrimSpace(gittest.Run(t, dir, "rev-parse", "HEAD"))
+	for _, s := range []string{sha, full} {
+		if !gitctx.CommitKnown(dir, s) {
+			t.Errorf("CommitKnown(%q) = false for HEAD", s)
+		}
+	}
+	tree := strings.TrimSpace(gittest.Run(t, dir, "rev-parse", "HEAD^{tree}"))
+	for _, s := range []string{"", "0123456789abcdef0123456789abcdef01234567", "--all", "not a sha", tree} {
+		if gitctx.CommitKnown(dir, s) {
+			t.Errorf("CommitKnown(%q) = true", s)
+		}
 	}
 }
