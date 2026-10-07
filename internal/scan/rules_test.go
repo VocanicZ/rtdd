@@ -47,6 +47,66 @@ func TestEverySameNamedDefinitionIsCalledButNotFromTheDefinitionLine(t *testing.
 	}
 }
 
+// linkAll scans each file and links the calls across all of them.
+func linkAll(files ...[2]string) []graph.Edge {
+	var nodes []graph.Node
+	calls := map[string][]string{}
+	for _, f := range files {
+		r := ScanFile(f[0], []byte(f[1]))
+		nodes = append(nodes, r.Nodes...)
+		for k, v := range r.Calls {
+			calls[k] = v
+		}
+	}
+	return Link(nodes, calls)
+}
+
+// Issue #467: a Go call can never reach a Python definition, so when a same-named
+// definition exists in the caller's own file extension only those are linked.
+func TestACallLinksToSameNamedDefinitionsOfItsOwnFileTypeFirst(t *testing.T) {
+	got := linkAll(
+		[2]string{"util.go", "package util\n\nfunc Parse(s string) int {\n\treturn 0\n}\n"},
+		[2]string{"util.py", "def Parse(s):\n    return 0\n"},
+		[2]string{"main.go", "package util\n\nfunc Run() int {\n\treturn Parse(\"x\")\n}\n"},
+	)
+	want := []graph.Edge{{From: "main.go::Run", To: "util.go::Parse", Relation: graph.RelCalls}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Link = %v\nwant %v", got, want)
+	}
+}
+
+// Issue #467: with no same-named definition in the caller's extension, the call falls
+// back to other extensions, so a .ts -> .js call is kept.
+func TestACallFallsBackToOtherFileTypesWhenItsOwnHasNoDefinition(t *testing.T) {
+	got := linkAll(
+		[2]string{"lib.js", "function helper(x) {\n  return x;\n}\n"},
+		[2]string{"app.ts", "function main() {\n  return helper(1);\n}\n"},
+	)
+	want := []graph.Edge{{From: "app.ts::main", To: "lib.js::helper", Relation: graph.RelCalls}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Link = %v\nwant %v", got, want)
+	}
+}
+
+// Issue #467: the fallback reaches only extensions that share a directory with the
+// caller's somewhere in the graph. A Python test's `len(` names a builtin; a stray `len`
+// defined in a Markdown plan or a Go file, which never sit beside a .py file, is no
+// target. `src/app.ts` -> `lib/helper.js` is kept: .ts and .js meet in src/.
+func TestTheFallbackReachesOnlyExtensionsThatShareADirectoryWithTheCaller(t *testing.T) {
+	got := linkAll(
+		[2]string{"docs/plan.md", "func (b BuildOutput) len() int {\n\treturn 0\n}\n"},
+		[2]string{"internal/x.go", "package x\n\nfunc min(a, b int) int {\n\treturn a\n}\n"},
+		[2]string{"bench/test_a.py", "def test_a():\n    assert len(xs) == min(1, 2)\n"},
+		[2]string{"src/app.ts", "function main() {\n  return helper(1);\n}\n"},
+		[2]string{"src/legacy.js", "function old() {\n  return 0;\n}\n"},
+		[2]string{"lib/helper.js", "function helper(x) {\n  return x;\n}\n"},
+	)
+	want := []graph.Edge{{From: "src/app.ts::main", To: "lib/helper.js::helper", Relation: graph.RelCalls}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Link = %v\nwant %v", got, want)
+	}
+}
+
 // A keyword is a call statement's opener only when it stands alone: after `.` or `::` it is
 // a member or path segment, so `Calc::new()` and `p.delete()` are calls that must not be
 // missed (spec §4.3), while a bare `new(` or `return(` is still no call.
