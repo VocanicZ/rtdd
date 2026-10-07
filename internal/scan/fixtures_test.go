@@ -12,8 +12,8 @@ import (
 )
 
 // fixtureLangs is spec §4.4's corpus. Each directory under testdata/ is one small project
-// and its want.json; Tasks 2 and 3 of docs/plans/09-node-graph-core.md extend this list.
-var fixtureLangs = []string{"python", "go", "typescript", "java", "rust"}
+// and its want.json; all eight languages of spec §1.
+var fixtureLangs = []string{"python", "go", "typescript", "java", "rust", "ruby", "lua", "bash"}
 
 type wantNode struct {
 	ID    string     `json:"id"`
