@@ -118,31 +118,18 @@ func TestInitDryRunPrintsThePlanAndWritesNothing(t *testing.T) {
 	}
 }
 
-// A whole-file target that exists and differs is a conflict, and init refuses to
-// write anything until --force is passed.
-func TestInitConflictsOnAHandEditedSkillFileAndForceOverridesIt(t *testing.T) {
+// A whole-file target rtdd did not write is a conflict: init writes nothing and exits 2,
+// and no flag overrides it (PRD #411 AC5 removes --force).
+func TestInitConflictsOnASkillFileRtddDidNotWrite(t *testing.T) {
 	dir := newTestRepo(t)
-	markDetectable(t, dir)
-	skillDir := filepath.Join(dir, ".claude", "skills", "rtdd")
-	if err := os.MkdirAll(skillDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	writeFile(t, dir, ".claude/skills/rtdd/SKILL.md", "hand written, not ours\n")
 
 	code, _, stderr := rtdd(t, dir, "init")
-	if code != 2 {
-		t.Fatalf("exit code = %d, want 2 on conflict (stderr: %s)", code, stderr)
+	if code != 2 || !strings.Contains(stderr, "move the named file(s) aside") {
+		t.Fatalf("exit code = %d, stderr %q; want 2 telling the user to move the file aside", code, stderr)
 	}
 	if got := readRepoFileForTest(t, dir, ".claude/skills/rtdd/SKILL.md"); got != "hand written, not ours\n" {
-		t.Errorf("conflicting file was written without --force: %q", got)
-	}
-
-	code, _, stderr = rtdd(t, dir, "init", "--force")
-	if code != 0 {
-		t.Fatalf("--force exit code = %d, want 0 (stderr: %s)", code, stderr)
-	}
-	if got := readRepoFileForTest(t, dir, ".claude/skills/rtdd/SKILL.md"); got == "hand written, not ours\n" {
-		t.Error("--force did not overwrite the conflicting file")
+		t.Errorf("init overwrote a file rtdd did not write: %q", got)
 	}
 }
 

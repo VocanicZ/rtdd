@@ -25,6 +25,10 @@ const (
 	// rewrite it without rtdd's block. See uninstall.go.
 	Delete
 	StripBlock
+	// Replace overwrites a whole-file front-end an earlier rtdd rendered; AppendLine
+	// rewrites a host file with one line added. Apply writes both like Create.
+	Replace
+	AppendLine
 )
 
 func (a Action) String() string {
@@ -43,6 +47,10 @@ func (a Action) String() string {
 		return "delete"
 	case StripBlock:
 		return "strip-block"
+	case Replace:
+		return "replace"
+	case AppendLine:
+		return "append-line"
 	}
 	return "unknown"
 }

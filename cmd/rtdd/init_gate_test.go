@@ -113,23 +113,6 @@ func TestInitNeverRewritesAnExistingConfigToAddTheRecord(t *testing.T) {
 	}
 }
 
-// --force into a repo nothing matched has nothing to record, and must not claim it looked
-// and found an empty set: the config it writes is the unchanged three-key default.
-func TestInitForceRecordsNoAdaptersInTheConfig(t *testing.T) {
-	dir := newUnsupportedRepo(t)
-
-	if code, _, stderr := rtdd(t, dir, "init", "--force"); code != 0 {
-		t.Fatalf("rtdd init --force = %d, want 0 (stderr: %s)", code, stderr)
-	}
-	b, err := os.ReadFile(filepath.Join(dir, ".rtdd", "config.yaml"))
-	if err != nil {
-		t.Fatalf("read config.yaml: %v", err)
-	}
-	if strings.Contains(string(b), "adapters:") {
-		t.Errorf(".rtdd/config.yaml claims a detected set in a repo nothing matched:\n%s", string(b))
-	}
-}
-
 // PRD #410 AC5 / #452: init no longer detects adapters and no longer refuses: every git
 // repository is supported (spec §8).
 func TestInitSucceedsInARepositoryNoAdapterWouldHaveMatched(t *testing.T) {
