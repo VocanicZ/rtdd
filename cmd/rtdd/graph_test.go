@@ -74,3 +74,45 @@ func TestGraphCommandExitCodes(t *testing.T) {
 		t.Errorf("--help does not list `rtdd graph`:\n%s", out)
 	}
 }
+
+// writeGraphifyFor records graphify's view of graphRepo at builtAt (spec §5).
+func writeGraphifyFor(t *testing.T, dir, builtAt string) {
+	t.Helper()
+	commit := ""
+	if builtAt != "" {
+		commit = `,"built_at_commit":"` + builtAt + `"`
+	}
+	gittest.Write(t, dir, "graphify-out/graph.json", `{"nodes":[`+
+		`{"id":"add","label":"add()","file_type":"code","source_file":"src/calc.py","source_location":"L1"},`+
+		`{"id":"total","label":"total()","file_type":"code","source_file":"src/calc.py","source_location":"L5"},`+
+		`{"id":"t","label":"test_add()","file_type":"code","source_file":"tests/test_calc.py","source_location":"L4"}],`+
+		`"links":[{"source":"total","target":"add","relation":"calls"},{"source":"t","target":"add","relation":"calls"}]`+commit+`}`)
+}
+
+// PRD #409 AC9, graphify half: the source, graphify's commit and the stale count.
+func TestGraphCommandReportsGraphifyAndStaleness(t *testing.T) {
+	dir := graphRepo(t)
+	full := strings.TrimSpace(gittest.Run(t, dir, "rev-parse", "HEAD"))
+	writeGraphifyFor(t, dir, full)
+	gittest.Write(t, dir, "tests/test_calc.py", "from src.calc import add\n\n\ndef test_add():\n    assert add(2, 2) == 4\n")
+
+	code, out, errOut := rtdd(t, dir, "graph")
+	if code != 0 {
+		t.Fatalf("rtdd graph = %d, stderr %q", code, errOut)
+	}
+	for _, want := range []string{"source:          graphify+scanner\n", "built_at_commit: " + full + "\n", "stale_files:     1\n"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("stdout lacks %q:\n%s", want, out)
+		}
+	}
+	_, out, _ = rtdd(t, dir, "graph", "--json")
+	var doc struct {
+		Graph map[string]any `json:"graph"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Graph["source"] != "graphify+scanner" || doc.Graph["built_at_commit"] != full || doc.Graph["stale_files"] != 1.0 {
+		t.Errorf("graph = %v", doc.Graph)
+	}
+}
