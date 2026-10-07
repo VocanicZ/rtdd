@@ -35,7 +35,8 @@ REQUIRED_BASELINES = frozenset(
     }
 )
 SYSTEM_UNDER_TEST = "rtdd"
-REQUIRED = REQUIRED_BASELINES | {SYSTEM_UNDER_TEST}
+ROUNDS_1_2_ARM = "rtdd-r12"  # the Rounds 1+2 arm of the system under test, PRD #412
+REQUIRED = REQUIRED_BASELINES | {SYSTEM_UNDER_TEST, ROUNDS_1_2_ARM}
 
 # `static` — M6e's system-under-test arm, and NOT a PRD #4 baseline — is deliberately
 # absent from this list. Registry membership means the orchestrator may EXECUTE an arm

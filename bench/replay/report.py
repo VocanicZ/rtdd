@@ -41,7 +41,7 @@ from replay.hardware import Hardware
 from replay.records import to_jsonl_lines
 from replay.session import DriftCurve
 
-MAP_BASED_STRATEGIES = frozenset({"rtdd", "testmon"})
+MAP_BASED_STRATEGIES = frozenset({"rtdd", "rtdd-r12", "testmon"})
 """The strategies `probe` flatters.
 
 `probe` reverts the commit's source half over the child tree, so a strategy whose
@@ -605,6 +605,17 @@ def render_markdown(summary: dict, cfg: RunConfig, hw: Hardware) -> str:
     lines.append(f"## Per-strategy — `{primary}`, all strata pooled within this repo")
     lines.append("")
     lines += _headline_rows(summary)
+    if "rtdd-r12" in summary.get("strategies", {}):
+        lines.append("")
+        lines.append("## Rounds against /tdd")
+        lines.append("")
+        lines.append(
+            "`rtdd` runs Round 1 alone, `rtdd-r12` runs Rounds 1+2, and `full` is `/tdd`, "
+            "the full suite every cycle; time in tests is the selected tests' share of "
+            "the same commit's full-suite durations."
+        )
+        lines.append("")
+        lines += rounds_table(summary)
     if "static" in summary.get("strategies", {}):
         lines.append("")
         lines.append("## The static arm")
@@ -729,6 +740,42 @@ def render_markdown(summary: dict, cfg: RunConfig, hw: Hardware) -> str:
     # render_markdown grows into rather than only for the tables it emits today.
     assert_distribution_beside_mean(text)
     return text
+
+
+ROUNDS_ARMS: tuple[str, ...] = ("rtdd", "rtdd-r12", "full")
+"""The two rtdd arms and the baseline both are compared against (PRD #412 AC2).
+
+`rtdd` is Round 1 alone, `rtdd-r12` is Rounds 1+2, and `full` — the full suite
+every cycle — is `/tdd`. Each is scored by the same `metrics.summarise` as every
+other strategy: recall against the instance's failing tests, and time in tests as
+the selected tests' share of the same commit's full-suite durations.
+"""
+
+ROUNDS_LABELS = {"rtdd": "Round 1", "rtdd-r12": "Rounds 1+2", "full": "`/tdd`"}
+
+
+def rounds_table(summary: dict) -> list[str]:
+    """Both rtdd arms beside `/tdd`, one row per arm the run holds.
+
+    An arm missing from the run is absent, never imputed. The header opens with
+    `strategy`, not `arm`: this is not a §7 comparison table and carries no
+    wall-clock column — time in tests is read from the ground-truth durations.
+    """
+    lines = [
+        "| strategy | change recall | test recall (micro) | time in tests (ms) | time vs /tdd |",
+        "|---|---|---|---|---|",
+    ]
+    strategies = summary["strategies"]
+    for sid in ROUNDS_ARMS:
+        if sid not in strategies:
+            continue
+        s = strategies[sid]
+        sdf = s["selected_duration_fraction"]
+        lines.append(
+            f"| `{sid}` — {ROUNDS_LABELS[sid]} | {fmt(s['change_level_recall'])} | "
+            f"{fmt(s['test_level_recall_micro'])} | {sdf.get('num', 0):.0f} | {fmt(sdf)} |"
+        )
+    return lines
 
 
 def _wallclock_header() -> list[str]:

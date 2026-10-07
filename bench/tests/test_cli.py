@@ -211,6 +211,35 @@ def test_replay_allows_random_when_its_peer_is_in_the_same_run(bench, stub_repla
     assert "cloned" in stub_replay
 
 
+def test_replay_refuses_rounds_1_2_without_the_round_1_arm_before_any_clone(
+    bench, stub_replay, capsys
+):
+    """`rtdd-r12` answers out of the one graph `rtdd`'s `prepare` builds (PRD #412).
+
+    Without `rtdd` in the run nothing builds that graph, so the combination is a
+    usage error, rejected before any clone exactly as `random` without its peer is.
+    """
+    rc = cli.main(["replay", "--repo", "synth", "--strategies", "path,rtdd-r12"])
+    assert rc == cli.EXIT_GUARD
+    err = capsys.readouterr().err
+    assert "rtdd-r12" in err
+    assert "'rtdd'" in err
+    assert "cloned" not in stub_replay
+
+
+def test_replay_allows_rounds_1_2_when_rtdd_is_in_the_same_run(bench, stub_replay, monkeypatch):
+    _no_ci(monkeypatch)
+    rc = cli.main(
+        ["--rtdd-binary", _fake_rtdd(bench), "replay", "--repo", "synth", "--strategies", "rtdd,rtdd-r12"]
+    )
+    assert rc == cli.EXIT_OK
+    assert "cloned" in stub_replay
+
+
+def test_the_default_run_holds_both_rtdd_arms():
+    assert cli.DEFAULT_STRATEGIES.index("rtdd-r12") == cli.DEFAULT_STRATEGIES.index("rtdd") + 1
+
+
 # --- the CI wall-clock guard ---------------------------------------------
 
 

@@ -63,7 +63,9 @@ config digest either way, so a longer-lived cache is not a staler one."""
 RESULTS = BENCH / "results"
 FIGURES = BENCH.parent / "docs" / "results" / "figures"
 
-DEFAULT_STRATEGIES = ("rtdd", "testmon", "path", "lf", "importgraph", "xdist", "random", "full")
+DEFAULT_STRATEGIES = (
+    "rtdd", "rtdd-r12", "testmon", "path", "lf", "importgraph", "xdist", "random", "full"
+)
 
 #: A run that produced what it promised.
 EXIT_OK = 0
@@ -200,6 +202,16 @@ def cmd_replay(args) -> int:
         if peer not in strategies:
             print(
                 f"'random' is ratio-matched against {peer!r}'s selection size; "
+                f"{peer!r} must run in the same --strategies list. "
+                f"got: {','.join(strategies)}",
+                file=sys.stderr,
+            )
+            return EXIT_GUARD
+    if "rtdd-r12" in strategies:
+        peer = sbase.get("rtdd-r12").peer
+        if peer not in strategies:
+            print(
+                f"'rtdd-r12' answers from the graph {peer!r}'s prepare builds; "
                 f"{peer!r} must run in the same --strategies list. "
                 f"got: {','.join(strategies)}",
                 file=sys.stderr,
