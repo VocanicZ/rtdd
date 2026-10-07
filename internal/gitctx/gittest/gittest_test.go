@@ -41,3 +41,15 @@ func TestInitRepoReportsGitFailures(t *testing.T) {
 		t.Fatal("InitRepo into a missing directory succeeded, want an error")
 	}
 }
+
+// A large fixture commit must not leave a detached `git gc --auto` writing into .git
+// after the test returns: it races t.TempDir's cleanup ("unlinkat .git: directory not
+// empty"), which is how the 10 000-file perf test first failed on CI.
+func TestInitRepoNeverRunsGitGCBehindTheTest(t *testing.T) {
+	dir := Init(t)
+	for key, want := range map[string]string{"gc.auto": "0", "maintenance.auto": "false"} {
+		if got := strings.TrimSpace(Run(t, dir, "config", "--get", key)); got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
+	}
+}

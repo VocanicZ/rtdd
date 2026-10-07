@@ -83,6 +83,10 @@ func Init(t *testing.T) string {
 	Run(t, dir, "config", "user.email", "rtdd@example.com")
 	Run(t, dir, "config", "user.name", "rtdd test")
 	Run(t, dir, "config", "commit.gpgsign", "false")
+	// No auto gc: after a commit of thousands of files git would detach one that is
+	// still writing into .git when t.TempDir's cleanup runs.
+	Run(t, dir, "config", "gc.auto", "0")
+	Run(t, dir, "config", "maintenance.auto", "false")
 	return dir
 }
 
