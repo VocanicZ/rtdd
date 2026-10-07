@@ -97,7 +97,7 @@ func ignoredWhy(res *graphbuild.Result, cfg graph.Config) string {
 		return fmt.Sprintf("its built_at_commit %s is unknown to git", res.GraphifyCommit)
 	case graphbuild.IgnoredTooStale:
 		return fmt.Sprintf("%d of its %d code files are stale, more than max_stale_ratio %.2f",
-			len(res.StaleFiles), res.GraphifyFiles, cfg.MaxStaleRatio)
+			res.StaleCodeFiles, res.GraphifyFiles, cfg.MaxStaleRatio)
 	}
 	return res.GraphifyIgnored
 }

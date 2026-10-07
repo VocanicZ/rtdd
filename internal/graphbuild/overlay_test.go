@@ -159,9 +159,12 @@ func TestStaleSetSources(t *testing.T) {
 		}, append(code, "d.py"), nil, []string{"d.py"}},
 		{"working-tree changed set", func(*testing.T, string) {}, code, map[string]bool{"b.py": true}, []string{"b.py"}},
 		{"absent from manifest.json", func(*testing.T, string) {}, []string{"a.py", "b.py"}, nil, []string{"c.py"}},
-		{"a non-code file is never stale", func(t *testing.T, root string) {
+		// #441: a changed non-code file is still scanned and overlaid; it only does not
+		// count toward max_stale_ratio (TestNonCodeAndNewLanguageFilesDoNotCountTowardTheRatio).
+		{"a changed non-code file", func(t *testing.T, root string) {
 			gittest.Write(t, root, "README.md", "# changed\n")
-		}, code, nil, nil},
+		}, code, nil, []string{"README.md"}},
+		{"a non-code file absent from manifest.json is not", func(*testing.T, string) {}, code, nil, nil},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
