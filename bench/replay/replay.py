@@ -35,9 +35,7 @@ from replay import rtddio
 from replay.cache import Cache
 from replay.config import RunConfig
 from replay.corpus import Corpus, RepoSpec
-from replay.covread import read_coverage
 from replay.envsetup import with_source_path
-from replay.falsesignal import build_record as build_uncovered
 from replay.gitwork import (
     Change,
     add_worktree,
@@ -81,8 +79,9 @@ PARENT_STATE_DIRS: dict[str, tuple[str, ...]] = {
 }
 """What each `needs_parent_state` strategy leaves behind in the clean base tree.
 
-Building this state costs a full suite run per strategy per base tree, so it is
-snapshotted into the cache as a directory artifact keyed by
+Building this state costs a full suite run (or, for `rtdd`, a graph build — its
+state is the `.rtdd/` graph cache `rtdd graph` writes) per strategy per base tree,
+so it is snapshotted into the cache as a directory artifact keyed by
 `(repo_id, base_sha, strategy)` and restored on the next pass.
 """
 
@@ -114,11 +113,13 @@ class ReplayOutput:
     commits: list[CommitRecord] = dataclasses.field(default_factory=list)
     strategies: list[StrategyRecord] = dataclasses.field(default_factory=list)
     wallclocks: list[WallClockRecord] = dataclasses.field(default_factory=list)
+    #: v0.2's uncovered reports. v0.3.0 has no `rtdd run` and nothing appends
+    #: here; the field stays because `report --rebuild` re-renders published v0.2
+    #: records that carry it.
     uncovered: list[UncoveredRecord] = dataclasses.field(default_factory=list)
     skipped: list[dict] = dataclasses.field(default_factory=list)
-    #: Cycles where `rtdd run` refused. Its own list, not `skipped`: the commit
-    #: was replayed and every selection scored — what was lost is the uncovered
-    #: report, and the refusal is itself a measurement of the tool under test.
+    #: Cycles where v0.2's `rtdd run` refused. Kept, and never appended to, for the
+    #: same reason as `uncovered`: published v0.2 summaries count it.
     rtdd_run_errors: list[dict] = dataclasses.field(default_factory=list)
 
 
@@ -249,77 +250,6 @@ def clean_tree_failures(
     """
     res = _cached_full(cache, key, work, python, False, ())
     return res.failing(), res.durations()
-
-
-def _cached_uncovered(
-    cache: Cache,
-    key: str,
-    work: pathlib.Path,
-    binary: str,
-) -> tuple[frozenset[tuple[str, int]], int, bool]:
-    def build() -> dict:
-        out = rtddio.run(work, binary=binary, base="HEAD")
-        return {
-            "uncovered": sorted([f, line] for f, line in out.uncovered),
-            "wall_ms": out.wall_ms,
-        }
-
-    before = cache.stats()["hits"]
-    payload = cache.json_or_build(key, build)
-    cached = cache.stats()["hits"] > before
-    return (
-        frozenset((f, int(line)) for f, line in payload["uncovered"]),
-        int(payload["wall_ms"]),
-        cached,
-    )
-
-
-def _xdist_workers() -> str:
-    """How wide the ground-truth run may go, as a pytest-xdist ``-n`` value.
-
-    ``auto`` takes every core, which is right on a dedicated box and hostile on a
-    shared one — this benchmark runs for hours, and a developer's own machine has to
-    stay usable while it does. ``RTDD_BENCH_XDIST_N`` caps it. Only *this* run is
-    capped: the ``xdist`` baseline's own ``-n auto`` is a published measurement and
-    is never touched by this knob.
-
-    A capped run is still not a quiet-box run. Nothing here makes a contended
-    machine safe to take timings on; this run simply publishes none.
-    """
-    return os.environ.get("RTDD_BENCH_XDIST_N", "auto")
-
-
-def _cached_coverage_truth(
-    cache: Cache,
-    key: str,
-    work: pathlib.Path,
-    python: str,
-    source_globs: Sequence[str],
-) -> frozenset[tuple[str, int]]:
-    """The instrumented full run's covered set, cached as data rather than as a file.
-
-    Caching the *run* alone would not do: the second pass would skip it, `.coverage`
-    would never be written into the worktree, and `read_coverage` would fail on a
-    file that a cache hit had made unnecessary.
-    """
-
-    def build() -> dict:
-        # The dominant cost of a cycle, and the last full run still serial after #182.
-        # Per-test contexts survive `-n auto` (the xdist column already relies on it,
-        # and SysmonContextError would catch a drop), and this run's wall-clock is
-        # never published — only its covered set — so the flags cost no number.
-        run_full(
-            work,
-            python=python,
-            instrumented=True,
-            source_globs=source_globs,
-            exec_args=("-n", _xdist_workers()),
-        )
-        truth = read_coverage(work / ".coverage", work)
-        return {"covered": sorted([f, line] for f, line in truth.covered)}
-
-    payload = cache.json_or_build(key, build)
-    return frozenset((f, int(line)) for f, line in payload["covered"])
 
 
 def _cached_selection(
@@ -542,42 +472,6 @@ def replay_repo(
                         )
                     )
 
-                rtdd_wall_ms: int | None = None
-                rtdd_wall_cached = False
-                if "rtdd" in order:
-                    try:
-                        reported, rtdd_wall_ms, rtdd_wall_cached = _cached_uncovered(
-                            cache,
-                            cache.key(spec.id, point.commit, variant, "rtdd-run"),
-                            work,
-                            opts.rtdd_binary,
-                        )
-                    except rtddio.RtddError as exc:
-                        # The shipped tool refuses to run a map that names a test
-                        # the tree no longer collects, and says so — real behaviour
-                        # against a real deletion. It costs this cycle its uncovered
-                        # report and nothing else; the selections are already scored.
-                        out.rtdd_run_errors.append(
-                            {
-                                "repo_id": spec.id,
-                                "commit": point.commit,
-                                "variant": variant,
-                                "reason": "rtdd-run-refused",
-                                "detail": str(exc)[:500],
-                            }
-                        )
-                    else:
-                        covered = _cached_coverage_truth(
-                            cache,
-                            cache.key(spec.id, point.commit, variant, "covered"),
-                            work,
-                            python,
-                            spec.source_globs,
-                        )
-                        out.uncovered.append(
-                            build_uncovered(spec.id, point.commit, variant, reported, covered)
-                        )
-
                 if wall_every and index % wall_every == 0:
                     for sid in order:
                         tests = selections[sid].tests
@@ -606,33 +500,27 @@ def replay_repo(
                                 exec_args=exec_args,
                             ),
                         )
-                        if sid == "rtdd" and rtdd_wall_ms is not None:
-                            inst_ms: int | None = rtdd_wall_ms
-                            inst_cached = rtdd_wall_cached
-                        else:
-                            inst_res = cached_run(
+                        inst_res = cached_run(
+                            cache,
+                            run_key(
                                 cache,
-                                run_key(
-                                    cache,
-                                    "subset-instrumented",
-                                    spec.id,
-                                    point.commit,
-                                    variant,
-                                    sid,
-                                    tests,
-                                    exec_args,
-                                ),
-                                lambda tests=tests, exec_args=exec_args: run_subset(
-                                    work,
-                                    tests,
-                                    python=python,
-                                    instrumented=True,
-                                    source_globs=spec.source_globs,
-                                    exec_args=exec_args,
-                                ),
-                            )
-                            inst_ms = inst_res.wall_ms
-                            inst_cached = inst_res.cached
+                                "subset-instrumented",
+                                spec.id,
+                                point.commit,
+                                variant,
+                                sid,
+                                tests,
+                                exec_args,
+                            ),
+                            lambda tests=tests, exec_args=exec_args: run_subset(
+                                work,
+                                tests,
+                                python=python,
+                                instrumented=True,
+                                source_globs=spec.source_globs,
+                                exec_args=exec_args,
+                            ),
+                        )
                         out.wallclocks.append(
                             WallClockRecord(
                                 repo_id=spec.id,
@@ -645,7 +533,7 @@ def replay_repo(
                                 # timing for it rather than stamp it with this box's
                                 # fingerprint.
                                 full_uninstrumented_ms=None if gt.cached else gt.wall_ms,
-                                subset_instrumented_ms=None if inst_cached else inst_ms,
+                                subset_instrumented_ms=None if inst_res.cached else inst_res.wall_ms,
                                 subset_uninstrumented_ms=None if sub.cached else sub.wall_ms,
                                 isolation_violation=isolation_violation(
                                     sub.failing(), tests, f_full, pre_existing

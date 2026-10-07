@@ -1,15 +1,17 @@
 """The system under test: RTDD itself, behind the same protocol as every baseline.
 
-Two invocations, both shipped defaults: `rtdd seed` in the clean parent tree
-during :meth:`Rtdd.prepare`, and `rtdd which --base HEAD --json` for
-:meth:`Rtdd.select`. There is deliberately no hook for extra argv — `rtddio` does
-not accept any — because one tuning flag turns the published comparison into a
-tuned RTDD against untuned baselines, which is not a result.
+Two invocations, both shipped defaults: `rtdd graph` in the clean parent tree
+during :meth:`Rtdd.prepare` — the instance's one graph build — and
+`rtdd which --base HEAD --json` for :meth:`Rtdd.select`. There is no `rtdd seed`
+(v0.3.0 has none) and deliberately no hook for extra argv — `rtddio` does not
+accept any — because one tuning flag turns the published comparison into a tuned
+RTDD against untuned baselines, which is not a result.
 
-The tier is carried into `Selection.reason` so a reader of `strategies.jsonl` can
-tell *why* a commit selected what it did, and a T2 escalation is reported as
-`escalated = True` rather than as a strategy that happened to pick the whole
-suite. That distinction is what lets escalation be published as its own number.
+This arm is **Round 1**: the tests linked to a changed node. v0.3.0 has no tiers
+and never escalates — Round 3 is the full suite, measured as the `full` strategy —
+so `escalated` is always `False`. Round 1's schema-3 ids are expanded to collected
+pytest ids by :func:`replay.graphids.expand_graph_ids`; a graph id pytest never
+collected (a helper, a fixture) is dropped and counted in `Selection.reason`.
 
 Failures propagate: `rtddio` raises rather than manufacturing an empty selection,
 and this strategy does not catch it. An empty selection invented from a crashed
@@ -19,47 +21,39 @@ binary would score as a perfect recall miss attributed to RTDD.
 from __future__ import annotations
 
 from replay import rtddio
+from replay.graphids import expand_graph_ids
 from replay.strategies.base import CommitContext, Selection, register
 
 
 class Rtdd:
     id = "rtdd"
     needs_parent_state = True
+    ROUNDS: tuple[int, ...] = (1,)
 
     def __init__(self, binary: str = "rtdd") -> None:
         self.binary = binary
 
     def prepare(self, ctx: CommitContext) -> None:
-        """Build `.rtdd/map.jsonl` with one full instrumented run at the parent."""
-        rtddio.seed(ctx.work, binary=self.binary)
+        """Build `.rtdd/graph.json` at the parent: one `rtdd graph` per instance."""
+        rtddio.graph(ctx.work, binary=self.binary)
+
+    def _graph_ids(self, w: rtddio.WhichResult) -> tuple[str, ...]:
+        """The schema-3 test ids this arm selects."""
+        return w.round1
 
     def select(self, ctx: CommitContext) -> Selection:
         w = rtddio.which(ctx.work, binary=self.binary, base="HEAD")
-        reason = w.tier if not w.reason else f"{w.tier}: {w.reason}"
+        ids = self._graph_ids(w)
+        tests, unmatched = expand_graph_ids(ids, ctx.all_tests)
+        rounds = "+".join(str(n) for n in self.ROUNDS)
         return Selection(
-            tests=expand_files(w.tests, ctx.all_tests),
-            escalated=w.escalated(),
-            reason=reason,
+            tests=tests,
+            escalated=False,
+            reason=(
+                f"round {rounds}: {len(ids)} graph tests, {len(unmatched)} not collected"
+            ),
             select_ms=w.wall_ms,
         )
-
-
-def expand_files(selected: tuple[str, ...], all_tests: tuple[str, ...]) -> tuple[str, ...]:
-    """Turn each selected test file into every collected id in it.
-
-    The one pipeline selects whole test files (`tests/test_a.py`), while recall is
-    scored per id (`tests/test_a.py::test_x`); `derive.level1_tests` makes the same
-    move for the static arm. An entry that is already an id passes through, and a
-    file with no collected id is kept as-is so stale handling still sees it.
-    """
-    out: list[str] = []
-    for sel in selected:
-        if "::" in sel:
-            out.append(sel)
-            continue
-        ids = [t for t in all_tests if t.split("::", 1)[0] == sel]
-        out.extend(ids or [sel])
-    return tuple(dict.fromkeys(out))
 
 
 register(Rtdd())

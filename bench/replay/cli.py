@@ -282,7 +282,7 @@ def cmd_session(args) -> int:
         os.environ["PYTHONPATH"] = with_source_path(
             os.environ, work, spec.source_globs
         )["PYTHONPATH"]
-        rtddio.seed(work, binary=args.rtdd_binary)
+        rtddio.graph(work, binary=args.rtdd_binary)
         curve = run_drift(
             repo, spec.id, work, points, python=str(env.python), binary=args.rtdd_binary
         )
