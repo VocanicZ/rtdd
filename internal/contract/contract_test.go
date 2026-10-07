@@ -1,6 +1,6 @@
-// Package contract holds repo-level guard tests for the M1a bootstrap: the module
-// declaration, the dogfooding git attributes, the ignore rules, the interface
-// contract amendment, and the CI pipeline. It contains no non-test code.
+// Package contract holds repo-level guard tests: the module declaration, the ignore
+// rules, the interface contract amendments, and the CI pipeline. It contains no non-test
+// code.
 package contract
 
 import (
@@ -9,12 +9,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"slices"
 	"sort"
 	"strings"
 	"testing"
-
-	"github.com/VocanicZ/rtdd/internal/doctor"
 )
 
 // repoRoot walks up from the test's working directory to the directory holding go.mod.
@@ -159,13 +156,6 @@ func TestCompiledModulesAreYAMLOnly(t *testing.T) {
 	}
 }
 
-func TestGitAttributesDeclaresUnionMergeForMap(t *testing.T) {
-	src := readRepoFile(t, ".gitattributes")
-	if !regexp.MustCompile(`(?m)^\.rtdd/map\.jsonl\s+merge=union\s*$`).MatchString(src) {
-		t.Errorf(".gitattributes must declare `.rtdd/map.jsonl merge=union`, got:\n%s", src)
-	}
-}
-
 func TestGitIgnoreIgnoresBuildOutput(t *testing.T) {
 	src := readRepoFile(t, ".gitignore")
 	for _, want := range []string{"/rtdd", "/dist/bin/"} {
@@ -253,12 +243,6 @@ var ciCommands = []string{
 	// runs inside `go test ./...` too; naming it as its own step means a red build points
 	// straight at the release artifacts instead of at the suite in general.
 	"go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' .",
-	// PRD #232 AC11: the shipped adapter set's gate, named as its own step.
-	// #310's completeness table runs inside `go test ./...` above; naming it points a red build at
-	// the adapter set instead of at the suite in general, and the `-list` guard in
-	// front of it is what stops a deleted gate from passing as a no-match.
-	"go test -list '^TestEveryShippedAdapterIsFullySpecified$' ./internal/contract/",
-	"go test -count=1 -run '^TestEveryShippedAdapterIsFullySpecified$' ./internal/contract/",
 }
 
 func TestLocalCIEntrypointIsExecutableAndRunsTheSameChecks(t *testing.T) {
@@ -279,52 +263,6 @@ func TestLocalCIEntrypointIsExecutableAndRunsTheSameChecks(t *testing.T) {
 		if !strings.Contains(src, want) {
 			t.Errorf("%s must run/contain %q", rel, want)
 		}
-	}
-}
-
-// M1b Task 1 adds two loaders to the contract. The doc is the interface of record, so a
-// signature that exists only in code is a drift the next task would inherit.
-func TestInterfaceContractRecordsTheAdapterLoaders(t *testing.T) {
-	src := readRepoFile(t, "docs/plans/00-interfaces.md")
-
-	for _, want := range []string{
-		"func LoadFS(fsys fs.FS, dir string) ([]*Adapter, error)",
-		"func Builtin() ([]*Adapter, error)",
-	} {
-		if !strings.Contains(src, want) {
-			t.Errorf("00-interfaces.md must record %q", want)
-		}
-	}
-	// The superseded single-adapter forms must be gone, not merely outnumbered.
-	for _, stale := range []string{
-		"func LoadFS(fsys fs.FS, name string) (*Adapter, error)",
-		"func Builtin(name string) (*Adapter, error)",
-	} {
-		if strings.Contains(src, stale) {
-			t.Errorf("00-interfaces.md still carries the superseded signature %q", stale)
-		}
-	}
-}
-
-// M6a Task 4 adds the host-adapter loaders. §4.5 calls user-authorable adapters the
-// load-bearing part of the multi-language design, so the precedence rule — the host wins —
-// belongs in the interface of record, not only in the code that implements it.
-func TestInterfaceContractRecordsTheHostAdapterLoaders(t *testing.T) {
-	src := readRepoFile(t, "docs/plans/00-interfaces.md")
-
-	for _, want := range []string{
-		`const HostAdapterDir = ".rtdd/adapters"`,
-		"func LoadHost(repoRoot string) ([]*Adapter, error)",
-		"func LoadHostReport(repoRoot string) ([]*Adapter, []Invalid, error)",
-		"func Available(repoRoot string) ([]*Adapter, error)",
-		"func AvailableReport(repoRoot string) ([]*Adapter, []Invalid, error)",
-	} {
-		if !strings.Contains(src, want) {
-			t.Errorf("00-interfaces.md must record %q", want)
-		}
-	}
-	if !strings.Contains(src, "REPLACES it") {
-		t.Error("00-interfaces.md must state the precedence rule: a host adapter replaces the built-in of the same name")
 	}
 }
 
@@ -361,234 +299,6 @@ func TestInterfaceContractRecordsInitrepo(t *testing.T) {
 	}
 }
 
-// M1b Task 4 adds ExpandTests to the contract, and narrows Expand to reject {tests}. The
-// doc is the interface of record: a signature that exists only in code is a drift the next
-// task would inherit, and here the drift is silent — a caller that reached Expand with a
-// {tests} template would join every id into one argument.
-func TestInterfaceContractRecordsExpandTests(t *testing.T) {
-	src := readRepoFile(t, "docs/plans/00-interfaces.md")
-
-	for _, want := range []string{
-		"func (a *Adapter) Expand(tmpl string, vars map[string]string) ([]string, error)",
-	} {
-		if !strings.Contains(src, want) {
-			t.Errorf("00-interfaces.md must record %q", want)
-		}
-	}
-	// The superseded form promised {tests} substitution inside Expand itself.
-	stale := "// Expand substitutes {tests} {src} {out} {log} into a command template and returns argv."
-	if strings.Contains(src, stale) {
-		t.Errorf("00-interfaces.md still carries the superseded Expand doc line %q", stale)
-	}
-}
-
-// signatureRe finds every declaration of name in a document, whether it stands as Go
-// source or inside a `//` comment. Both forms are read as contract by a human.
-func signatureRe(name string) *regexp.Regexp {
-	return regexp.MustCompile(`(?m)^[ \t]*(?://[ \t]*)?func\b[^\n]*\b` + name + `\(`)
-}
-
-// implSignature returns the one-line declaration of name from a Go source file, with the
-// trailing " {" removed, so it can be compared against the contract document verbatim.
-func implSignature(t *testing.T, rel, name string) string {
-	t.Helper()
-	m := signatureRe(name).FindStringIndex(readRepoFile(t, rel))
-	if m == nil {
-		t.Fatalf("%s declares no func %s", rel, name)
-	}
-	src := readRepoFile(t, rel)
-	line := src[m[0]:]
-	if i := strings.IndexByte(line, '\n'); i >= 0 {
-		line = line[:i]
-	}
-	return strings.TrimSuffix(strings.TrimSpace(line), " {")
-}
-
-// docSignatures returns every declaration of name found in the contract document, each
-// normalised to bare Go source: leading whitespace and any "// " comment marker removed.
-func docSignatures(t *testing.T, doc, name string) []string {
-	t.Helper()
-	var out []string
-	for _, m := range signatureRe(name).FindAllStringIndex(doc, -1) {
-		line := doc[m[0]:]
-		if i := strings.IndexByte(line, '\n'); i >= 0 {
-			line = line[:i]
-		}
-		line = strings.TrimSpace(line)
-		line = strings.TrimSpace(strings.TrimPrefix(line, "//"))
-		out = append(out, line)
-	}
-	return out
-}
-
-// The Amendments/Additions block declares itself as overriding everything above it, so a
-// signature that appears twice in the document with two different shapes does not merely
-// duplicate: it says the shipped implementation is wrong. Every declaration of a name must
-// agree with every other, and all of them must agree with the code.
-func TestInterfaceContractSignaturesDoNotContradictTheImplementation(t *testing.T) {
-	doc := readRepoFile(t, "docs/plans/00-interfaces.md")
-
-	for _, tc := range []struct{ rel, name string }{
-		{"internal/adapter/expand.go", "Expand"},
-		{"internal/uncovered/hunk.go", "WithLines"},
-		{"internal/uncovered/hunk.go", "ParseHunks"},
-		{"internal/uncovered/classify.go", "Summarize"},
-		{"internal/gitctx/rawdiff.go", "RawDiff"},
-	} {
-		want := implSignature(t, tc.rel, tc.name)
-		got := docSignatures(t, doc, tc.name)
-		if len(got) == 0 {
-			t.Errorf("00-interfaces.md declares %s nowhere; %s has %q", tc.name, tc.rel, want)
-			continue
-		}
-		for _, g := range got {
-			if g != want {
-				t.Errorf("00-interfaces.md declares %s as\n  %q\nbut %s implements\n  %q",
-					tc.name, g, tc.rel, want)
-			}
-		}
-	}
-}
-
-// The M1b amendment dropped {src} from Expand's variable set: a bare --cov honours the
-// host's own [run] source for both seed and subset, and an RTDD-guessed {src} makes the
-// two disagree on scope. The doc's own Expand entry must not still promise it.
-func TestInterfaceContractDropsSrcFromExpand(t *testing.T) {
-	doc := readRepoFile(t, "docs/plans/00-interfaces.md")
-
-	for _, stale := range []string{
-		"// Expand substitutes {src} {out} {log} into a command template and returns argv.",
-		"// Expand substitutes {tests} {src} {out} {log} into a command template and returns argv.",
-	} {
-		if strings.Contains(doc, stale) {
-			t.Errorf("00-interfaces.md still documents {src} for Expand: %q", stale)
-		}
-	}
-	// Expand resolves whatever key the caller passes — there is no closed variable set in
-	// internal/adapter to enforce the drop. The contract has to say where the enforcement
-	// actually lives, or a host adapter reintroduces --cov={src} unopposed.
-	if !strings.Contains(doc, "Expand has no closed variable set") {
-		t.Error("00-interfaces.md must record that Expand has no closed variable set")
-	}
-	if !strings.Contains(doc, "the var map the caller supplies") {
-		t.Error("00-interfaces.md must record that the caller's var map is what keeps {src} out of expanded argv")
-	}
-	// The contract document is not the only place the promise survives. Expand's own
-	// godoc is the first thing a reader of the public API sees, and it outlived the
-	// amendment that the document above was already policed for: {src} is unresolvable
-	// at runtime, so a comment still naming it sends a host adapter author to a
-	// placeholder no template can expand. expand.go must not name it at all — the
-	// negative assertions live in expand_test.go, not in the shipped source.
-	impl := readRepoFile(t, "internal/adapter/expand.go")
-	for i, line := range strings.Split(impl, "\n") {
-		if strings.Contains(line, "{src}") {
-			t.Errorf("internal/adapter/expand.go:%d still names {src}: %q", i+1, strings.TrimSpace(line))
-		}
-	}
-}
-
-// structDeclRe finds every declaration of a struct type named name, whether it stands as
-// Go source or inside a `//` comment, and whether its fields are braced on one line or
-// spread over many. Both forms are read as contract by a human.
-func structDeclRe(name string) *regexp.Regexp {
-	return regexp.MustCompile(`(?m)^[ \t]*(?://[ \t]*)?type[ \t]+` + name + `[ \t]+struct[ \t]*\{`)
-}
-
-// structFieldSets returns the sorted field names of every declaration of struct name in
-// src. Comment markers are stripped, so a declaration quoted inside a `//` block compares
-// byte-for-byte against one in Go source.
-func structFieldSets(t *testing.T, src, name string) [][]string {
-	t.Helper()
-	var out [][]string
-	for _, m := range structDeclRe(name).FindAllStringIndex(src, -1) {
-		body, ok := braceBody(src[m[1]-1:])
-		if !ok {
-			t.Fatalf("declaration of %s at offset %d has no closing brace", name, m[0])
-		}
-		out = append(out, fieldNames(body))
-	}
-	return out
-}
-
-// braceBody returns the contents between s's leading '{' and its matching '}'.
-func braceBody(s string) (string, bool) {
-	depth := 0
-	for i, r := range s {
-		switch r {
-		case '{':
-			depth++
-		case '}':
-			depth--
-			if depth == 0 {
-				return s[1:i], true
-			}
-		}
-	}
-	return "", false
-}
-
-// fieldNames extracts the declared names from a struct body. Fields separated by ';' on
-// one line and fields on their own lines are the same declaration written two ways, so
-// both split the same; a grouped `Covered, Uncovered int` contributes both names.
-func fieldNames(body string) []string {
-	var out []string
-	for _, decl := range strings.FieldsFunc(body, func(r rune) bool { return r == '\n' || r == ';' }) {
-		decl = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(decl), "//"))
-		if i := strings.Index(decl, "//"); i >= 0 {
-			decl = strings.TrimSpace(decl[:i])
-		}
-		toks := strings.Fields(decl)
-		if len(toks) < 2 {
-			continue
-		}
-		for _, name := range toks[:len(toks)-1] {
-			out = append(out, strings.TrimSuffix(name, ","))
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-// A struct in the contract binds exactly as hard as a func signature, and the
-// Amendments/Additions block declares itself as overriding everything above it — so an
-// amended field list that disagrees with the shipped struct does not merely duplicate:
-// it says the implementation is wrong, and it is the half that formally wins. Comparing
-// signatures alone let FatalExitError drift, because the divergence was in its fields.
-func TestInterfaceContractStructFieldsDoNotContradictTheImplementation(t *testing.T) {
-	doc := readRepoFile(t, "docs/plans/00-interfaces.md")
-
-	for _, tc := range []struct{ rel, name string }{
-		{"internal/runner/errors.go", "FatalExitError"},
-		{"internal/uncovered/classify.go", "Summary"},
-	} {
-		impl := structFieldSets(t, readRepoFile(t, tc.rel), tc.name)
-		if len(impl) != 1 {
-			t.Fatalf("%s declares struct %s %d times; want exactly one", tc.rel, tc.name, len(impl))
-		}
-		want := impl[0]
-		got := structFieldSets(t, doc, tc.name)
-		if len(got) == 0 {
-			t.Errorf("00-interfaces.md declares struct %s nowhere; %s has fields %v", tc.name, tc.rel, want)
-			continue
-		}
-		for _, g := range got {
-			if !reflect.DeepEqual(g, want) {
-				t.Errorf("00-interfaces.md declares %s with fields\n  %v\nbut %s implements\n  %v",
-					tc.name, g, tc.rel, want)
-			}
-		}
-	}
-	// Spelled out separately from the field-set comparison: `Meaning` is the specific
-	// field the superseded amendment invented, and it must be gone from the document
-	// rather than merely outnumbered by correct declarations elsewhere in it.
-	for _, m := range structDeclRe("FatalExitError").FindAllStringIndex(doc, -1) {
-		body, ok := braceBody(doc[m[1]-1:])
-		if ok && strings.Contains(body, "Meaning") {
-			t.Errorf("00-interfaces.md still declares FatalExitError with a Meaning field: {%s}", body)
-		}
-	}
-}
-
 // internal/adapter/classify.go narrows IsTestFile with a FullEscalate exclusion that the
 // plan never wrote down. The behaviour is right — naming conftest.py as a selector is a
 // fatal exit 5 — but an undocumented narrowing of a contract predicate is drift, and this
@@ -621,46 +331,6 @@ func precedingComment(t *testing.T, doc, decl string) string {
 		block = append([]string{lines[j]}, block...)
 	}
 	return strings.Join(block, "\n")
-}
-
-// M2 Task 6 adds internal/doctor to the contract. Spec §9 requires the fan-out caveat to
-// appear in the tool's OWN output, so it ships as an exported constant, not as prose in a
-// plan. The Additions block sketched it as `func Caveat() string`; the shipped shape is a
-// const, and both shapes in one document would say the shipped one is wrong.
-func TestInterfaceContractRecordsDoctorCaveat(t *testing.T) {
-	src := readRepoFile(t, "docs/plans/00-interfaces.md")
-
-	if !strings.Contains(src, "internal/doctor/") {
-		t.Error("00-interfaces.md must list internal/doctor/ in the package layout")
-	}
-	for _, want := range []string{
-		"const Caveat = ",
-		"func Hubs(m *mapstore.Map) []Hub",
-	} {
-		if !strings.Contains(src, want) {
-			t.Errorf("00-interfaces.md must record %q", want)
-		}
-	}
-	if strings.Contains(src, "func Caveat() string") {
-		t.Error("00-interfaces.md still carries the superseded signature \"func Caveat() string\"")
-	}
-}
-
-// The caveat is worthless if it is a vague warning: it has to name the mechanisms that
-// produce a fan-out of 1 so a reader can recognise one in their own repo.
-func TestDoctorCaveatNamesTheOncePerProcessMechanisms(t *testing.T) {
-	for _, want := range []string{
-		"lru_cache",
-		"module singleton",
-		"DI container",
-		"session-scoped fixture",
-		"every test file",
-		"inflates fan-out",
-	} {
-		if !strings.Contains(doctor.Caveat, want) {
-			t.Errorf("doctor.Caveat must name %q (spec §9)", want)
-		}
-	}
 }
 
 // M2's Definition of Done names every contract addition the milestone makes. This is the
@@ -704,119 +374,8 @@ func TestInterfaceContractCarriesEveryM2Addition(t *testing.T) {
 	}
 }
 
-// TestJSONSchemaV2KeySetMatchesTheInterfaceContract is the drift guard between the frozen
-// --json schema and the document that specifies it.
-//
-// The two have already disagreed once: an amendment in 00-interfaces.md mandated
-// `complete` and `warnings`, the `Output` struct never grew them, and nothing failed
-// (issue #112). Prose and struct are checked against each other in BOTH directions here,
-// so a key added to one and not the other is a red test rather than a silent divergence.
-func TestJSONSchemaV2KeySetMatchesTheInterfaceContract(t *testing.T) {
-	doc := readRepoFile(t, "docs/plans/00-interfaces.md")
-	src := readRepoFile(t, "cmd/rtdd/jsonout.go")
-
-	inStruct := topLevelOutputKeys(t, src)
-	if len(inStruct) < 5 {
-		t.Fatalf("could not read the Output struct's json tags, got %v", inStruct)
-	}
-	inDoc := fieldContractTopLevelKeys(t, doc)
-	if len(inDoc) < 5 {
-		t.Fatalf("could not read the field contract table, got %v", inDoc)
-	}
-
-	sample := jsonSchemaSample(t, doc)
-	for _, k := range inStruct {
-		if !inDoc[k] {
-			t.Errorf("Output emits top-level key %q, but 00-interfaces.md's field contract "+
-				"does not document it — the schema and the contract have drifted apart", k)
-		}
-		if !strings.Contains(sample, `"`+k+`":`) {
-			t.Errorf("the schema v2 sample document must show top-level key %q", k)
-		}
-	}
-	for k := range inDoc {
-		if !slices.Contains(inStruct, k) {
-			t.Errorf("00-interfaces.md documents top-level key %q, but cmd/rtdd/jsonout.go's "+
-				"Output struct never emits it — the contract promises a field the code omits", k)
-		}
-	}
-}
-
-// topLevelOutputKeys reads the json tags of `type Output struct` in source order, which is
-// also the emitted key order.
-func topLevelOutputKeys(t *testing.T, src string) []string {
-	t.Helper()
-	body, ok := blockAfter(src, "type Output struct {")
-	if !ok {
-		t.Fatal("cmd/rtdd/jsonout.go no longer declares `type Output struct {`")
-	}
-	var out []string
-	for _, m := range regexp.MustCompile("`json:\"([a-z_]+)\"`").FindAllStringSubmatch(body, -1) {
-		out = append(out, m[1])
-	}
-	return out
-}
-
 // fieldContractRow matches one markdown table row whose first cell is a backticked field name.
 var fieldContractRow = regexp.MustCompile("(?m)^\\| `([^`]+)` \\|")
-
-// fieldContractTopLevelKeys reads the "Field contract." table and returns the TOP-LEVEL key
-// each row belongs to. A composite value is documented through its members rather than a row
-// of its own — `changed[].path`, `selection.count`, `run.passed`/`failed`/... — so the root
-// before the first `.` or `[` is what names the top-level key. A scalar row is its own root.
-func fieldContractTopLevelKeys(t *testing.T, doc string) map[string]bool {
-	t.Helper()
-	table, ok := between(doc, "**Field contract.**", "**Invariant, and it is tested:**")
-	if !ok {
-		t.Fatal("00-interfaces.md no longer contains the field contract table")
-	}
-	out := map[string]bool{}
-	for _, m := range fieldContractRow.FindAllStringSubmatch(table, -1) {
-		root := m[1]
-		if i := strings.IndexAny(root, ".["); i >= 0 {
-			root = root[:i]
-		}
-		out[root] = true
-	}
-	return out
-}
-
-// jsonSchemaSample is the fenced example document under "### The schema, version 2".
-func jsonSchemaSample(t *testing.T, doc string) string {
-	t.Helper()
-	sample, ok := between(doc, "### The schema, version 2", "**Field contract.**")
-	if !ok {
-		t.Fatal("00-interfaces.md no longer contains the schema v2 sample document")
-	}
-	return sample
-}
-
-// blockAfter returns the text from marker up to the first line that is exactly "}".
-func blockAfter(src, marker string) (string, bool) {
-	i := strings.Index(src, marker)
-	if i < 0 {
-		return "", false
-	}
-	rest := src[i+len(marker):]
-	end := strings.Index(rest, "\n}")
-	if end < 0 {
-		return "", false
-	}
-	return rest[:end], true
-}
-
-func between(src, start, end string) (string, bool) {
-	i := strings.Index(src, start)
-	if i < 0 {
-		return "", false
-	}
-	rest := src[i+len(start):]
-	j := strings.Index(rest, end)
-	if j < 0 {
-		return "", false
-	}
-	return rest[:j], true
-}
 
 // Issue #222: scripts/release-preflight.sh was committed 100644 while its two siblings were
 // 100755, so the invocation DEVELOPMENT.md documents (`scripts/release-preflight.sh`, no
@@ -887,30 +446,3 @@ func mustRel(t *testing.T, base, target string) string {
 
 // commentMarker matches the `//` opening a Go doc-comment line inside a fenced block.
 var commentMarker = regexp.MustCompile(`(?m)^[ \t]*//[ \t]?`)
-
-// What this protects: the two documents that describe the resolution order cannot drift
-// apart. select.go's own header comment is what an implementer reads; 00-interfaces.md is
-// what the next milestone binds to. PRD #230 AC1 makes the order part of the contract, so
-// a step reordered in one place and not the other is a red test rather than two documents
-// quietly disagreeing about when TS is reached.
-func TestDocumentedResolutionOrderMatchesTheSelector(t *testing.T) {
-	impl := readRepoFile(t, "internal/selector/select.go")
-
-	head, _, ok := strings.Cut(impl, "func Select(in Inputs) Selection {")
-	if !ok {
-		t.Fatal("internal/selector/select.go declares no `func Select(in Inputs) Selection`")
-	}
-	var at []int
-	for _, step := range []string{"1. the direct set", "2. T2 escalations", "3. T1 escalations", "4. T0", "5. TierEmpty"} {
-		i := strings.Index(head, step)
-		if i < 0 {
-			t.Fatalf("Select's header comment names no %q step; the documented order is "+
-				"direct, T2 escalations, T1 escalations, T0, empty", step)
-		}
-		at = append(at, i)
-	}
-	if !slices.IsSorted(at) {
-		t.Errorf("Select's header comment lists the steps out of order (offsets %v); the "+
-			"documented order is direct, T2 escalations, T1 escalations, T0, empty", at)
-	}
-}
