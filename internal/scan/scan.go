@@ -241,7 +241,9 @@ func endLine(lines []string, i int) int {
 }
 
 // tokenizer counts brackets outside string literals and comments, best-effort (spec
-// §4.3). String state ends at end of line; a /* block */ comment may span lines.
+// §4.3). String state ends at end of line; a /* block */ comment may span lines. A '
+// opens a string only when another ' closes it later on the line, so a lone one (a
+// Rust lifetime such as &'static, an apostrophe) does not swallow the line's brackets.
 type tokenizer struct {
 	paren, brace int
 	block        bool
@@ -263,7 +265,7 @@ func (t *tokenizer) line(s string) {
 			} else if c == quote {
 				quote = 0
 			}
-		case c == '"' || c == '\'' || c == '`':
+		case c == '"' || c == '`' || c == '\'' && closes(s, k):
 			quote = c
 		case c == '/' && k+1 < len(s) && s[k+1] == '/':
 			return
@@ -282,6 +284,18 @@ func (t *tokenizer) line(s string) {
 			t.brace--
 		}
 	}
+}
+
+// closes reports whether the quote at s[k] has an unescaped match later in s.
+func closes(s string, k int) bool {
+	for j := k + 1; j < len(s); j++ {
+		if s[j] == '\\' {
+			j++
+		} else if s[j] == s[k] {
+			return true
+		}
+	}
+	return false
 }
 
 // ScanFiles scans each of files (repo-relative, already Filtered) under root, in order,

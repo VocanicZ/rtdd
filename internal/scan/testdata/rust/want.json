@@ -12,7 +12,10 @@
     {"id": "calc.rs::add", "name": "add", "kind": "func", "start": 33, "end": 35},
     {"id": "calc.rs::adds", "name": "adds", "kind": "func", "start": 42, "end": 44},
     {"id": "calc.rs::pushes", "name": "pushes", "kind": "func", "start": 47, "end": 51},
-    {"id": "calc.rs::applies", "name": "applies", "kind": "func", "start": 54, "end": 56}
+    {"id": "calc.rs::applies", "name": "applies", "kind": "func", "start": 54, "end": 56},
+    {"id": "calc.rs::greet", "name": "greet", "kind": "func", "start": 59, "end": 61},
+    {"id": "calc.rs::other", "name": "other", "kind": "func", "start": 63, "end": 65},
+    {"id": "calc.rs::third", "name": "third", "kind": "func", "start": 67, "end": 69}
   ],
   "calls": [
     {"from": "calc.rs::Calc::push", "to": "calc.rs::add"},
@@ -21,6 +24,7 @@
     {"from": "calc.rs::applies", "to": "calc.rs::Apply::apply"},
     {"from": "calc.rs::applies", "to": "calc.rs::Op::apply"},
     {"from": "calc.rs::pushes", "to": "calc.rs::Calc::new"},
-    {"from": "calc.rs::pushes", "to": "calc.rs::Calc::push"}
+    {"from": "calc.rs::pushes", "to": "calc.rs::Calc::push"},
+    {"from": "calc.rs::third", "to": "calc.rs::other"}
   ]
 }
