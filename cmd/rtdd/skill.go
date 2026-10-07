@@ -32,15 +32,14 @@ func homeDir() (string, error) {
 
 // cmdSkill implements `rtdd skill`: the MACHINE-WIDE counterpart of `rtdd init`.
 //
-// `rtdd init` installs into one repository and is gated on an adapter matching it. This
-// installs into the user's home directory and is gated on nothing, because there is no
-// repository to detect: the front-ends it writes are read in every repository on the
-// machine, and their whole job is to tell an agent to run `rtdd init` in the ones rtdd has
-// never touched.
+// `rtdd init` installs into one repository, at its root. This installs into the user's
+// home directory: the front-ends it writes are read in every repository on the machine,
+// and their whole job is to tell an agent to run `rtdd init` in the ones rtdd has never
+// touched.
 //
-// It is a separate command rather than `rtdd init --global` because a flag that moved
-// init's root AND disabled its adapter gate would make one command mean two different
-// things.
+// It is a separate command rather than `rtdd init --global` because the two plan
+// different targets (install.PlanGlobal, not install.Plan) under different roots, and a
+// flag that swapped both would make one command mean two different things.
 func cmdSkill(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprint(stderr, skillUsage)

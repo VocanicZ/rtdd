@@ -80,7 +80,7 @@ func TestValidateGlob(t *testing.T) {
 }
 
 // MatchGlob must not be able to hide a bad pattern behind a false. Every pattern that
-// reaches it has already passed ValidateGlob at adapter.Load time, so a malformed one
+// reaches it has already passed ValidateGlob at config load time, so a malformed one
 // is a programming error and is reported as one.
 func TestMatchGlobDoesNotSwallowABadPattern(t *testing.T) {
 	defer func() {
