@@ -32,15 +32,14 @@ from replay.rtddio import WhichResult
 from replay.session import DriftCurve, DriftPoint, run_drift
 
 
-def _which(n_tests: int, tier: str = "T0", cycles: int = 1) -> WhichResult:
+def _which(n_tests: int) -> WhichResult:
     return WhichResult(
-        tier=tier,
-        reason="",
-        tests=tuple(f"t{i}" for i in range(n_tests)),
-        direct=(),
+        round1=tuple(f"tests/t.py::test_{i}" for i in range(n_tests)),
+        round2=(),
         changed=(),
-        cycles=cycles,
-        wall_ms=1,
+        untested=(),
+        source="scanner",
+        wall_ms=0,
     )
 
 
@@ -80,7 +79,7 @@ def test_drift_accumulates_the_changed_set_across_uncommitted_cycles(synth, tmp_
     def fake_select(w: pathlib.Path) -> WhichResult:
         n = len(working_changed_paths(w))
         seen_changed.append(n)
-        return _which(n, cycles=len(seen_changed))
+        return _which(n)
 
     curve = run_drift(
         synth.path, "synth", work, points, python=sys.executable, select=fake_select
@@ -92,6 +91,9 @@ def test_drift_accumulates_the_changed_set_across_uncommitted_cycles(synth, tmp_
     assert [p.cycle for p in curve.points] == [1, 2, 3]
     assert [p.changed_files for p in curve.points] == [1, 2, 3]
     assert seen_changed == [1, 2, 3]
+    # v0.3.0 has no tiers: `selected` is Round 1's size and `tier` records the round.
+    assert [p.selected for p in curve.points] == [1, 2, 3]
+    assert {p.tier for p in curve.points} == {"round1"}
     assert curve.points[-1].changed_files > curve.points[0].changed_files
 
 
@@ -235,7 +237,7 @@ def test_a_cycle_whose_tree_will_not_collect_publishes_no_ratio(synth, tmp_path,
         points[:1],
         python="python",
         select=lambda w: WhichResult(
-            tier="T2", reason="r", tests=("a::x",), direct=(), changed=(), cycles=1, wall_ms=1
+            round1=("a::x",), round2=(), changed=(), untested=(), source="scanner", wall_ms=1
         ),
     )
     p = curve.points[0]

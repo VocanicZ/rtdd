@@ -6,9 +6,10 @@ the longer an agent runs without committing. Spec §10 requires it measured as
 its own axis rather than assumed, and this module is that measurement.
 
 **Method.** Take consecutive commits ``C1..Ck`` from real history. The caller
-builds a worktree at ``C1``'s parent and seeds RTDD there **once**; ``run_drift``
+builds a worktree at ``C1``'s parent and builds RTDD's graph there **once**
+(``rtdd graph``); ``run_drift``
 then applies ``C1``, ``C2``, … one after another *without committing anything*
-and records the selection size after each application. Cycle ``i`` therefore
+and records Round 1's size after each application. Cycle ``i`` therefore
 carries the accumulated changed set of ``i`` real commits, which is exactly the
 uncommitted-session shape. HEAD never moves, so ``--base HEAD`` sees that whole
 accumulation, and :func:`run_drift` refuses a worktree parked anywhere but
@@ -95,8 +96,8 @@ def run_drift(
 ) -> DriftCurve:
     """Replay `points` into `work` as one uncommitted session and record the curve.
 
-    `work` must already be checked out at ``points[0].parent`` with the strategy's
-    state seeded there — seeding happens once, before cycle 1, and never again.
+    `work` must already be checked out at ``points[0].parent`` with the graph
+    built there — ``rtdd graph`` runs once, before cycle 1, and never again.
     Nothing is committed between cycles, so ``--base HEAD`` sees the accumulated
     set. `select` is injectable so the curve logic is testable without the binary;
     the CLI passes ``None`` and gets :func:`replay.rtddio.which` at ``--base HEAD``.
@@ -107,7 +108,7 @@ def run_drift(
     head = git(work, "rev-parse", "HEAD")
     if head != points[0].parent:
         raise ValueError(
-            f"{work} is at {head}, not at {points[0].parent}; seed the worktree at "
+            f"{work} is at {head}, not at {points[0].parent}; build the graph at "
             "the first replay point's parent before running the drift session"
         )
 
@@ -122,15 +123,16 @@ def run_drift(
             DriftPoint(
                 cycle=i,
                 changed_files=len(changed),
-                selected=len(result.tests),
+                selected=len(result.round1),
                 # `rtdd` may name a test collection missed; the denominator can
                 # never be smaller than the numerator, or the ratio exceeds 1.
                 # A tree that collected *nothing* is a different case: the
                 # denominator is unknown, and falling back to the selection size
                 # would publish `1.000` — "RTDD ran everything" — for a cycle
                 # where nothing was counted at all.
-                total_tests=0 if total == 0 else max(total, len(result.tests)),
-                tier=result.tier,
+                total_tests=0 if total == 0 else max(total, len(result.round1)),
+                # v0.3.0 has no tiers; the key stays so `drift.json` keeps its shape.
+                tier="round1",
                 collect_failed=total == 0,
             )
         )

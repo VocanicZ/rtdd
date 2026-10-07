@@ -22,7 +22,6 @@ from replay.replay import (
     replay_repo,
     strategy_order,
 )
-from tests.v02binary import requires_v02_rtdd
 
 ADD = "tests/test_alpha.py::test_add"
 MUL = "tests/test_beta.py::test_mul"
@@ -649,50 +648,6 @@ def test_a_base_tree_that_collects_nothing_is_skipped_not_fatal(synth, cache_roo
     assert out.commits, "the remaining commits must still be replayed"
 
 
-def test_a_refused_rtdd_run_is_published_not_fatal(synth, cache_root, monkeypatch):
-    """`rtdd run` exits 2 when its map names a test the tree no longer collects.
-
-    That is the shipped tool's real behaviour against a stale map — the runner
-    rejects the selector and rtdd says so — and a replay of real history meets it
-    on the first commit that deletes a test. It costs this cycle its uncovered
-    report, which is a measurement about RTDD worth publishing, and it must not
-    end the replay.
-    """
-    import replay.replay as mod
-    from replay.rtddio import RtddError
-
-    def refuse(work, binary="rtdd", base="HEAD"):
-        raise RtddError("rtdd run --base HEAD --json exited 2: bad-selector")
-
-    monkeypatch.setattr(mod.rtddio, "run", refuse)
-    monkeypatch.setattr(mod.rtddio, "seed", lambda work, binary="rtdd": None)
-    from replay.rtddio import WhichResult
-
-    monkeypatch.setattr(
-        mod.rtddio,
-        "which",
-        lambda work, binary="rtdd", base="HEAD": WhichResult(
-            tier="T0", reason="stub", tests=(ADD,), direct=(), changed=(), cycles=1, wall_ms=1
-        ),
-    )
-    spec = _spec(synth)
-    cfg = _cfg(strategies=("full",))
-    out = replay_repo(
-        repo=synth.path,
-        spec=spec,
-        cfg=cfg,
-        cache=Cache(cache_root, cfg.digest()),
-        hw=probe(),
-        work_root=synth.path.parent / "trees-refused",
-        opts=ReplayOptions(
-            variants=("natural",), strategy_ids=("rtdd", "full"), wallclock_sample=0
-        ),
-    )
-    assert out.commits, "the replay must continue past a refused rtdd run"
-    assert out.rtdd_run_errors
-    assert out.rtdd_run_errors[0]["reason"] == "rtdd-run-refused"
-
-
 def test_a_second_replay_reproduces_the_records_byte_for_byte(synth, tmp_path, cache_root):
     """A re-run at an identical config must produce identical records.
 
@@ -756,33 +711,19 @@ def test_the_parallel_baselines_subset_runs_are_actually_parallel(
     assert parallel.isdisjoint(serial)
 
 
-@requires_v02_rtdd
-def test_a_base_tree_rtdd_refuses_to_seed_is_skipped_not_fatal(synth, cache_root, monkeypatch):
-    """A parent tree the tool under test will not seed is data, not an abort.
-
-    `rtdd seed` exits 3 on a tree whose suite will not collect, and real history
-    supplies those trees: `httpie` drops its `pytest-lazy-fixture` dependency
-    partway through the frozen replay window, so every commit older than that drop
-    imports a plugin the pinned environment does not install. The harness's own
-    runs survive it — they pass `--continue-on-collection-errors` — but the shipped
-    binary does not, and it is the shipped binary that decides whether this cycle
-    has a comparable base at all.
-
-    One such commit must cost its own cycle and nothing else. Aborting the walk
-    there throws away every later commit, which is how a corpus repo ends up with
-    no published table.
-    """
+def test_a_base_tree_rtdd_cannot_graph_is_skipped_not_fatal(synth, cache_root, monkeypatch):
+    """A parent tree the tool under test cannot build a graph of costs its own cycle."""
     import replay.replay as mod
     from replay.rtddio import RtddError
 
-    seeded = {"n": 0}
+    built = {"n": 0}
 
     def refuse_once(work, binary="rtdd"):
-        seeded["n"] += 1
-        if seeded["n"] == 1:
-            raise RtddError("rtdd seed exited 3: 3 errors during collection")
+        built["n"] += 1
+        if built["n"] == 1:
+            raise RtddError("rtdd graph exited 3: not a git repository")
 
-    monkeypatch.setattr(mod.rtddio, "seed", refuse_once)
+    monkeypatch.setattr(mod.rtddio, "graph", refuse_once)
     spec = _spec(synth)
     cfg = _cfg(strategies=("rtdd", "full"))
     out = replay_repo(
@@ -791,7 +732,7 @@ def test_a_base_tree_rtdd_refuses_to_seed_is_skipped_not_fatal(synth, cache_root
         cfg=cfg,
         cache=Cache(cache_root, cfg.digest()),
         hw=probe(),
-        work_root=synth.path.parent / "trees-noseed",
+        work_root=synth.path.parent / "trees-nograph",
         opts=ReplayOptions(
             variants=("natural",), strategy_ids=("rtdd", "full"), wallclock_sample=0
         ),
@@ -801,79 +742,68 @@ def test_a_base_tree_rtdd_refuses_to_seed_is_skipped_not_fatal(synth, cache_root
     assert out.commits, "the replay must continue past a base tree it could not prepare"
 
 
-def test_the_instrumented_ground_truth_run_is_parallel(monkeypatch, tmp_path, cache_root):
-    """The one full run left serial after #182 — the dominant cost of a cycle.
+def test_the_replay_runs_no_rtdd_run(synth, cache_root, monkeypatch):
+    """v0.3.0 has no `rtdd run` and no uncovered report; the replay must not ask for one."""
+    import replay.replay as mod
+    from replay.rtddio import WhichResult
 
-    Per-test contexts survive `-n auto` and this run's wall-clock is never published,
-    only its covered set, so the flags buy back hours without moving a number.
-    """
-    from replay import replay as replay_mod
-
-    monkeypatch.delenv("RTDD_BENCH_XDIST_N", raising=False)
-    seen: list[tuple[str, ...]] = []
-
-    def fake_run_full(work, python=None, instrumented=False, source_globs=(), **kw):
-        seen.append(tuple(kw.get("exec_args", ())))
-        return None
-
-    monkeypatch.setattr(replay_mod, "run_full", fake_run_full)
+    monkeypatch.setattr(mod.rtddio, "graph", lambda work, binary="rtdd": None)
     monkeypatch.setattr(
-        replay_mod, "read_coverage", lambda db, work: type("T", (), {"covered": {("a.py", 1)}})()
+        mod.rtddio,
+        "which",
+        lambda work, binary="rtdd", base="HEAD": WhichResult(
+            round1=(ADD,), round2=(), changed=(), untested=(), source="scanner", wall_ms=1
+        ),
     )
-
-    covered = replay_mod._cached_coverage_truth(
-        Cache(cache_root, "digest"), "k", tmp_path, sys.executable, ()
+    assert not hasattr(mod, "_cached_uncovered")
+    spec = _spec(synth)
+    cfg = _cfg(strategies=("rtdd", "full"))
+    out = replay_repo(
+        repo=synth.path,
+        spec=spec,
+        cfg=cfg,
+        cache=Cache(cache_root, cfg.digest()),
+        hw=probe(),
+        work_root=synth.path.parent / "trees-norun",
+        opts=ReplayOptions(
+            variants=("natural",), strategy_ids=("rtdd", "full"), wallclock_sample=0
+        ),
     )
+    assert out.commits
+    assert out.uncovered == []
+    assert out.rtdd_run_errors == []
 
-    assert seen == [("-n", "auto")]
-    assert covered == frozenset({("a.py", 1)})
 
-
-def test_the_ground_truth_run_can_be_capped_to_leave_the_box_usable(
-    monkeypatch, tmp_path, cache_root
+def test_the_rtdd_strategy_builds_one_graph_per_instance_and_never_seeds(
+    synth, cache_root, monkeypatch
 ):
-    """`auto` takes every core; a box someone else is working on needs a ceiling."""
-    from replay import replay as replay_mod
+    """PRD #412 AC1: one `rtdd graph` per replayed instance, and no `rtdd seed` at all."""
+    import replay.replay as mod
+    from replay.rtddio import WhichResult
 
-    seen: list[tuple[str, ...]] = []
-
-    def fake_run_full(work, python=None, instrumented=False, source_globs=(), **kw):
-        seen.append(tuple(kw.get("exec_args", ())))
-        return None
-
-    monkeypatch.setenv("RTDD_BENCH_XDIST_N", "6")
-    monkeypatch.setattr(replay_mod, "run_full", fake_run_full)
+    assert not hasattr(mod.rtddio, "seed"), "v0.3.0 has no `rtdd seed`; nothing may call it"
+    built: list = []
+    monkeypatch.setattr(mod.rtddio, "graph", lambda work, binary="rtdd": built.append(work))
     monkeypatch.setattr(
-        replay_mod, "read_coverage", lambda db, work: type("T", (), {"covered": set()})()
+        mod.rtddio,
+        "which",
+        lambda work, binary="rtdd", base="HEAD": WhichResult(
+            round1=(ADD,), round2=(), changed=(), untested=(), source="scanner", wall_ms=1
+        ),
     )
-
-    replay_mod._cached_coverage_truth(
-        Cache(cache_root, "capped"), "k", tmp_path, sys.executable, ()
+    spec = _spec(synth)
+    cfg = _cfg(strategies=("rtdd", "full"))
+    out = replay_repo(
+        repo=synth.path,
+        spec=spec,
+        cfg=cfg,
+        cache=Cache(cache_root, cfg.digest()),
+        hw=probe(),
+        work_root=synth.path.parent / "trees-graph",
+        opts=ReplayOptions(
+            variants=("natural",), strategy_ids=("rtdd", "full"), wallclock_sample=0
+        ),
     )
-
-    assert seen == [("-n", "6")]
-
-
-def test_the_ground_truth_run_can_be_capped_to_leave_the_box_usable(
-    monkeypatch, tmp_path, cache_root
-):
-    """`auto` takes every core; a box someone else is using needs a ceiling."""
-    from replay import replay as replay_mod
-
-    seen: list[tuple[str, ...]] = []
-
-    def fake_run_full(work, python=None, instrumented=False, source_globs=(), **kw):
-        seen.append(tuple(kw.get("exec_args", ())))
-        return None
-
-    monkeypatch.setenv("RTDD_BENCH_XDIST_N", "8")
-    monkeypatch.setattr(replay_mod, "run_full", fake_run_full)
-    monkeypatch.setattr(
-        replay_mod, "read_coverage", lambda db, work: type("T", (), {"covered": set()})()
-    )
-
-    replay_mod._cached_coverage_truth(
-        Cache(cache_root, "capped"), "k", tmp_path, sys.executable, ()
-    )
-
-    assert seen == [("-n", "8")]
+    instances = {(s.commit, s.variant) for s in out.strategies if s.strategy == "rtdd"}
+    assert instances, "the replay scored no rtdd instance"
+    assert len(built) == len(instances)

@@ -461,7 +461,7 @@ def test_session_runs_the_drift_worktree_with_its_own_source_in_front(
 ):
     """The drift session needs the same import fix the replay has.
 
-    It seeds `rtdd` in a worktree at an older commit while the repo is installed
+    It builds the `rtdd` graph in a worktree at an older commit while the repo is installed
     editable from the clone at the pin; without the worktree's source in front of
     `PYTHONPATH` the suite imports the pin's flask against the older tree's tests,
     which does not even collect.
@@ -482,11 +482,11 @@ def test_session_runs_the_drift_worktree_with_its_own_source_in_front(
     monkeypatch.setattr(cli, "add_worktree", lambda repo, sha, work: None)
     monkeypatch.setattr(cli, "remove_worktree", lambda repo, work: None)
 
-    def record_seed(work, binary="rtdd"):
+    def record_graph(work, binary="rtdd"):
         seen["pythonpath"] = os.environ.get("PYTHONPATH", "")
         seen["work"] = pathlib.Path(work)
 
-    monkeypatch.setattr(cli.rtddio, "seed", record_seed)
+    monkeypatch.setattr(cli.rtddio, "graph", record_graph)
 
     from replay.session import DriftCurve
 
@@ -526,7 +526,7 @@ def test_session_does_not_overwrite_the_replay_config_that_produced_the_table(
         parent = "p"
 
     monkeypatch.setattr(cli, "replay_points", lambda repo, pin, n: [_Point()])
-    monkeypatch.setattr(cli.rtddio, "seed", lambda work, binary="rtdd": None)
+    monkeypatch.setattr(cli.rtddio, "graph", lambda work, binary="rtdd": None)
 
     from replay.session import DriftCurve
 
@@ -569,7 +569,7 @@ def test_session_threads_corpus_version_through_to_the_loader(
     monkeypatch.setattr(cli, "replay_points", lambda repo, pin, n: [_Point()])
     monkeypatch.setattr(cli, "add_worktree", lambda repo, sha, work: None)
     monkeypatch.setattr(cli, "remove_worktree", lambda repo, work: None)
-    monkeypatch.setattr(cli.rtddio, "seed", lambda work, binary="rtdd": None)
+    monkeypatch.setattr(cli.rtddio, "graph", lambda work, binary="rtdd": None)
 
     from replay.session import DriftCurve
 
