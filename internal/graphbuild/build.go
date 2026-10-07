@@ -31,6 +31,10 @@ const (
 // Options tune a build. The zero value is the CLI's behaviour.
 type Options struct {
 	CachePath string // "" is <root>/.rtdd/graph.json
+	// Base is the ref the caller measures changes from (`rtdd which --base`); "" is HEAD.
+	// Files changed against it join graphify's stale set (spec §5 step 1, "the current
+	// changed set"), so no changed line maps through graphify's start-only spans.
+	Base string
 }
 
 // Result is a built graph and how it was built. Every field is declared here, in Task 6,
@@ -59,7 +63,7 @@ func Build(root string, cfg graph.Config, opt Options) (*Result, error) {
 	}
 	files := scan.Filter(root, listed, cfg.ScanExclude)
 	head, _ := gitctx.HeadSHA(root) // "" on an unborn HEAD
-	changed, err := changedSet(root)
+	changed, err := changedSet(root, "HEAD")
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +81,11 @@ func Build(root string, cfg graph.Config, opt Options) (*Result, error) {
 	case err != nil:
 		return nil, err
 	default:
-		if toScan, stale, err = useGraphify(root, cfg, gf, files, changed, res); err != nil {
+		current, err := currentChangedSet(root, opt.Base, changed)
+		if err != nil {
+			return nil, err
+		}
+		if toScan, stale, err = useGraphify(root, cfg, gf, files, current, res); err != nil {
 			return nil, err
 		}
 	}
@@ -132,11 +140,10 @@ func useGraphify(root string, cfg graph.Config, gf *graphify.Graph, files []stri
 	return toScan, isStale, nil
 }
 
-// changedSet is the working-tree changed set against HEAD as a path set, untracked files
-// included (spec §4.5's re-scan set; spec §5 step 1's "current changed set" and
-// "untracked").
-func changedSet(root string) (map[string]bool, error) {
-	cs, err := gitctx.ChangedSet(root, "HEAD")
+// changedSet is the working-tree changed set against base as a path set, untracked files
+// included. Against HEAD it is spec §4.5's re-scan set.
+func changedSet(root, base string) (map[string]bool, error) {
+	cs, err := gitctx.ChangedSet(root, base)
 	if err != nil {
 		return nil, err
 	}
@@ -145,4 +152,26 @@ func changedSet(root string) (map[string]bool, error) {
 		changed[c.Path] = true
 	}
 	return changed, nil
+}
+
+// currentChangedSet is spec §5 step 1's "current changed set" (untracked included): the
+// changed set against HEAD ∪ the one against base, the ref the caller selects from. The
+// union keeps a file changed against HEAD but not against base (edited back) scanned too.
+// The cache's re-scan set stays the one against HEAD: HEAD's blobs key the cache.
+func currentChangedSet(root, base string, againstHEAD map[string]bool) (map[string]bool, error) {
+	if base == "" || base == "HEAD" {
+		return againstHEAD, nil
+	}
+	againstBase, err := changedSet(root, base)
+	if err != nil {
+		return nil, err
+	}
+	current := make(map[string]bool, len(againstHEAD)+len(againstBase))
+	for f := range againstHEAD {
+		current[f] = true
+	}
+	for f := range againstBase {
+		current[f] = true
+	}
+	return current, nil
 }
