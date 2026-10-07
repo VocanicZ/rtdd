@@ -1,7 +1,10 @@
 # rtdd
 
-**rtdd is a test selector for coding agents.** Running every test after every edit is slow.
-rtdd runs every test that executed the code you changed, directly or deep in a call chain.
+**rtdd tells a coding agent which tests a change needs, in rounds.** Running every test
+after every edit is slow; running only the test named after the file you touched misses the
+code that calls it. rtdd is a skill — a testing process the agent follows on any codebase —
+and a small binary that answers one question fast: which tests does this change need, and
+in what order.
 
 ## Install
 
@@ -43,118 +46,131 @@ rtdd skill uninstall   # remove them
 
 `rtdd update` replaces the binary with the latest release, and only if it is newer, then
 refreshes the machine-wide skill to match; `rtdd update --check` asks without installing.
-`rtdd uninstall` removes what `rtdd init` wrote into a repository, leaving the recorded map
-unless you add `--state`, and the machine-wide front-ends unless you add `--global`.
+`rtdd uninstall` removes what `rtdd init` wrote into a repository, leaving `.rtdd/` unless
+you add `--state`, and the machine-wide front-ends unless you add `--global`.
 
 ## Usage
 
 ```
 cd your-repo
-rtdd init      # front-ends, .gitattributes merge=union, config
-rtdd seed      # one full instrumented run to build the map
-rtdd which     # what covers your current changes
+rtdd init      # front-ends, .rtdd/config.yaml, .gitignore line for the graph cache
+rtdd which     # the tests your current changes need, in rounds
 ```
+
+`rtdd init` sets up any git repository, whatever it is written in. It writes the agent
+instructions — a Claude Code skill at `.claude/skills/rtdd/SKILL.md`, a Cursor rule at
+`.cursor/rules/rtdd.mdc`, and a marker-delimited block in `AGENTS.md`, and in `CLAUDE.md`
+when the repository has one — a `.rtdd/config.yaml` of defaults, and a `.gitignore` line
+for `.rtdd/graph.json`, rtdd's rebuildable graph cache. It never edits outside its own
+markers and never overwrites a config you have set. There is no other setup step: the graph
+is built the first time a command needs it. Commit what `init` wrote.
+
+On a repository set up by v0.2, `rtdd init` also deletes the state that release kept — its
+map, its metadata, its host language definitions and its `.gitattributes` merge line — and
+prints one line for each file it removes. A config v0.2 wrote is replaced by v0.3.0's
+defaults.
+
+## The process
+
+The skill `rtdd init` writes tells the agent to work in five steps:
+
+1. Edit code (test first, per TDD).
+2. Run `rtdd which`. If `untested` names a node you changed, write its test first.
+3. Run **Round 1** with the project's own test command. Fix until green.
+4. Run **Round 2**. Fix until green; return to step 2 after any further edit.
+5. When the task is done — before committing or handing off — run the **full suite once**.
+
+rtdd runs no tests. Each round runs under the project's own test command, the one you would
+use without rtdd, and nothing rtdd prints is a pass or a fail.
+
+## How it picks
+
+rtdd builds a graph of the repository's functions, methods and classes, links every test to
+the code it calls, and reads the lines you changed against it:
+
+- **Round 1** — the tests linked to the code you changed, and every test you changed.
+- **Round 2** — the tests linked to that code's direct neighbours, its callers and its
+  callees, minus Round 1.
+- **Round 3** — the full suite, once, at the end of the task.
+
+Take `src/calc.py`, where `total` calls `add`, and `tests/test_calc.py` with `test_add` and
+`test_total`. Edit `add`, and:
 
 ```
 $ rtdd which
-base:     HEAD
-changed:  1 files
-  modified  src/calc.py
-  tier: T0  (1 test selected, ranked)
-  reason: tests whose recorded coverage intersects the changed set
-    tests/test_calc.py
-
-$ rtdd run
-tier T0: 1 selected (tests whose recorded coverage intersects the changed set)
-1 ran, 0 failed, 1 rows in the map
-
-  UNCOVERED: src/calc.py:3-4  (2 changed lines, no executing test)
+graph: scanner, built at aeb07e0, 0 stale files
+changed nodes:
+  src/calc.py::add  (lines 1-2)
+Round 1 — run these first:
+  tests/test_calc.py::test_add
+Round 2 — then these:
+  tests/test_calc.py::test_total
+Round 3 — the full suite, once, at the end
+untested:
+  none
 ```
 
-## One pipeline, every language
+`test_add` calls the function you changed, so it is Round 1. `test_total` never names `add`,
+but it calls `total`, which does — so it is Round 2. A path heuristic would stop at the first.
 
-Every language works the same way. `rtdd seed` runs each test file in its own process under
-the language's stock coverage tool, and the map records what each of those runs executed.
-`rtdd which` and `rtdd run` then select from that map. Nothing is inferred from names or
-imports.
+The changed set is everything that differs from `--base` (default `HEAD`): committed since
+it, staged, unstaged and untracked, so a file you just wrote counts before you commit it. A
+changed line outside every function, such as an import, belongs to its file's `<module>`
+node. `untested` lists the changed nodes no test in Round 1 or Round 2 reaches.
 
-| adapter | coverage tool it needs |
-|---|---|
-| python | `pytest` with `pytest-cov` |
-| go | `go test` (built in) |
-| jest | `jest` (its own lcov reporter) |
-| vitest | `vitest` with `@vitest/coverage-v8` |
-| cargo | `cargo-llvm-cov`; units are integration tests in `tests/*.rs` (workspace members' too); `#[cfg(test)]` inline tests are never units |
-| maven | JaCoCo, fetched by Maven on first run |
-| gradle | JaCoCo, applied by an init script (not yet verified on a real toolchain) |
-| dotnet | the `coverlet.msbuild` package in the test project |
-| phpunit | `pcov` or `xdebug` (not yet verified on a real toolchain) |
-| rspec | `simplecov` and `simplecov-lcov` (not yet verified on a real toolchain) |
+When Rounds 1 and 2 are both empty, `rtdd which` prints `no linked test`. That is exactly
+what it means — nothing links a test to the code you changed — and never a pass. Round 3
+still runs the full suite once at the end.
 
-`rtdd doctor` lists which adapters matched and what each is missing.
+`rtdd which --json` is the same answer as one object, schema 3, for tools that read it.
 
-The cost is one process per test file. That is cheap for Python, Go and Node and slow where
-a process start is slow, such as the JVM and .NET. Selection is file-level on both sides:
-a changed file selects every test file that executed any of it.
-
-`rtdd init` writes a Claude Code skill at `.claude/skills/rtdd/SKILL.md`, a Cursor rule at
-`.cursor/rules/rtdd.mdc`, and a marker-delimited block in `AGENTS.md` and `CLAUDE.md`. It
-never edits outside its own markers. With no matching adapter it writes nothing and exits 2;
-`--force` installs anyway.
-
-It is a context provider, not a gate. `rtdd run` exits non-zero when a test fails, and for
-no other reason.
-
-## It runs more than the test you touched
-
-Real code shares things. A small app might have `api.py` calling `auth.py`, both leaning on
-`models.py` and `db.py`, and a `utils.py` that everything touches. You change `auth.py`.
-
-A path heuristic matches `tests/test_auth.py` and stops — missing that `api.handle()` calls
-straight into the function you just edited.
-
-RTDD selects both, because the map records what each test *executed*, not what it is named.
-Drawn as a graph, the rule is just *follow the edges into the file you changed* — and the
-difference between the two approaches is that one has edges to follow and the other reads
-none of them:
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/results/figures/how-it-picks-dark.svg">
-  <img alt="Two panels side by side, each holding the same graph: eight source files on the left of the panel, eight tests on the right, and an edge wherever the seed run watched that test execute that file. In the left panel, running everything, every edge is grey and all eight tests run. In the right panel, RTDD, auth.py is highlighted and the two edges into it lead to test_auth and test_api; those two run and the other six are marked never runs. Both catch the change." src="docs/results/figures/how-it-picks-light.svg">
-</picture>
-
-The map for that app, as `rtdd seed` recorded it:
+## The other commands
 
 ```
-test_api     →  api.py, auth.py, cache.py, db.py, models.py, utils.py
-test_auth    →  auth.py, db.py, models.py, utils.py
-test_report  →  db.py, models.py, report.py, utils.py
-test_mailer  →  mailer.py, models.py, utils.py
-test_models  →  models.py, utils.py
-test_db      →  db.py, utils.py
-test_cache   →  cache.py, utils.py
-test_utils   →  utils.py
+rtdd graph [--json]                the graph's source, node, edge and test counts, staleness
+rtdd explain <file[:line]|name>    a node's tests, callers and callees
+rtdd doctor                        graph source, graphify staleness, test files found, names defined 8+ times
+rtdd uninstall [--state]           remove what init wrote
+rtdd update                        replace the binary with the latest release
+rtdd --version                     print the version
 ```
 
-Change `src/auth.py` and the two tests whose rows contain it are selected — `test_auth`,
-which any heuristic would find, and `test_api`, which none would: its name points at
-`api.py`, and only the recorded coverage shows it reached `auth.py` from there.
+Exit codes: 0 success, empty rounds included; 2 usage; 3 environment (not a git repository,
+a graph that cannot be built). No exit code is a test result, because rtdd runs none.
+It is a context provider, not a gate.
 
-It is transitive for free. `test_api` never imports `auth`; it calls `api.handle()`, which
-calls `auth.login()`. The tracer does not care how deep that goes.
+## graphify is optional
 
-Change a *test* file instead and that test always runs, mapped or not.
+rtdd's own scanner builds the graph from the text of the source, and needs nothing
+installed: no language toolchain, no test framework, no coverage tool. If the repository
+has a graphify graph at `graphify-out/graph.json`
+(`graphify_path` in `.rtdd/config.yaml` moves it), rtdd uses it as well. It never trusts it
+for changed files — rtdd rescans every file that changed since graphify built its graph,
+and ignores the graph entirely, saying so, when more than half of it is stale. rtdd never
+runs graphify: if you want its graph, run or update graphify yourself.
 
-The map and the selection are the real output of `rtdd seed` and `rtdd which` on that
-app, committed under [`docs/results/worked-example/`](docs/results/worked-example/) and
-read directly by the figure — including its captions, which are computed from the map
-rather than written beside it.
+## What it cannot see
 
-One limit: this works from what the seed run recorded. A path no test has ever executed
-is not in the map, so new code selects nothing until it has run once — which is what the
-uncovered report tells you.
+Stated plainly, because a tool that hides its blind spots is worse than none:
+
+- Links are by name. A call to `load(` links to every definition named `load` in files of
+  the same kind, so a common name over-links and Round 2 can hold tests the change does not
+  need. `rtdd doctor` lists the names defined eight or more times.
+- A call the text does not show — through reflection, a string, a registry or a framework
+  hook — has no edge, and its tests are in neither round.
+- Depth is one. A caller's caller is in no round; Round 3 is the safety net.
+- A deleted file has no lines left to own a node, so the tests that called it are in no
+  round. `rtdd which` warns, and Round 3 runs them.
+- The scanner reads text, not syntax: an unusual layout can give a node the wrong span.
+
+More in [Limitations](docs/LIMITATIONS.md).
 
 ## Does it work?
+
+<!-- rtdd:v0.2-record -->
+
+The measurements below were taken on v0.2.0's coverage selector, which v0.3.0 replaces;
+v0.3.0's rounds are measured by [rtdd-bench](https://github.com/VocanicZ/rtdd-bench) (PRD #412).
 
 RTDD is built for one loop: an agent edits, runs tests, edits again, dozens of times in a
 single task. Without it the agent runs the whole suite every time. So there are two
@@ -221,17 +237,19 @@ RTDD also reports which of your changed lines no test covers. On the published c
 report fired 12 times and was wrong zero times. Running the whole suite tells you nothing
 about this.
 
+<!-- /rtdd:v0.2-record -->
+
 ## Documentation
 
-- [Limitations](docs/LIMITATIONS.md) — where selection can be wrong, what one process per
-  test file costs, and the coverage internals that constrain it.
+- [Limitations](docs/LIMITATIONS.md) — where the rounds can be wrong, and why Round 3 exists.
+- [Design](docs/specs/2026-10-07-node-graph.md) — the v0.3.0 specification: the graph, the
+  scanner, graphify loading, the rounds and the commands. The earlier specs it supersedes
+  are kept under [`docs/specs/`](docs/specs/) as the record of what was built before.
 - [Prior art](docs/PRIOR-ART.md) — pytest-testmon, TDAD, and the rest of the field RTDD
   builds on, with what each of them already does better.
-- [Baseline comparison](docs/results/axis2-selection-baselines.md) — RTDD against
-  pytest-testmon, a path heuristic and four other selectors, with wall-clock distributions
-  per repository. RTDD does not win this one.
-- [Design](docs/specs/2026-08-26-rtdd-design.md) — the full specification, including the
-  measurements that killed three earlier design decisions.
+- [Baseline comparison](docs/results/axis2-selection-baselines.md) — v0.2's selector
+  against pytest-testmon, a path heuristic and four other selectors, with wall-clock
+  distributions per repository. RTDD does not win this one.
 - [Design audit](docs/audits/2026-08-26-design-audit.md) — what was measured, and what it
   killed.
 - [Agent protocol](protocol/PROTOCOL.md) — the single source for every generated front-end

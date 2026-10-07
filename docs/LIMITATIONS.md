@@ -1,35 +1,34 @@
 # Limitations
 
-- **Every language uses the same pipeline, and it costs one process per test file.** Each
-  test file runs alone under the language's stock coverage tool, and the map is built from
-  what those runs executed. `rtdd seed` pays that for the whole suite, and `rtdd run` pays it
-  for every selected file. It is cheap for Python, Go and Node and slow where a process start
-  is slow: the JVM under Maven or Gradle, and .NET. Go cannot take a file, so its unit is the
-  package filtered to that file's own `Test` functions.
-- **Selection is file-level on both sides.** A change to one function selects every test file
-  that executed any part of its file, and the smallest unit selected is a test file.
-- **Rust inline tests are never units.** Only integration test files (`tests/*.rs`, in the
-  root package or any workspace member) are units; `#[cfg(test)]` modules inside `src/` are
-  not run by rtdd at all. Two workspace members with a test file of the same name both run
-  for either unit.
-- **Vitest runs a unit by substring.** `vitest run src/api.test.ts` also runs any test file
-  whose path contains that string (`lib/src/api.test.ts`), so that unit's row records both
-  files' coverage and over-selects. Jest is given `--runTestsByPath` and runs exactly the file.
-- **Test files that depend on each other can behave differently.** Shared state on disk,
-  ordering, a fixed port: run one per process, they may pass or fail differently than in the
-  full suite, and the map records only what each did alone.
-- **Units run in parallel.** Up to one per CPU at once (`jobs`). Test files that share a
-  database, a port or a fixed path on disk collide; give that repository a host adapter
-  (`.rtdd/adapters/<name>.yaml`, a copy of the built-in) with `jobs: 1`.
-- **Some adapters are unverified.** The gradle, phpunit and rspec adapters were written
-  without a real toolchain to run them on; expect to adjust them on first use. Multi-module
-  Maven reactors and multi-project Gradle or .NET solutions need a host adapter.
-- **It does not enforce anything.** No gate, no policy exit code, no expected-phase flag.
+rtdd v0.3.0 names the tests a change needs from a graph of the repository's functions,
+methods and classes. Every limit below is a way that graph can be missing an edge or holding
+one too many. Round 3 — the full suite, once, at the end of the task — is the safety net for
+all of them.
+
+- **Links are by name, so a common name over-links.** A call to `load(` links to every
+  definition named `load` in files of the same kind. Round 2 can then hold tests the change
+  does not need. `rtdd doctor` lists the names defined eight or more times, which are where
+  this happens.
+- **A call the text does not show has no edge.** A call through reflection, a string, a
+  registry, dependency injection or a framework hook links nothing, so its tests are in
+  neither Round 1 nor Round 2.
+- **Depth is one.** Round 2 is the tests of the changed code's direct callers and callees. A
+  caller's caller is in no round.
+- **A deleted file owns no node.** It has no lines left, so the tests that called it are in
+  no round. `rtdd which` warns when a changed file was deleted, and Round 3 runs them.
+- **The scanner reads text, not syntax.** It needs no toolchain and no parser, and pays for
+  that: an unusual layout — a definition split across lines, a nested function the indent
+  does not show — can give a node the wrong span, and a changed line can then land in the
+  wrong node.
+- **graphify's graph goes stale.** rtdd never runs graphify. It rescans every file that
+  changed since graphify built its graph, so changed code is always read fresh, but the
+  unchanged rest is only as current as the last time you ran graphify — an edge graphify
+  saw that no longer exists still links. When more than half of graphify's graph is stale
+  (`max_stale_ratio` in `.rtdd/config.yaml`), rtdd ignores it and says so.
+- **It runs nothing and enforces nothing.** No gate, no policy exit code, no pass or fail:
+  you run each round with the project's own test command.
 - **It does not replace CI.** Run the full suite there.
-- **It is not sound program analysis.** Selection can be wrong; the tier and the uncovered
-  report are how you see when.
-- **It does not reduce token cost.** No model calls in the hot path.
-- **Coverage misses what no test ran.** A path no test file has executed is not in the map, so
-  new code selects nothing until it has run once, and the uncovered report says so.
+- **It is not sound program analysis.** A round can be wrong in both directions; the
+  `untested` list and Round 3 are how a wrong one is caught.
 
 Back to the [README](../README.md).

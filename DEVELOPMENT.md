@@ -1,5 +1,31 @@
 # Development
 
+## What rtdd is, in v0.3.0
+
+rtdd is a skill plus a binary. The skill is the five-step process every front-end states
+(`protocol/PROTOCOL.md`, rendered into `dist/`):
+
+1. Edit code (test first, per TDD).
+2. Run `rtdd which`. If `untested` names a node you changed, write its test first.
+3. Run **Round 1** with the project's own test command. Fix until green.
+4. Run **Round 2**. Fix until green; return to step 2 after any further edit.
+5. When the task is done — before committing or handing off — run the **full suite once**.
+
+The binary builds a graph of functions, methods, classes and tests — from its own text
+scanner, plus graphify's `graphify-out/graph.json` when one exists (optional, never trusted
+for changed files, never run by rtdd) — and answers from it. It runs no tests. The commands:
+
+- `rtdd init` sets up any git repository: the front-ends, `.rtdd/config.yaml`, and the
+  `.gitignore` line for `.rtdd/graph.json`; on a v0.2 repository it deletes that release's
+  state and prints each removal.
+- `rtdd which` prints the changed nodes, Round 1, Round 2, Round 3 (the full suite) and
+  `untested`; `--json` is schema 3.
+- `rtdd graph` reports the graph's source, counts and staleness; `rtdd explain` shows one
+  node's tests, callers and callees; `rtdd doctor` diagnoses the graph and graphify.
+- `rtdd update`, `rtdd skill` and `rtdd uninstall` manage the install.
+
+The design is [`docs/specs/2026-10-07-node-graph.md`](docs/specs/2026-10-07-node-graph.md).
+
 ## Toolchain
 
 Go 1.24+ is required. On this machine the toolchain is installed at `/home/claude/goroot`
@@ -47,29 +73,25 @@ forced into the host repo. A cgo dependency breaks that promise.
 
 Only one third-party module is permitted in the engine:
 
-- `gopkg.in/yaml.v3` — adapter definitions
+- `gopkg.in/yaml.v3` — reads `.rtdd/config.yaml`
 
 Adding another requires a spec amendment. No test framework beyond stdlib `testing`.
 
-## One-pipeline adapter tests
+## Breaking changes in v0.3.0
 
-`cmd/rtdd/pipeline_*_test.go` seeds a fixture repo (`cmd/rtdd/testdata/fixtures/<adapter>/`)
-with each adapter's real coverage tool and asserts a changed source file selects the test file
-that executes it, including one that is not name-correspondent. Each test skips when its
-toolchain is absent, so `go test ./...` on a bare machine is green over zero coverage for that
-adapter. CI installs the toolchains and its "pipeline tests" step fails on a skip; locally,
-run one adapter with, for example:
+v0.3.0 replaces v0.2's per-language pipeline with the node graph and the rounds.
 
-```bash
-go test -count=1 -v -run '^TestPipelinePython$' ./cmd/rtdd/
-```
+- The v0.2 commands `seed`, `run`, `verify`, `status` and `map compact` are removed. Each
+  now exits 2 with a line naming v0.3.0 and pointing at `rtdd which`. rtdd runs no
+  tests: the agent runs each round with the project's own test command.
+- `rtdd which --json` is schema 3: `changed_nodes`, three `rounds` (Round 3 is always the
+  full suite), `untested` and `graph`. A consumer must reject any other `schema`.
+- `rtdd init` sets up every git repository — no language has to be recognised — and
+  `--force` is gone. On a v0.2 repository it deletes that release's state files, its host
+  language definitions and its `.gitattributes` merge line, printing one line per removal.
+- `.rtdd/config.yaml` holds the graph's settings; a v0.2 config is replaced.
 
-What each needs: python `pytest pytest-cov`; jest/vitest node and npm (the test runs
-`npm install`); cargo `cargo-llvm-cov`; maven `mvn` and network; dotnet the SDK and network
-(NuGet); phpunit `php`, `composer` and `pcov` or `xdebug`; rspec `bundle` and network; gradle
-`gradle` (unverified). The gradle, phpunit and rspec adapters were written without a real
-toolchain, so a first real run may need adjustments. CI's gradle test may skip; the others
-must not.
+<!-- rtdd:v0.2-record -->
 
 ## Breaking changes in the one-pipeline release
 
@@ -90,6 +112,8 @@ stock coverage tool, and the map is built from that.
 - The static tier, the sqlite `.coverage` reader and the pytest reportlog path are deleted.
 - First measurement of the one pipeline (seed/which/run vs the full suite on the rtdd-bench
   workspaces): [docs/results/one-pipeline-first-measure.md](docs/results/one-pipeline-first-measure.md).
+
+<!-- /rtdd:v0.2-record -->
 
 ## Benchmark harnesses
 
@@ -301,8 +325,8 @@ removes it again, and requires the original bytes back. AGENTS.md and CLAUDE.md 
 the host project, so an ambiguous file - two blocks, half a block - is a conflict that
 stops the run, never a guess.
 
-`.rtdd/` and the binary are left alone unless `--state` or `--binary` asks: the recorded map
-is the expensive thing to rebuild, and a repository is not where the binary lives.
+`.rtdd/` and the binary are left alone unless `--state` or `--binary` asks: `.rtdd/` holds
+the user's config beside the graph cache, and a repository is not where the binary lives.
 
 ## Release pre-flight
 

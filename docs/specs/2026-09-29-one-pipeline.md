@@ -1,3 +1,5 @@
+> **Superseded** by [`2026-10-07-node-graph.md`](2026-10-07-node-graph.md) (v0.3.0). Kept as the record of the design it describes; do not implement from it.
+
 # One pipeline for every language
 
 Status: approved design, 2026-09-29. Supersedes the two-tier design of

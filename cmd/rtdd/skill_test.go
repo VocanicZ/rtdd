@@ -150,6 +150,24 @@ func TestSkillPromptIsSelfContainedAndNeedsNoInstalledAgent(t *testing.T) {
 	}
 }
 
+// The prompt's own preamble, outside the rendered skill, is the first thing the agent reads.
+// It said v0.2's "runs only the tests that cover the code you changed, using coverage" after
+// v0.3.0 shipped, contradicting the skill below it (PRD #411 AC7).
+func TestSkillPromptPreambleDescribesV030(t *testing.T) {
+	preamble, _, ok := strings.Cut(RenderSkillPrompt("body\n"), "````markdown")
+	if !ok {
+		t.Fatal("the prompt has no fenced document")
+	}
+	if strings.Contains(strings.ToLower(preamble), "coverage") {
+		t.Errorf("the prompt's preamble describes v0.2's coverage selector:\n%s", preamble)
+	}
+	for _, want := range []string{"in rounds", "rtdd runs no tests"} {
+		if !strings.Contains(preamble, want) {
+			t.Errorf("the prompt's preamble does not say %q:\n%s", want, preamble)
+		}
+	}
+}
+
 func TestSkillRejectsAnUnknownSubcommand(t *testing.T) {
 	fakeHome(t)
 	dir := newTestRepo(t)

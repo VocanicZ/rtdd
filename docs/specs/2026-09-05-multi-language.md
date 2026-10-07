@@ -1,3 +1,5 @@
+> **Superseded** by [`2026-10-07-node-graph.md`](2026-10-07-node-graph.md) (v0.3.0). Kept as the record of the design it describes; do not implement from it.
+
 # RTDD multi-language design — selection fidelity as an adapter property
 
 **Status:** design, not yet implemented.
