@@ -40,6 +40,7 @@ type Result struct {
 	Source          string      // SourceScanner | SourceGraphifyScanner
 	BuiltAtCommit   string      // graphify's when it is used, else HEAD's short sha ("" on an unborn HEAD)
 	StaleFiles      []string    // files graphify was not trusted for, sorted; empty for SourceScanner unless IgnoredTooStale
+	StaleCodeFiles  int         // how many of StaleFiles are code files: max_stale_ratio's numerator
 	GraphifyIgnored string      // an Ignored* code, or "" when graphify was used or absent
 	GraphifyCommit  string      // graphify's built_at_commit as it recorded it, when it was read
 	GraphifyFiles   int         // graphify's code-file count, when it was read
@@ -108,10 +109,11 @@ func Build(root string, cfg graph.Config, opt Options) (*Result, error) {
 // graphify is not used.
 func useGraphify(root string, cfg graph.Config, gf *graphify.Graph, files []string, changed map[string]bool, res *Result) ([]string, map[string]bool, error) {
 	res.GraphifyCommit, res.GraphifyFiles = gf.BuiltAtCommit, len(gf.CodeFiles)
-	stale, reason, err := staleness(root, gf, files, changed, cfg.MaxStaleRatio)
+	stale, code, reason, err := staleness(root, gf, files, changed, cfg.MaxStaleRatio)
 	if err != nil {
 		return nil, nil, err
 	}
+	res.StaleCodeFiles = code
 	if reason != "" {
 		res.GraphifyIgnored, res.StaleFiles = reason, stale
 		return files, nil, nil

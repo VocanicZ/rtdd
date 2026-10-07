@@ -119,6 +119,29 @@ func TestGraphCommandReportsGraphifyAndStaleness(t *testing.T) {
 	}
 }
 
+// #441: stale_files counts every file overlaid from the scanner, a new language included,
+// though only code files count toward max_stale_ratio.
+func TestGraphCommandStaleFilesCountsEveryOverlaidFile(t *testing.T) {
+	dir := graphRepo(t)
+	writeGraphifyFor(t, dir, strings.TrimSpace(gittest.Run(t, dir, "rev-parse", "HEAD")))
+	gittest.Write(t, dir, "tool.sh", "helper() {\n  echo hi\n}\n")
+	gittest.Write(t, dir, "web.js", "function web() {\n  return 1\n}\n")
+
+	code, out, errOut := rtdd(t, dir, "graph", "--json")
+	if code != 0 {
+		t.Fatalf("rtdd graph --json = %d, stderr %q", code, errOut)
+	}
+	var doc struct {
+		Graph map[string]any `json:"graph"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Graph["source"] != "graphify+scanner" || doc.Graph["stale_files"] != 2.0 || doc.Graph["nodes"] != 5.0 {
+		t.Errorf("graph = %v; want graphify+scanner, stale_files 2, nodes 5", doc.Graph)
+	}
+}
+
 // PRD #409 AC6: an ignored graphify says why — in words and as graph.graphify_ignored —
 // reports source scanner, and suggests `graphify --update`.
 func TestGraphCommandSaysWhyGraphifyWasIgnored(t *testing.T) {
