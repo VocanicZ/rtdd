@@ -1,0 +1,7 @@
+{
+  "/home/dev/proj/src/calc.py": {"mtime": 1780000000.0, "ast_hash": "a", "semantic_hash": "a"},
+  "/home/dev/proj/src/base.py": {"mtime": 1780000000.0, "ast_hash": "b", "semantic_hash": "b"},
+  "/home/dev/proj/tests/test_calc.py": {"mtime": 1780000000.0, "ast_hash": "c", "semantic_hash": "c"},
+  "/home/dev/proj/README.md": {"mtime": 1780000000.0, "ast_hash": "d", "semantic_hash": "d"},
+  "/somewhere/else/x.py": {"mtime": 1780000000.0, "ast_hash": "e", "semantic_hash": "e"}
+}

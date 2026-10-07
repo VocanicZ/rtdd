@@ -1,0 +1,35 @@
+{
+  "directed": false,
+  "multigraph": false,
+  "graph": {},
+  "nodes": [
+    {"id": "src_calc", "label": "calc.py", "file_type": "code", "source_file": "src/calc.py", "source_location": "L1"},
+    {"id": "src_calc_add", "label": "add()", "file_type": "code", "source_file": "src/calc.py", "source_location": "L3"},
+    {"id": "src_calc_calc", "label": "Calc", "file_type": "code", "source_file": "src/calc.py", "source_location": "L7"},
+    {"id": "src_calc_calc_plus", "label": ".plus()", "file_type": "code", "source_file": "src/calc.py", "source_location": "L8"},
+    {"id": "src_base_base", "label": "Base", "file_type": "code", "source_file": "src/base.py", "source_location": "L1"},
+    {"id": "src_base_proto", "label": "Proto", "file_type": "code", "source_file": "src/base.py", "source_location": "L5"},
+    {"id": "tests_test_calc_test_add", "label": "test_add()", "file_type": "code", "source_file": "tests/test_calc.py", "source_location": "L4"},
+    {"id": "external_thing", "label": "Thing", "file_type": "code", "source_file": "", "source_location": ""},
+    {"id": "concept_design", "label": "Calculator design", "file_type": "concept", "source_file": "README.md"},
+    {"id": "rationale_ints", "label": "Integers only", "file_type": "rationale", "source_file": "README.md"},
+    {"id": "document_readme", "label": "README", "file_type": "document", "source_file": "README.md"}
+  ],
+  "links": [
+    {"relation": "contains", "source": "src_calc", "target": "src_calc_add"},
+    {"relation": "imports", "source": "src_calc", "target": "src_base_base"},
+    {"relation": "method", "source": "src_calc_calc", "target": "src_calc_calc_plus"},
+    {"relation": "calls", "source": "src_calc_calc_plus", "target": "src_calc_add"},
+    {"relation": "calls", "source": "tests_test_calc_test_add", "target": "src_calc_add"},
+    {"relation": "references", "source": "src_calc_calc_plus", "target": "src_calc_calc"},
+    {"relation": "inherits", "source": "src_calc_calc", "target": "src_base_base"},
+    {"relation": "implements", "source": "src_calc_calc", "target": "src_base_proto"},
+    {"relation": "inherits", "source": "src_calc_calc", "target": "external_thing"},
+    {"relation": "conceptually_related_to", "source": "concept_design", "target": "src_calc_calc"},
+    {"relation": "semantically_similar_to", "source": "src_calc_add", "target": "src_base_base"},
+    {"relation": "shares_data_with", "source": "src_calc_calc", "target": "src_base_proto"},
+    {"relation": "cites", "source": "document_readme", "target": "src_calc_add"}
+  ],
+  "hyperedges": [],
+  "built_at_commit": "fab6c1ad2d93c5cd157dec646024b8e2a8c080f0"
+}
