@@ -9,9 +9,9 @@ import (
 // ValidateGlob reports whether pattern is a well-formed slash-separated glob.
 //
 // It exists so that a malformed pattern is a configuration error at load time rather
-// than a silent non-match at classification time: adapter.Load runs it over every glob
-// field, and a typo there would otherwise classify nothing as a test file while
-// `rtdd which` reported "no test file changed".
+// than a silent non-match at classification time: graph.LoadConfig runs it over every
+// glob in .rtdd/config.yaml, and a typo there would otherwise classify nothing as a test
+// file while `rtdd which` reported "no test file changed".
 func ValidateGlob(pattern string) error {
 	if pattern == "" {
 		return fmt.Errorf("empty glob: a pattern that matches nothing declares nothing")
@@ -30,7 +30,7 @@ func ValidateGlob(pattern string) error {
 // "*" and "?" match within one path segment; "**" matches zero or more whole segments.
 //
 // MatchGlob panics on a pattern that ValidateGlob rejects. Every pattern reaching it has
-// already been validated at adapter.Load time, so a malformed one here is a programming
+// already been validated by graph.LoadConfig, so a malformed one here is a programming
 // error — and reporting it as a false would hide the bad pattern behind a plausible
 // "this file is not a test file".
 func MatchGlob(pattern, rel string) bool {

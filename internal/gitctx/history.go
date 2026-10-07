@@ -49,7 +49,7 @@ func IsMergeCommit(repoRoot, sha string) (bool, error) {
 
 // Older returns whichever of a or b is the earlier ancestor. If either is unreachable,
 // it returns that one (unknown age is treated as older, i.e. less trustworthy).
-// The returned function is the commit-age comparator mapstore.LoadWith takes.
+// The returned function is a plain func(a, b string) string commit-age comparator.
 func Older(repoRoot string) func(a, b string) string {
 	return func(a, b string) string {
 		switch {

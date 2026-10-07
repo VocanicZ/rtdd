@@ -140,8 +140,8 @@ func TestOlder(t *testing.T) {
 	}
 }
 
-// Older is the comparator mapstore.LoadWith takes; it must be usable directly as one.
-func TestOlderIsUsableAsTheLoadWithComparator(t *testing.T) {
+// Older returns a plain func(a, b string) string comparator; it must be usable directly as one.
+func TestOlderIsUsableAsAPlainComparator(t *testing.T) {
 	dir := newRepo(t)
 	write(t, dir, "a.txt", "1\n")
 	first := commit(t, dir, "one")
