@@ -1,24 +1,22 @@
 <!-- BEGIN rtdd (generated from protocol/PROTOCOL.md; do not edit here) -->
 ## rtdd
 
-Check for `.rtdd/map.jsonl` first. If it exists, rtdd is set up — use the commands below. If
-it does not, run `rtdd init` then `rtdd seed` once, and commit the map. `rtdd init` exiting 2
-is the no-adapter refusal: nothing matched a toolchain rtdd can instrument, so add the
-adapter it names or re-run with `--force`.
+If `.rtdd/config.yaml` is missing, run `rtdd init` once — it sets up any git repository —
+and commit what it writes. Then follow the steps below.
 
-`rtdd` reports which tests cover code you changed, and which changed lines nothing covers,
-from recorded coverage rather than a static graph. It reports; it never gates.
+rtdd names the tests a change needs, in rounds: Round 1 tests the code you changed, Round 2
+its direct neighbours, Round 3 is the full suite once at the end. rtdd runs no tests: you
+run each round with the project's own test command.
 
-`rtdd which` prints the ranked tests covering your current changes plus the uncovered
-report, and runs nothing. Untracked files count, so a file you just wrote is included.
-`rtdd which --json` is the machine-readable form.
+1. Edit code (test first, per TDD).
+2. Run `rtdd which`. If `untested` names a node you changed, write its test first.
+3. Run **Round 1** with the project's own test command. Fix until green.
+4. Run **Round 2**. Fix until green; return to step 2 after any further edit.
+5. When the task is done — before committing or handing off — run the **full suite once**.
 
-`rtdd run` runs the selection and prints the uncovered report. Exit non-zero means a test
-failed, and nothing else — an empty selection and an uncovered report are both exit 0.
+`rtdd which` prints the changed nodes, Rounds 1–3 and `untested`, and runs nothing.
+Untracked files count. `rtdd which --json` is the machine-readable form.
 
-The uncovered report splits changed lines into covered and uncovered: a line is covered
-when some test file's own run executed it this cycle.
-
-An empty selection is reported as its own outcome, never as a pass.
+Empty Rounds 1 and 2 print `no linked test`: no linked test, never a pass.
 
 <!-- END rtdd -->

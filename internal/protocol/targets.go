@@ -13,23 +13,24 @@ const (
 )
 
 const (
-	SkillDescription = "Surface which tests cover the code you changed, and which changed " +
-		"lines nothing covers, from recorded coverage rather than a static graph. Use when " +
-		"editing a repository that has a .rtdd/map.jsonl, before or after changing " +
-		"source files, to find the relevant tests and the untested part of a diff."
+	SkillDescription = "Find the tests a code change needs, in rounds: `rtdd which` names the " +
+		"changed functions, Round 1 (their tests) and Round 2 (their neighbours' tests), and " +
+		"runs nothing. Use in a repository that has a .rtdd/config.yaml, after editing code " +
+		"and before running its tests."
 	// GlobalSkillDescription is deliberately NOT SkillDescription. The project skill is
 	// installed by `rtdd init` into a repository that has already been set up, so it can
-	// assume a map and scope itself to one. The machine-wide skill is read in every
-	// repository on the machine, most of which rtdd has never touched — reusing the
-	// project trigger would tell the agent to stand down in exactly the repositories this
-	// skill exists to bootstrap.
-	GlobalSkillDescription = "Run only the tests that cover the code you changed, from " +
-		"recorded coverage rather than a static graph, and surface which changed lines " +
-		"nothing covers. Use in any repository before or after editing source files: if it " +
-		"has a .rtdd/map.jsonl, run `rtdd which`; if it does not, run `rtdd init` to set " +
+	// scope itself to one. The machine-wide skill is read in every repository on the
+	// machine, most of which rtdd has never touched — reusing the project trigger would
+	// tell the agent to stand down in exactly the repositories this skill exists to set up.
+	GlobalSkillDescription = "Find the tests a code change needs, in rounds, on any codebase: " +
+		"`rtdd which` names Round 1 (the changed code's tests) and Round 2 (its neighbours' " +
+		"tests) and runs nothing. Use in any git repository after editing code: if it has a " +
+		".rtdd/config.yaml, run `rtdd which`; if it does not, run `rtdd init` once to set " +
 		"rtdd up for that repository first."
-	MdcDescription = "Which tests cover the code you changed, from recorded coverage."
-	MdcGlobs       = "**/*.{py,go,js,jsx,ts,tsx,rs,java,kt,cs,php,rb}"
+	MdcDescription = "Which tests a code change needs, in rounds; rtdd runs no tests."
+	// MdcGlobs attaches the rule to every file: rtdd serves any codebase, and a list of
+	// extensions would be a list of languages.
+	MdcGlobs = "**/*"
 )
 
 // The machine-wide front-ends. Their basenames differ from the repo-scoped ones on
@@ -48,7 +49,7 @@ var Targets = []Target{
 		Name:     "skill",
 		OutPath:  "dist/SKILL.md",
 		MaxBytes: skillMaxBytes,
-		Required: []string{"what", "which", "run", "uncovered", "empty", "json", "commands", "limits", "map"},
+		Required: []string{"what", "process", "which", "empty", "json", "commands", "limits"},
 		Desc:     SkillDescription,
 		Render:   renderSkill,
 		Validate: validateSkill,
@@ -57,7 +58,7 @@ var Targets = []Target{
 		Name:     "agents",
 		OutPath:  "dist/AGENTS.md",
 		MaxBytes: agentsMaxBytes,
-		Required: []string{"what", "which", "run", "uncovered", "empty"},
+		Required: []string{"what", "process", "which", "empty"},
 		Render:   renderAgents,
 		Validate: validateAgents,
 	},
@@ -65,7 +66,7 @@ var Targets = []Target{
 		Name:     "mdc",
 		OutPath:  "dist/cursor/rules/rtdd.mdc",
 		MaxBytes: mdcMaxBytes,
-		Required: []string{"what", "which", "run", "uncovered", "empty", "limits"},
+		Required: []string{"what", "process", "which", "empty", "limits"},
 		Desc:     MdcDescription,
 		Render:   renderMDC,
 		Validate: validateMDC,
@@ -74,7 +75,7 @@ var Targets = []Target{
 		Name:     "global",
 		OutPath:  GlobalSkillPath,
 		MaxBytes: skillMaxBytes,
-		Required: []string{"setup", "what", "which", "run", "uncovered", "empty", "json", "commands", "limits", "map"},
+		Required: []string{"setup", "what", "process", "which", "empty", "json", "commands", "limits"},
 		Desc:     GlobalSkillDescription,
 		Render:   renderSkill,
 		Validate: validateSkill,
@@ -83,7 +84,7 @@ var Targets = []Target{
 		Name:     "global-agents",
 		OutPath:  GlobalAgentsPath,
 		MaxBytes: agentsMaxBytes,
-		Required: []string{"setup", "what", "which", "run", "uncovered", "empty"},
+		Required: []string{"setup", "what", "process", "which", "empty"},
 		// Its own sections, but the short `agents` bodies: this block lands in a global
 		// AGENTS.md or GEMINI.md, which is in context on every turn of every task.
 		BodyKeys: []string{"global-agents", "agents"},

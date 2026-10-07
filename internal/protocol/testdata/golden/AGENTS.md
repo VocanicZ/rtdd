@@ -1,22 +1,19 @@
 <!-- BEGIN rtdd (generated from protocol/PROTOCOL.md; do not edit here) -->
 ## rtdd
 
-If `.rtdd/map.jsonl` does not exist, every selection is the full suite. Run `rtdd seed` once
-and commit the map; `rtdd run` keeps it fresh after that.
+rtdd names the tests a change needs, in rounds: Round 1 tests the code you changed, Round 2
+its direct neighbours, Round 3 is the full suite once at the end. rtdd runs no tests: you
+run each round with the project's own test command.
 
-`rtdd` reports which tests cover code you changed, and which changed lines nothing covers,
-from recorded coverage rather than a static graph. It reports; it never gates.
+1. Edit code (test first, per TDD).
+2. Run `rtdd which`. If `untested` names a node you changed, write its test first.
+3. Run **Round 1** with the project's own test command. Fix until green.
+4. Run **Round 2**. Fix until green; return to step 2 after any further edit.
+5. When the task is done — before committing or handing off — run the **full suite once**.
 
-`rtdd which` prints the ranked tests covering your current changes plus the uncovered
-report, and runs nothing. Untracked files count, so a file you just wrote is included.
-`rtdd which --json` is the machine-readable form.
+`rtdd which` prints the changed nodes, Rounds 1–3 and `untested`, and runs nothing.
+Untracked files count. `rtdd which --json` is the machine-readable form.
 
-`rtdd run` runs the selection and prints the uncovered report. Exit non-zero means a test
-failed, and nothing else — an empty selection and an uncovered report are both exit 0.
-
-The uncovered report splits changed lines into covered and uncovered: a line is covered
-when some test file's own run executed it this cycle.
-
-An empty selection is reported as its own outcome, never as a pass.
+Empty Rounds 1 and 2 print `no linked test`: no linked test, never a pass.
 
 <!-- END rtdd -->

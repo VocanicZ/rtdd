@@ -65,7 +65,7 @@ func TestValidateSkillFailsWhenRequiredSectionHeadingMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	corrupted := strings.Replace(out, "## The map file\n\n", "", 1)
+	corrupted := strings.Replace(out, "## The process\n\n", "", 1)
 	if err := validateSkill(d, tgt, corrupted); err == nil {
 		t.Fatal("validateSkill: want error when a required section heading is missing")
 	}
