@@ -2,10 +2,10 @@
 # (--tests *{name}), JaCoCo applied by an init script that unit_files writes into the
 # unit's {tmp}, so the host build needs no change. jobs: 1 because every unit shares build/.
 #
-# NOT VERIFIED ON A REAL TOOLCHAIN in the change that introduced it: gradle was not
-# installed where it was written. The init script follows Gradle's documented jacoco
-# plugin API; expect to adjust it on first real use. It reports per project, so a
-# multi-project build would have the last project's report win {tmp}/jacoco.xml, and
+# First run on a real toolchain (Gradle 8.10.2, TestPipelineGradle) found `apply plugin:`
+# inside allprojects resolving to the init script's own apply — the Gradle object, which
+# jacoco rejects — so the plugin is applied through project.pluginManager. It reports per
+# project, so a multi-project build would have the last project's report win {tmp}/jacoco.xml, and
 # --tests fails a subproject that has no matching class (add failOnNoMatchingTests=false
 # via the init script if that bites). `--tests {name}` (no package) matches the simple
 # class name per the Gradle test-filtering docs, so ApiTest does not select FooApiTest;
@@ -17,7 +17,7 @@ unit_files:
   rtdd.init.gradle: |
     allprojects {
       plugins.withId('java') {
-        apply plugin: 'jacoco'
+        project.pluginManager.apply('jacoco')
         tasks.withType(Test).configureEach {
           jacoco { destinationFile = file('{tmp}/jacoco.exec') }
           finalizedBy tasks.named('jacocoTestReport')

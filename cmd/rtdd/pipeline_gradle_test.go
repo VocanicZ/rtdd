@@ -8,7 +8,7 @@ import (
 	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
 )
 
-// Not run on a real toolchain in the change that added it: gradle was not installed.
+// Skipped where gradle is not on PATH; first run for real on Gradle 8.10.2 (issue #423).
 func TestPipelineGradle(t *testing.T) {
 	if _, err := exec.LookPath("gradle"); err != nil {
 		t.Skip("gradle not on PATH")
