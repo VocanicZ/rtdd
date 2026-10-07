@@ -23,7 +23,7 @@ usage:
   rtdd which  [--base <ref>] [--json] [--adapter <path>]
   rtdd explain <file>
   rtdd graph  [--json]
-  rtdd doctor [--limit <n>]
+  rtdd doctor
   rtdd update [--check] [--version <tag>]
   rtdd skill install   [--dry-run] [--force]
   rtdd skill uninstall [--dry-run]

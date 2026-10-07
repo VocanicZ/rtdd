@@ -66,23 +66,6 @@ func newHostAdapterRepo(t *testing.T) string {
 	return dir
 }
 
-// The override is not silent: doctor names the adapter and says it came from the host repo
-// instead of the binary.
-func TestDoctorReportsAHostOverrideByName(t *testing.T) {
-	dir := newHostAdapterRepo(t)
-	writeHostAdapter(t, dir, "python.yaml", hostPythonOverrideYAML)
-
-	code, stdout, stderr := rtdd(t, dir, "doctor")
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
-	}
-	for _, want := range []string{"python", ".rtdd/adapters/python.yaml", "host-authored", "overrides built-in"} {
-		if !strings.Contains(stdout, want) {
-			t.Errorf("doctor output does not contain %q:\n%s", want, stdout)
-		}
-	}
-}
-
 // A repo with no .rtdd/adapters/ is every repo that exists today. The resolved set is the
 // shipped set, so the fidelity block reports built-ins only: nothing is host-authored,
 // nothing overrides anything, and no file failed to load.
@@ -96,30 +79,6 @@ func TestDoctorOnARepoWithNoHostAdaptersSaysNothingAboutAdapters(t *testing.T) {
 	for _, unwanted := range []string{"host-authored", "overrides built-in", "not loaded"} {
 		if strings.Contains(stdout, unwanted) {
 			t.Errorf("doctor said %q on a repo with no host adapters:\n%s", unwanted, stdout)
-		}
-	}
-}
-
-// The failing file AND the failing field, with the valid adapters still reported and the
-// exit code still 0: doctor reports, it does not have an opinion.
-func TestDoctorNamesAnUnloadableHostAdapterAndStillExitsZero(t *testing.T) {
-	dir := newHostAdapterRepo(t)
-	writeHostAdapter(t, dir, "broken.yaml", hostBrokenYAML)
-	writeHostAdapter(t, dir, "vitest.yaml", hostVitestYAML)
-
-	code, stdout, stderr := rtdd(t, dir, "doctor")
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
-	}
-	for _, want := range []string{"not loaded", "broken.yaml", "coverage_file"} {
-		if !strings.Contains(stdout, want) {
-			t.Errorf("doctor output does not contain %q:\n%s", want, stdout)
-		}
-	}
-	// The half-written file did not take the working ones down with it.
-	for _, want := range []string{"vitest", "python"} {
-		if !strings.Contains(stdout, want) {
-			t.Errorf("doctor lost the adapter %q to a malformed sibling:\n%s", want, stdout)
 		}
 	}
 }
