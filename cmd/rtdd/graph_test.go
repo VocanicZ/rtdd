@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -114,5 +116,71 @@ func TestGraphCommandReportsGraphifyAndStaleness(t *testing.T) {
 	}
 	if doc.Graph["source"] != "graphify+scanner" || doc.Graph["built_at_commit"] != full || doc.Graph["stale_files"] != 1.0 {
 		t.Errorf("graph = %v", doc.Graph)
+	}
+}
+
+// PRD #409 AC6: an ignored graphify says why — in words and as graph.graphify_ignored —
+// reports source scanner, and suggests `graphify --update`.
+func TestGraphCommandSaysWhyGraphifyWasIgnored(t *testing.T) {
+	cases := []struct {
+		name    string
+		setup   func(t *testing.T, dir string)
+		why     string
+		jsonWhy string
+	}{
+		{"built_at_commit missing", func(t *testing.T, dir string) { writeGraphifyFor(t, dir, "") },
+			"ignored — its graph records no built_at_commit;", "built_at_commit_missing"},
+		{"built_at_commit unknown to git", func(t *testing.T, dir string) {
+			writeGraphifyFor(t, dir, "0123456789abcdef0123456789abcdef01234567")
+		}, "ignored — its built_at_commit 0123456789abcdef0123456789abcdef01234567 is unknown to git;", "built_at_commit_unknown"},
+		{"more than half stale", func(t *testing.T, dir string) {
+			writeGraphifyFor(t, dir, strings.TrimSpace(gittest.Run(t, dir, "rev-parse", "HEAD")))
+			gittest.Write(t, dir, "src/calc.py", "def add(a, b):\n    return b + a\n")
+			gittest.Write(t, dir, "tests/test_calc.py", "from src.calc import add\n\n\ndef test_add():\n    assert add(2, 2) == 4\n")
+		}, "ignored — 2 of its 2 code files are stale, more than max_stale_ratio 0.50;", "too_stale"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := graphRepo(t)
+			c.setup(t, dir)
+			code, out, errOut := rtdd(t, dir, "graph")
+			if code != 0 {
+				t.Fatalf("rtdd graph = %d, stderr %q", code, errOut)
+			}
+			for _, want := range []string{"source:          scanner\n", "graphify:        " + c.why, "run `graphify --update` to use it again\n"} {
+				if !strings.Contains(out, want) {
+					t.Errorf("stdout lacks %q:\n%s", want, out)
+				}
+			}
+			_, out, _ = rtdd(t, dir, "graph", "--json")
+			var doc struct {
+				Graph map[string]any `json:"graph"`
+			}
+			if err := json.Unmarshal([]byte(out), &doc); err != nil {
+				t.Fatal(err)
+			}
+			if doc.Graph["source"] != "scanner" || doc.Graph["graphify_ignored"] != c.jsonWhy {
+				t.Errorf("graph = %v, want source scanner and graphify_ignored %q", doc.Graph, c.jsonWhy)
+			}
+		})
+	}
+}
+
+// Spec §5, §12: rtdd never runs graphify itself, not even when it ignores a stale one.
+func TestGraphCommandNeverRunsGraphify(t *testing.T) {
+	bin := t.TempDir()
+	marker := filepath.Join(t.TempDir(), "ran")
+	script := "#!/bin/sh\necho \"$@\" > '" + marker + "'\n"
+	if err := os.WriteFile(filepath.Join(bin, "graphify"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	dir := graphRepo(t)
+	writeGraphifyFor(t, dir, "")
+	if code, _, errOut := rtdd(t, dir, "graph"); code != 0 {
+		t.Fatalf("rtdd graph = %d, stderr %q", code, errOut)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("rtdd graph executed graphify")
 	}
 }

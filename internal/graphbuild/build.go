@@ -39,7 +39,7 @@ type Result struct {
 	Graph           graph.Graph // IsTest set on every node
 	Source          string      // SourceScanner | SourceGraphifyScanner
 	BuiltAtCommit   string      // graphify's when it is used, else HEAD's short sha ("" on an unborn HEAD)
-	StaleFiles      []string    // files graphify was not trusted for, sorted; empty for SourceScanner
+	StaleFiles      []string    // files graphify was not trusted for, sorted; empty for SourceScanner unless IgnoredTooStale
 	GraphifyIgnored string      // an Ignored* code, or "" when graphify was used or absent
 	GraphifyCommit  string      // graphify's built_at_commit as it recorded it, when it was read
 	GraphifyFiles   int         // graphify's code-file count, when it was read
@@ -112,7 +112,7 @@ func useGraphify(root string, cfg graph.Config, gf *graphify.Graph, files []stri
 		return nil, nil, err
 	}
 	if reason != "" {
-		res.GraphifyIgnored = reason
+		res.GraphifyIgnored, res.StaleFiles = reason, stale
 		return files, nil, nil
 	}
 	isStale := map[string]bool{}
