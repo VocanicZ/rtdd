@@ -1,0 +1,15 @@
+{
+  "nodes": [
+    {"id": "calc.go::Add", "name": "Add", "kind": "func", "start": 4, "end": 6},
+    {"id": "calc.go::Push", "name": "Push", "kind": "func", "start": 12, "end": 14},
+    {"id": "calc.go::Sum", "name": "Sum", "kind": "func", "start": 16, "end": 22},
+    {"id": "calc_test.go::TestAdd", "name": "TestAdd", "kind": "func", "start": 5, "end": 9},
+    {"id": "calc_test.go::TestSum", "name": "TestSum", "kind": "func", "start": 11, "end": 15}
+  ],
+  "calls": [
+    {"from": "calc.go::Push", "to": "calc.go::Add"},
+    {"from": "calc.go::Sum", "to": "calc.go::Push"},
+    {"from": "calc_test.go::TestAdd", "to": "calc.go::Add"},
+    {"from": "calc_test.go::TestSum", "to": "calc.go::Sum"}
+  ]
+}
