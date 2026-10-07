@@ -120,9 +120,14 @@ func WithLines(repoRoot string, changes []gitctx.Change, rawDiff string) ([]gitc
 
 // countLines returns the number of lines in repoRoot/rel. A missing file is 0, not an
 // error: a path can be listed as changed and then removed before the report runs. A
-// final line with no trailing newline still counts.
+// final line with no trailing newline still counts. A directory (a submodule) is 0 too:
+// it has no lines of its own.
 func countLines(repoRoot, rel string) (int, error) {
-	b, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(rel)))
+	abs := filepath.Join(repoRoot, filepath.FromSlash(rel))
+	if fi, err := os.Stat(abs); err == nil && fi.IsDir() {
+		return 0, nil
+	}
+	b, err := os.ReadFile(abs)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return 0, nil

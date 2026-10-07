@@ -11,8 +11,11 @@ package adapter
 // a broad test glob like tests/**/*.py, but collects no tests. Naming it as a selector
 // makes the runner exit 5 (no-tests-collected), which is fatal. A change to it escalates
 // to a full run through IsFullEscalate instead.
+//
+// Opaque wins too: a test-named file under testdata/ or fixtures/ is input to some other
+// test, not a test of this repository, and a change to it escalates through IsOpaque.
 func (a *Adapter) IsTestFile(rel string) bool {
-	return a != nil && matchAny(a.TestGlobs, rel) && !matchAny(a.FullEscalate, rel)
+	return a != nil && matchAny(a.TestGlobs, rel) && !matchAny(a.FullEscalate, rel) && !matchAny(a.Opaque, rel)
 }
 
 // IsOpaque reports whether rel is a file coverage cannot see into (templates, fixtures,

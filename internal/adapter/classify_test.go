@@ -27,6 +27,9 @@ func TestClassify(t *testing.T) {
 		{"config/app.yaml", false, true, false, false},
 		{"db/schema.sql", false, true, false, false},
 		{"tests/fixtures/blob.json", false, true, false, false},
+		// A test-named file under an opaque glob is a fixture, not a test: running it as
+		// a unit fails every seed, and it would be selected as if it guarded real code.
+		{"tests/fixtures/test_sample.py", false, true, false, false},
 		{"requirements.txt", false, false, true, false},
 		{"pyproject.toml", false, false, true, false},
 		// FullEscalate wins over TestGlobs: conftest.py collects no tests, so naming it

@@ -7,6 +7,14 @@ description: Surface which tests cover the code you changed, and which changed l
 
 # rtdd
 
+## Before the first selection
+
+rtdd selects from `.rtdd/map.jsonl`. If that file does not exist, every selection is the full
+suite (tier T2, reason "map is unseeded"), which is no faster than not using rtdd. Run
+`rtdd seed` once — one instrumented run of the whole suite — and commit `.rtdd/map.jsonl`.
+After that, `rtdd run` keeps the rows of the tests it runs fresh, so seed again only when a
+T2 reason asks for it.
+
 ## What rtdd reports
 
 `rtdd` reports which tests cover the code you just changed, and which of the lines you just

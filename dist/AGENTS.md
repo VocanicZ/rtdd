@@ -1,6 +1,9 @@
 <!-- BEGIN rtdd (generated from protocol/PROTOCOL.md; do not edit here) -->
 ## rtdd
 
+If `.rtdd/map.jsonl` does not exist, every selection is the full suite. Run `rtdd seed` once
+and commit the map; `rtdd run` keeps it fresh after that.
+
 `rtdd` reports which tests cover code you changed, and which changed lines nothing covers,
 from recorded coverage rather than a static graph. It reports; it never gates.
 

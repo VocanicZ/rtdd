@@ -224,6 +224,23 @@ func TestWithLinesMatchesRenamesOnTheNewPath(t *testing.T) {
 	}
 }
 
+// A changed path can be a directory — a submodule, or a nested repository git reports
+// whole. It has no lines of its own to report on, and must not fail the whole report.
+func TestWithLinesTreatsADirectoryAsHavingNoLines(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "sub/inner.py", "x = 1\n")
+	in := []gitctx.Change{{Path: "sub", Status: gitctx.Modified}}
+
+	got, err := WithLines(root, in, "")
+	if err != nil {
+		t.Fatalf("WithLines() error = %v", err)
+	}
+	want := []gitctx.Change{{Path: "sub", Status: gitctx.Modified}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("WithLines()\n got: %#v\nwant: %#v", got, want)
+	}
+}
+
 // Nil in, nil out — a caller with nothing changed gets an empty result, not a panic.
 func TestWithLinesEmptyInput(t *testing.T) {
 	got, err := WithLines(t.TempDir(), nil, "")

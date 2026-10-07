@@ -226,3 +226,25 @@ func TestChangedSetUnknownBaseIsAnError(t *testing.T) {
 		t.Fatal("ChangedSet against an unknown base returned nil error")
 	}
 }
+
+// An untracked directory holding its own .git is a nested repository. git cannot see
+// into it, so `status -uall` reports the directory itself, trailing slash and all. It
+// is not a file this repository's tests can be selected for, and treating it as one
+// sent a directory to every reader that expects a file.
+func TestChangedSetSkipsAnUntrackedNestedRepository(t *testing.T) {
+	dir := newRepo(t)
+	write(t, dir, "src/a.py", "a = 1\n")
+	commit(t, dir, "init")
+
+	gitRun(t, dir, "init", "-q", "vendor/other")
+	write(t, dir, "vendor/other/x.py", "x = 1\n")
+	write(t, dir, "src/b.py", "b = 1\n")
+
+	cs, err := ChangedSet(dir, "HEAD")
+	if err != nil {
+		t.Fatalf("ChangedSet: %v", err)
+	}
+	if got, want := paths(cs), []string{"src/b.py"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("paths = %v, want %v (the nested repository is not a changed file)", got, want)
+	}
+}

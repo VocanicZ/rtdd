@@ -116,6 +116,11 @@ func ChangedSet(repoRoot, base string) ([]Change, error) {
 				i++ // consume the origin-path field that accompanies a rename record
 			}
 		}
+		// A trailing slash is how -uall reports an untracked nested repository: git
+		// cannot list inside it, so the entry is the directory, not a file.
+		if strings.HasSuffix(p, "/") {
+			continue
+		}
 		if _, seen := changes[p]; seen {
 			continue
 		}
