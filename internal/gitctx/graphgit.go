@@ -22,3 +22,29 @@ func DiffNamesSince(repoRoot, commit string) ([]string, error) {
 	sort.Strings(names)
 	return names, nil
 }
+
+// BlobIDs maps every file in HEAD's tree to its git blob id. A file whose id is unchanged
+// since the graph cache recorded it need not be re-scanned (spec §4.5). An unborn HEAD —
+// no commits yet — is an empty map, not an error: every file is then in the changed set.
+func BlobIDs(repoRoot string) (map[string]string, error) {
+	out := map[string]string{}
+	if _, err := git(repoRoot, "rev-parse", "--verify", "-q", "HEAD^{commit}"); err != nil {
+		return out, nil
+	}
+	ls, err := git(repoRoot, "ls-tree", "-r", "-z", "--full-tree", "HEAD")
+	if err != nil {
+		return nil, err
+	}
+	for _, rec := range strings.Split(ls, "\x00") {
+		// <mode> SP <type> SP <object> TAB <path>
+		meta, p, ok := strings.Cut(rec, "\t")
+		if !ok {
+			continue
+		}
+		f := strings.Fields(meta)
+		if len(f) == 3 && f[1] == "blob" {
+			out[p] = f[2]
+		}
+	}
+	return out, nil
+}

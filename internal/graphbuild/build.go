@@ -6,6 +6,7 @@ package graphbuild
 
 import (
 	"errors"
+	"path/filepath"
 
 	"github.com/VocanicZ/rtdd/internal/gitctx"
 	"github.com/VocanicZ/rtdd/internal/graph"
@@ -47,46 +48,72 @@ type Result struct {
 
 // Build builds the graph for the repository at root.
 func Build(root string, cfg graph.Config, opt Options) (*Result, error) {
+	cachePath := opt.CachePath
+	if cachePath == "" {
+		cachePath = filepath.Join(root, ".rtdd", "graph.json")
+	}
 	listed, err := gitctx.ListFiles(root)
 	if err != nil {
 		return nil, err
 	}
 	files := scan.Filter(root, listed, cfg.ScanExclude)
 	head, _ := gitctx.HeadSHA(root) // "" on an unborn HEAD
+	changed, err := changedSet(root)
+	if err != nil {
+		return nil, err
+	}
+	blobs, err := gitctx.BlobIDs(root)
+	if err != nil {
+		return nil, err
+	}
 
-	res := &Result{Source: SourceScanner, BuiltAtCommit: head, Scanned: files}
+	res := &Result{Source: SourceScanner, BuiltAtCommit: head}
+	toScan := files
+	var stale map[string]bool
 	gf, err := graphify.Load(root, cfg.GraphifyPath)
 	switch {
 	case errors.Is(err, graphify.ErrAbsent):
-		res.Graph = scan.Assemble(scan.ScanFiles(root, files))
 	case err != nil:
 		return nil, err
 	default:
-		if err := useGraphify(root, cfg, gf, files, res); err != nil {
+		if toScan, stale, err = useGraphify(root, cfg, gf, files, changed, res); err != nil {
 			return nil, err
 		}
+	}
+
+	// A file is re-scanned only when it is in the working-tree changed set (untracked
+	// included) or HEAD holds it at a blob other than the one cached (spec §4.5).
+	c := readCache(cachePath)
+	results, scanned := scanCached(root, toScan, blobs, changed, c)
+	res.Scanned = scanned
+	if len(scanned) > 0 || !c.covers(head, files) {
+		if err := writeCache(cachePath, head, files, blobs, changed, c, results); err != nil {
+			return nil, err
+		}
+	}
+
+	if stale != nil {
+		res.Graph = Overlay(gf, stale, results)
+	} else {
+		res.Graph = scan.Assemble(results)
 	}
 	graph.Classify(res.Graph.Nodes, cfg)
 	return res, nil
 }
 
-// useGraphify fills res from graphify's graph: the stale files (spec §5 step 1) are
-// read by the scanner and overlaid (steps 2-3), or, when staleness ignores graphify
-// entirely (step 4), the scanner reads every file.
-func useGraphify(root string, cfg graph.Config, gf *graphify.Graph, files []string, res *Result) error {
+// useGraphify decides, from graphify's graph, which files the scanner must read: the
+// stale files (spec §5 step 1), which Build overlays on graphify's graph (steps 2-3), or,
+// when staleness ignores graphify entirely (step 4), every file. A nil stale set means
+// graphify is not used.
+func useGraphify(root string, cfg graph.Config, gf *graphify.Graph, files []string, changed map[string]bool, res *Result) ([]string, map[string]bool, error) {
 	res.GraphifyCommit, res.GraphifyFiles = gf.BuiltAtCommit, len(gf.CodeFiles)
-	changed, err := changedSet(root)
-	if err != nil {
-		return err
-	}
 	stale, reason, err := staleness(root, gf, files, changed, cfg.MaxStaleRatio)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	if reason != "" {
 		res.GraphifyIgnored = reason
-		res.Graph = scan.Assemble(scan.ScanFiles(root, files))
-		return nil
+		return files, nil, nil
 	}
 	isStale := map[string]bool{}
 	for _, f := range stale {
@@ -98,13 +125,13 @@ func useGraphify(root string, cfg graph.Config, gf *graphify.Graph, files []stri
 			toScan = append(toScan, f)
 		}
 	}
-	res.Source, res.BuiltAtCommit, res.StaleFiles, res.Scanned = SourceGraphifyScanner, gf.BuiltAtCommit, stale, toScan
-	res.Graph = Overlay(gf, isStale, scan.ScanFiles(root, toScan))
-	return nil
+	res.Source, res.BuiltAtCommit, res.StaleFiles = SourceGraphifyScanner, gf.BuiltAtCommit, stale
+	return toScan, isStale, nil
 }
 
 // changedSet is the working-tree changed set against HEAD as a path set, untracked files
-// included (spec §5 step 1's "current changed set" and "untracked").
+// included (spec §4.5's re-scan set; spec §5 step 1's "current changed set" and
+// "untracked").
 func changedSet(root string) (map[string]bool, error) {
 	cs, err := gitctx.ChangedSet(root, "HEAD")
 	if err != nil {

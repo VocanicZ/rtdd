@@ -16,3 +16,6 @@ bench/results/.cache/
 # outcome does not depend on which agent claims the issue.
 /.harness-task.md
 /.claude/ralph-loop.local.md
+
+# The node-graph scanner cache (spec §4.5, §12): rebuilt in seconds, never committed.
+/.rtdd/graph.json
