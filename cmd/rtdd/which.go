@@ -48,7 +48,7 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 		}
 		return 3
 	}
-	cfg, res, code, err := buildGraph(root, *base)
+	cfg, res, code, err := buildGraph(root, graphbuild.Options{Base: *base})
 	if err != nil {
 		fmt.Fprintf(stderr, "rtdd which: %v\n", err)
 		return code

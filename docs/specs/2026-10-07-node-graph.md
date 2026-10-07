@@ -146,7 +146,8 @@ trusts graphify for a file that may have changed since it was built:
    (`max_stale_ratio`) of graphify's code files, graphify is **ignored entirely** and the
    scanner builds the whole graph. The output says so and suggests `graphify --update`.
 
-rtdd never runs graphify itself. Every changed file is therefore always scanned by rtdd, so
+rtdd never runs graphify itself. Every changed file is therefore always scanned by rtdd, as
+is the file `explain <file>:<line>` names (it joins the stale set for that build), so
 line→node mapping never uses graphify's start-only locations.
 
 `--json` reports `graph.source` (`graphify+scanner` or `scanner`), `graph.built_at_commit`,

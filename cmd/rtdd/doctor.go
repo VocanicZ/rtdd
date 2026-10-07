@@ -36,7 +36,7 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "rtdd doctor: %v\n", err)
 		return 3
 	}
-	cfg, res, code, err := buildGraph(root, "")
+	cfg, res, code, err := buildGraph(root, graphbuild.Options{})
 	if err != nil {
 		fmt.Fprintf(stderr, "rtdd doctor: %v\n", err)
 		return code

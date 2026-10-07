@@ -35,6 +35,10 @@ type Options struct {
 	// Files changed against it join graphify's stale set (spec §5 step 1, "the current
 	// changed set"), so no changed line maps through graphify's start-only spans.
 	Base string
+	// Rescan names files (repo-relative) the scanner reads for this build whatever
+	// graphify holds for them, as if changed (`rtdd explain <file>:<line>`), so a line
+	// inside them never maps through graphify's start-only spans (spec §5).
+	Rescan []string
 }
 
 // Result is a built graph and how it was built. Every field is declared here, in Task 6,
@@ -81,7 +85,7 @@ func Build(root string, cfg graph.Config, opt Options) (*Result, error) {
 	case err != nil:
 		return nil, err
 	default:
-		current, err := currentChangedSet(root, opt.Base, changed)
+		current, err := currentChangedSet(root, opt.Base, opt.Rescan, changed)
 		if err != nil {
 			return nil, err
 		}
@@ -155,22 +159,28 @@ func changedSet(root, base string) (map[string]bool, error) {
 }
 
 // currentChangedSet is spec §5 step 1's "current changed set" (untracked included): the
-// changed set against HEAD ∪ the one against base, the ref the caller selects from. The
-// union keeps a file changed against HEAD but not against base (edited back) scanned too.
-// The cache's re-scan set stays the one against HEAD: HEAD's blobs key the cache.
-func currentChangedSet(root, base string, againstHEAD map[string]bool) (map[string]bool, error) {
-	if base == "" || base == "HEAD" {
+// changed set against HEAD ∪ the one against base, the ref the caller selects from, ∪
+// rescan. The union keeps a file changed against HEAD but not against base (edited back)
+// scanned too. The cache's re-scan set stays the one against HEAD: HEAD's blobs key the
+// cache.
+func currentChangedSet(root, base string, rescan []string, againstHEAD map[string]bool) (map[string]bool, error) {
+	if (base == "" || base == "HEAD") && len(rescan) == 0 {
 		return againstHEAD, nil
 	}
-	againstBase, err := changedSet(root, base)
-	if err != nil {
-		return nil, err
-	}
-	current := make(map[string]bool, len(againstHEAD)+len(againstBase))
+	current := make(map[string]bool, len(againstHEAD)+len(rescan))
 	for f := range againstHEAD {
 		current[f] = true
 	}
-	for f := range againstBase {
+	if base != "" && base != "HEAD" {
+		againstBase, err := changedSet(root, base)
+		if err != nil {
+			return nil, err
+		}
+		for f := range againstBase {
+			current[f] = true
+		}
+	}
+	for _, f := range rescan {
 		current[f] = true
 	}
 	return current, nil
