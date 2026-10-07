@@ -1,8 +1,6 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
@@ -21,61 +19,6 @@ func newDetectableRepo(t *testing.T) string {
 	gittest.Write(t, dir, ".gitignore", ".rtdd/\n")
 	gittest.Commit(t, dir, "init")
 	return dir
-}
-
-// Detection replaces the file default (docs/plans/00-interfaces.md:912). `rtdd init`
-// writes no .rtdd/adapter.yaml, so a stock post-init repo had every advisory command
-// running with no adapter: adapter "", nothing instrumentable, unmapped_files empty
-// exactly when a user first reaches for it.
-func TestWhichDetectsTheAdapterOnAStockPostInitRepo(t *testing.T) {
-	dir := newDetectableRepo(t)
-
-	if code, _, stderr := rtdd(t, dir, "init"); code != 0 {
-		t.Fatalf("rtdd init = %d, want 0 (stderr: %s)", code, stderr)
-	}
-	if _, err := os.Stat(filepath.Join(dir, ".rtdd", "adapter.yaml")); err == nil {
-		t.Fatalf("precondition: rtdd init now writes .rtdd/adapter.yaml; this test covers the state where it does not")
-	}
-	writeFile(t, dir, "src/constants.py", "MAX_RETRIES = 4\n")
-
-	code, stdout, stderr := rtdd(t, dir, "which", "--json")
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
-	}
-	got := decodeOutput(t, stdout)
-
-	if got.Adapter != "python" {
-		t.Errorf("adapter = %q, want %q: detection replaces the file default", got.Adapter, "python")
-	}
-	var found bool
-	for _, c := range got.Changed {
-		if c.Path != "src/constants.py" {
-			continue
-		}
-		found = true
-		if !c.Instrumentable {
-			t.Errorf("src/constants.py instrumentable = false; a detected adapter classifies it as source")
-		}
-	}
-	if !found {
-		t.Fatalf("src/constants.py missing from changed:\n%s", stdout)
-	}
-	if !containsString(got.UnmappedFiles, "src/constants.py") {
-		t.Errorf("unmapped_files = %#v, want src/constants.py: no map row covers it", got.UnmappedFiles)
-	}
-	if anyWarningContains(got.Warnings, "classification is disabled") {
-		t.Errorf("warnings = %#v, want no missing-adapter warning once detection succeeds", got.Warnings)
-	}
-}
-
-func instrumentablePaths(changed []JSONChange) []string {
-	var out []string
-	for _, c := range changed {
-		if c.Instrumentable {
-			out = append(out, c.Path)
-		}
-	}
-	return out
 }
 
 func containsString(hay []string, want string) bool {

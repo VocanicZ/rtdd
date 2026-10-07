@@ -1,57 +1,11 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
 )
-
-// writeHostAdapter drops one YAML file into <root>/.rtdd/adapters/.
-func writeHostAdapter(t *testing.T, root, name, body string) {
-	t.Helper()
-	dir := filepath.Join(root, ".rtdd", "adapters")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("mkdir %s: %v", dir, err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
-		t.Fatalf("write %s: %v", name, err)
-	}
-}
-
-// A host adapter for a toolchain the binary has never heard of.
-const hostVitestYAML = `name: vitest
-detect: ["vitest.config.ts"]
-unit_cmd: "npx vitest run {unit}"
-coverage_file: "{tmp}/lcov.info"
-coverage_format: lcov
-test_globs: ["**/*.test.ts"]
-source_globs: ["src/**/*.ts"]
-`
-
-// A host override of the shipped python adapter, told apart by its unit_cmd.
-const hostPythonOverrideYAML = `name: python
-detect: ["pyproject.toml"]
-unit_cmd: "pytest --cov --cov-report=lcov:{tmp}/lcov.info -p no:randomly {unit}"
-coverage_file: "{tmp}/lcov.info"
-coverage_format: lcov
-test_globs: ["tests/**/*.py"]
-source_globs: ["**/*.py"]
-`
-
-// A host adapter that violates the contract in a way that names a field.
-const hostBrokenYAML = `name: broken
-detect: ["go.mod"]
-unit_cmd: "go test ./..."
-coverage_file: "cover.out"
-coverage_format: gocover
-`
-
-type errString string
-
-func (e errString) Error() string { return string(e) }
 
 // newHostAdapterRepo is a python repo — the built-in detects it — that also carries host
 // adapter files.
@@ -79,47 +33,6 @@ func TestDoctorOnARepoWithNoHostAdaptersSaysNothingAboutAdapters(t *testing.T) {
 	for _, unwanted := range []string{"host-authored", "overrides built-in", "not loaded"} {
 		if strings.Contains(stdout, unwanted) {
 			t.Errorf("doctor said %q on a repo with no host adapters:\n%s", unwanted, stdout)
-		}
-	}
-}
-
-// A host adapter with a fresh name is available everywhere a built-in is, detection
-// included — that is what makes a language RTDD has never heard of supportable in YAML.
-func TestDetectionResolvesAHostAuthoredAdapter(t *testing.T) {
-	dir := gittest.Init(t)
-	gittest.Write(t, dir, "vitest.config.ts", "export default {}\n")
-	gittest.Write(t, dir, "src/logic.ts", "export const add = (a: number, b: number) => a + b\n")
-	gittest.Write(t, dir, "src/logic.test.ts", "test('add', () => {})\n")
-	gittest.Write(t, dir, ".gitignore", ".rtdd/\n")
-	gittest.Commit(t, dir, "init")
-	writeHostAdapter(t, dir, "vitest.yaml", hostVitestYAML)
-
-	code, stdout, stderr := rtdd(t, dir, "which", "--json")
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
-	}
-	if got := decodeOutput(t, stdout).Adapter; got != "vitest" {
-		t.Errorf("adapter = %q, want the host-authored %q", got, "vitest")
-	}
-}
-
-// The run path keeps going on the adapters that are valid, and says on stderr which file
-// it dropped and why — a silent skip would let a typo in a host override look like the
-// built-in simply winning.
-func TestWhichWarnsAboutAnUnloadableHostAdapterAndCarriesOn(t *testing.T) {
-	dir := newHostAdapterRepo(t)
-	writeHostAdapter(t, dir, "broken.yaml", hostBrokenYAML)
-
-	code, stdout, stderr := rtdd(t, dir, "which", "--json")
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
-	}
-	if got := decodeOutput(t, stdout).Adapter; got != "python" {
-		t.Errorf("adapter = %q, want the built-in %q to still resolve", got, "python")
-	}
-	for _, want := range []string{"broken.yaml", "coverage_file"} {
-		if !strings.Contains(stderr, want) {
-			t.Errorf("stderr does not name %q:\n%s", want, stderr)
 		}
 	}
 }

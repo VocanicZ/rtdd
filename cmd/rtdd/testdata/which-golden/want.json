@@ -1,0 +1,136 @@
+{
+  "schema": 3,
+  "command": "which",
+  "base": "HEAD",
+  "graph": {
+    "source": "scanner",
+    "built_at_commit": "<HEAD>",
+    "stale_files": 0,
+    "nodes": 11,
+    "edges": 8,
+    "tests": 5
+  },
+  "changed": [
+    {
+      "path": "money/money.go",
+      "lines": [
+        {
+          "start": 10,
+          "end": 10
+        }
+      ]
+    },
+    {
+      "path": "src/calc.py",
+      "lines": [
+        {
+          "start": 6,
+          "end": 6
+        },
+        {
+          "start": 10,
+          "end": 10
+        }
+      ]
+    },
+    {
+      "path": "src/legacy.py",
+      "lines": []
+    },
+    {
+      "path": "src/report.py",
+      "lines": [
+        {
+          "start": 1,
+          "end": 1
+        }
+      ]
+    }
+  ],
+  "changed_nodes": [
+    {
+      "id": "money/money.go::Parse",
+      "file": "money/money.go",
+      "name": "Parse",
+      "start": 9,
+      "end": 11
+    },
+    {
+      "id": "src/calc.py::total",
+      "file": "src/calc.py",
+      "name": "total",
+      "start": 5,
+      "end": 6
+    },
+    {
+      "id": "src/calc.py::unused",
+      "file": "src/calc.py",
+      "name": "unused",
+      "start": 9,
+      "end": 10
+    },
+    {
+      "id": "src/report.py::<module>",
+      "file": "src/report.py",
+      "name": "<module>",
+      "start": 1,
+      "end": 1
+    }
+  ],
+  "rounds": [
+    {
+      "round": 1,
+      "tests": [
+        {
+          "id": "money/money_test.go::TestParse",
+          "file": "money/money_test.go",
+          "name": "TestParse"
+        },
+        {
+          "id": "tests/test_calc.py::test_total",
+          "file": "tests/test_calc.py",
+          "name": "test_total"
+        },
+        {
+          "id": "tests/test_report.py::test_report",
+          "file": "tests/test_report.py",
+          "name": "test_report"
+        }
+      ],
+      "files": [
+        "money/money_test.go",
+        "tests/test_calc.py",
+        "tests/test_report.py"
+      ]
+    },
+    {
+      "round": 2,
+      "tests": [
+        {
+          "id": "money/money_test.go::TestNormalize",
+          "file": "money/money_test.go",
+          "name": "TestNormalize"
+        },
+        {
+          "id": "tests/test_calc.py::test_add",
+          "file": "tests/test_calc.py",
+          "name": "test_add"
+        }
+      ],
+      "files": [
+        "money/money_test.go",
+        "tests/test_calc.py"
+      ]
+    },
+    {
+      "round": 3,
+      "full_suite": true
+    }
+  ],
+  "untested": [
+    "src/calc.py::unused"
+  ],
+  "warnings": [
+    "src/legacy.py was deleted: tests that called it are linked to nothing now; Round 3 runs them"
+  ]
+}
