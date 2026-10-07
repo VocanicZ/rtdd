@@ -57,9 +57,9 @@ file /tmp/rtdd | grep -q 'statically linked'
 echo "==> every release artifact is statically linked"
 go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' ./internal/installtest/
 
-# PRD #232 AC11: the shipped adapter set's two gates, named as their own steps so a red
-# build points straight at the adapter set. `go test ./...` above runs both already; what
-# is added here is the `-list` line in front of each, because `go test -run` on a pattern
+# PRD #232 AC11: the shipped adapter set's gate, named as its own step so a red build
+# points straight at the adapter set. `go test ./...` above runs it already; what is
+# added here is the `-list` line in front of it, because `go test -run` on a pattern
 # that matches nothing exits 0 — a deleted or renamed gate would otherwise pass silently.
 echo "==> shipped-adapter completeness gate (#310)"
 listed="$(go test -list '^TestEveryShippedAdapterIsFullySpecified$' ./internal/contract/)"
@@ -68,19 +68,6 @@ case "$listed" in
   *) echo "the shipped-adapter completeness gate is gone from ./internal/contract/"; exit 1 ;;
 esac
 go test -count=1 -run '^TestEveryShippedAdapterIsFullySpecified$' ./internal/contract/
-
-# The one pipeline: every adapter's real toolchain, one test file per process, on a fixture
-# repo (cmd/rtdd/testdata/fixtures/). Each test skips when its toolchain is absent, so a
-# local run only exercises what this machine has; ci.yml installs the toolchains and fails
-# on a skip. The `-list` line is this repo's idiom: `go test -run` on a pattern that matches
-# nothing exits 0, so a deleted gate would pass silently.
-echo "==> one-pipeline adapter tests"
-listed="$(go test -list '^TestPipeline' ./cmd/rtdd/)"
-case "$listed" in
-  *TestPipelinePython*) ;;
-  *) echo "the TestPipeline* gates are gone from ./cmd/rtdd/"; exit 1 ;;
-esac
-go test -count=1 -run '^TestPipeline' ./cmd/rtdd/
 
 # PRD #368 AC11 (#380): the archives a release would publish, and install.sh driven
 # against them. Both tests below read build/dist, which .gitignore ignores — on a clean

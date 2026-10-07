@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,26 +69,6 @@ func TestWhichDetectsTheAdapterOnAStockPostInitRepo(t *testing.T) {
 	}
 }
 
-// status reads the same env, so it reports the detected adapter by name rather than
-// "none", and says the name came from detection rather than from a file that is absent.
-func TestStatusDetectsTheAdapterWhenNoAdapterFileExists(t *testing.T) {
-	dir := newDetectableRepo(t)
-
-	code, stdout, stderr := rtdd(t, dir, "status")
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
-	}
-	if !strings.Contains(stdout, "adapter: python") {
-		t.Errorf("status must name the detected adapter:\n%s", stdout)
-	}
-	if strings.Contains(stdout, "adapter: none") {
-		t.Errorf("status reports no adapter on a repo detection resolves:\n%s", stdout)
-	}
-	if !strings.Contains(stdout, "detected") {
-		t.Errorf("status must say the adapter came from detection, not from a file:\n%s", stdout)
-	}
-}
-
 // An explicit --adapter path is an override, not a hint. A path that does not exist is a
 // configuration error the user asked for, never a silent fall back to detection.
 func TestExplicitAdapterPathThatDoesNotExistIsAConfigError(t *testing.T) {
@@ -120,58 +98,6 @@ func TestWhichStillWarnsWhenDetectionFindsNoAdapter(t *testing.T) {
 	}
 }
 
-// The mirror of TestCmdRunFiresTheStaticImportFallbackAndAgreesWithWhich, on the repo
-// state that has no adapter file at all: `which` advises and `run` executes, so they
-// must classify the same repo with the same adapter.
-func TestWhichAndRunAgreeOnTheDetectedAdapter(t *testing.T) {
-	repo := realRepo(t)
-	chdir(t, repo)
-	if _, err := os.Stat(filepath.Join(repo, ".rtdd", "adapter.yaml")); err == nil {
-		t.Fatalf("precondition: this test covers the repo state with no .rtdd/adapter.yaml")
-	}
-	makeSuiteGreen(t, repo)
-	gitRun(t, repo, "commit", "-am", "green suite")
-
-	if code := cmdSeed(nil, io.Discard, io.Discard); code != 0 {
-		t.Fatalf("cmdSeed = %d, want 0 once the suite is green", code)
-	}
-	touchLogic(t, repo)
-
-	var wout, werr bytes.Buffer
-	if code := cmdWhich([]string{"--json"}, &wout, &werr); code != 0 {
-		t.Fatalf("cmdWhich --json = %d, want 0 (stderr: %s)", code, werr.String())
-	}
-	want := decodeOutput(t, wout.String())
-
-	var code int
-	raw := captureStdout(t, func() { code = cmdRun([]string{"--json"}) })
-	if code != 0 {
-		t.Fatalf("cmdRun --json = %d, want 0.\n%s", code, raw)
-	}
-	got := decodeOutput(t, raw)
-
-	if want.Adapter == "" {
-		t.Errorf("which adapter = %q, want the detected name", want.Adapter)
-	}
-	if got.Adapter != want.Adapter {
-		t.Errorf("run adapter = %q, which adapter = %q — the two commands must agree",
-			got.Adapter, want.Adapter)
-	}
-	for _, c := range got.Changed {
-		for _, w := range want.Changed {
-			if c.Path == w.Path && c.Instrumentable != w.Instrumentable {
-				t.Errorf("%s instrumentable: run = %v, which = %v", c.Path, c.Instrumentable, w.Instrumentable)
-			}
-		}
-	}
-	if !containsString(instrumentablePaths(got.Changed), "src/logic.py") {
-		t.Errorf("run classified src/logic.py as not instrumentable:\n%s", raw)
-	}
-	if !containsString(instrumentablePaths(want.Changed), "src/logic.py") {
-		t.Errorf("which classified src/logic.py as not instrumentable:\n%s", wout.String())
-	}
-}
-
 func instrumentablePaths(changed []JSONChange) []string {
 	var out []string
 	for _, c := range changed {
@@ -189,23 +115,4 @@ func containsString(hay []string, want string) bool {
 		}
 	}
 	return false
-}
-
-// Zero matches stays a configuration error at the CLI boundary. Spec §4.4 relaxed the
-// two-or-more case, not this one: a repo with no toolchain marker has nothing for `rtdd
-// seed` to run, so it exits 2 rather than writing an empty map the next command would
-// then be read against.
-func TestSeedExitsTwoWhenDetectionFindsNoAdapter(t *testing.T) {
-	dir := newTestRepo(t) // no toolchain marker of any kind
-
-	code, _, stderr := rtdd(t, dir, "seed")
-	if code != 2 {
-		t.Fatalf("rtdd seed = %d, want 2 in a repo no adapter detects (stderr: %s)", code, stderr)
-	}
-	if !strings.Contains(stderr, "no adapter detected") {
-		t.Errorf("stderr = %q, want it to name the zero-match refusal", stderr)
-	}
-	if !strings.Contains(stderr, dir) {
-		t.Errorf("stderr = %q, want it to name the repo root that was searched", stderr)
-	}
 }

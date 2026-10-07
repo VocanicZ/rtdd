@@ -17,9 +17,6 @@ const usage = `rtdd - relational test-driven development
 
 usage:
   rtdd init
-  rtdd seed
-  rtdd run    [--base <ref>] [--fail-fast] [--json]
-  rtdd status [--adapter <path>]
   rtdd which  [--base <ref>] [--json] [--adapter <path>]
   rtdd explain <file>
   rtdd graph  [--json]
@@ -33,7 +30,6 @@ usage:
 
 exit codes:
   0  success - an empty selection is a signal, not a failure
-  1  a test failed
   2  usage or configuration error
   3  fatal environment error (git unavailable, unreadable coverage)
 `
@@ -50,12 +46,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "init":
 		return cmdInit(args[1:], stdout, stderr)
-	case "seed":
-		return cmdSeed(args[1:], stdout, stderr)
-	case "run":
-		return cmdRun(args[1:])
-	case "status":
-		return cmdStatus(args[1:], stdout, stderr)
+	case "seed", "run", "verify", "status", "map":
+		return removedCommand(args, stderr)
 	case "which":
 		return cmdWhich(args[1:], stdout, stderr)
 	case "explain":
@@ -79,6 +71,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "rtdd: unknown command %q\n\n%s", args[0], usage)
 		return 2
 	}
+}
+
+// removedCommand answers a v0.2 command v0.3.0 removed (spec §8): a usage error naming
+// the release and what replaces it. It writes nothing.
+func removedCommand(args []string, stderr io.Writer) int {
+	name := args[0]
+	if name == "map" && len(args) > 1 {
+		name += " " + args[1]
+	}
+	fmt.Fprintf(stderr, "rtdd %s: removed in v0.3.0 — rtdd no longer runs tests or keeps a coverage map.\n"+
+		"Run `rtdd which` and run its rounds with the project's own test command.\n", name)
+	return 2
 }
 
 // env is everything a command needs from the host repository: where it is, and what

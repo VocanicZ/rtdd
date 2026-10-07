@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"os/exec"
 	"strings"
 	"testing"
 
@@ -58,15 +57,4 @@ func TestAV1MapIsTreatedAsUnseeded(t *testing.T) {
 		t.Fatalf("which = %d\n%s\n%s", code, out.String(), errb.String())
 	}
 	assertUnseededT2(t, out.String())
-}
-
-// The same rule on the executing side: `run` must not select from a v1 map either.
-func TestAV1MapIsTreatedAsUnseededByRun(t *testing.T) {
-	if _, err := exec.LookPath("pytest"); err != nil {
-		t.Skip("pytest not on PATH")
-	}
-	v1Repo(t)
-	var out, errb strings.Builder
-	raw := captureStdout(t, func() { run([]string{"run", "--json"}, &out, &errb) })
-	assertUnseededT2(t, raw)
 }

@@ -118,72 +118,6 @@ func TestStatusWithAnUnknownFlagIsAUsageError(t *testing.T) {
 	}
 }
 
-func TestStatusOnASeededRepo(t *testing.T) {
-	dir := newTestRepo(t)
-	sha := headShort(t, dir)
-	installRTDD(t, dir, sha, 7)
-
-	code, stdout, stderr := rtdd(t, dir, "status")
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
-	}
-	for _, want := range []string{
-		"adapter: python",
-		"4 tests",
-		"4 files",
-		"cycles:  7 / 100",
-		sha,
-		"0 commits ago",
-	} {
-		if !strings.Contains(stdout, want) {
-			t.Errorf("status output is missing %q:\n%s", want, stdout)
-		}
-	}
-}
-
-func TestStatusOnAnUnseededRepo(t *testing.T) {
-	dir := newTestRepo(t)
-
-	code, stdout, stderr := rtdd(t, dir, "status")
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
-	}
-	if !strings.Contains(stdout, "UNSEEDED") {
-		t.Errorf("status must say UNSEEDED when the map is empty:\n%s", stdout)
-	}
-	if !strings.Contains(stdout, "adapter: none") {
-		t.Errorf("status must report a missing adapter explicitly:\n%s", stdout)
-	}
-}
-
-// An unreachable seed commit is reported as UNREACHABLE, never as fresh.
-func TestStatusReportsAnUnreachableSeedCommit(t *testing.T) {
-	dir := newTestRepo(t)
-	installRTDD(t, dir, "deadbee", 0)
-
-	code, stdout, _ := rtdd(t, dir, "status")
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0", code)
-	}
-	if !strings.Contains(stdout, "UNREACHABLE") {
-		t.Errorf("status must flag an unreachable seed commit:\n%s", stdout)
-	}
-	if strings.Contains(stdout, "0 commits ago") {
-		t.Errorf("status reported an unreachable commit as fresh:\n%s", stdout)
-	}
-}
-
-func TestStatusOutsideAGitRepoExitsThree(t *testing.T) {
-	dir := t.TempDir()
-	code, _, stderr := rtdd(t, dir, "status")
-	if code != 3 {
-		t.Errorf("exit code = %d, want 3 (fatal environment error)", code)
-	}
-	if stderr == "" {
-		t.Error("stderr is empty; a fatal environment error must say what went wrong")
-	}
-}
-
 // Exit code 1 means "a test failed". No M1a command executes a test, so no invocation of
 // the CLI in this milestone may produce it — a 1 here would be an unrelated failure
 // wearing the costume of a red test suite.
@@ -498,7 +432,7 @@ func TestWhichReportsARename(t *testing.T) {
 // file". Both commands that load the adapter must refuse it and name the pattern.
 func TestAMalformedGlobInTheAdapterIsAConfigurationError(t *testing.T) {
 	const badGlob = `tests/[a-*.py`
-	for _, cmd := range []string{"which", "status"} {
+	for _, cmd := range []string{"which"} {
 		t.Run(cmd, func(t *testing.T) {
 			dir := newTestRepo(t)
 			installRTDD(t, dir, headShort(t, dir), 0)

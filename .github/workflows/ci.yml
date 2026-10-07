@@ -25,35 +25,6 @@ jobs:
         with:
           node-version: '20'
 
-      # The one-pipeline tests (cmd/rtdd/pipeline_*_test.go) run each adapter's real
-      # coverage tool and SKIP when it is missing, so a runner without the toolchain would
-      # report green over zero coverage. Provision every toolchain the runner image does
-      # not already carry (node, java/maven, dotnet, cargo, gradle come with it), and the
-      # "pipeline tests" step below fails on any skip. pytest and pytest-cov are what the
-      # python adapter needs; phpunit and rspec install their own packages per test.
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - run: pip install pytest pytest-cov
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: llvm-tools-preview
-
-      - uses: taiki-e/install-action@cargo-llvm-cov
-
-      - uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.3'
-          extensions: pcov
-          coverage: pcov
-          tools: composer
-
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.3'
-
       - name: build
         run: go build ./...
 
@@ -99,9 +70,9 @@ jobs:
       - name: every release artifact is statically linked
         run: go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' ./internal/installtest/
 
-      # PRD #232 AC11: the shipped adapter set's two gates. `go test ./...` above runs
-      # both; naming them points a red build at the adapter set. The `-list` line guards
-      # each one because `go test -run` on a pattern matching nothing exits 0, so a
+      # PRD #232 AC11: the shipped adapter set's gate. `go test ./...` above runs it;
+      # naming it points a red build at the adapter set. The `-list` line guards it
+      # because `go test -run` on a pattern matching nothing exits 0, so a
       # deleted or renamed gate would pass silently.
       - name: shipped-adapter completeness gate
         run: |
@@ -111,22 +82,6 @@ jobs:
             *) echo "the shipped-adapter completeness gate is gone from ./internal/contract/"; exit 1 ;;
           esac
           go test -count=1 -run '^TestEveryShippedAdapterIsFullySpecified$' ./internal/contract/
-
-      # The one pipeline on every adapter's real toolchain. gradle is the one allowed skip:
-      # it needs a wrapper the fixture cannot ship, and that adapter is unverified.
-      - name: pipeline tests
-        shell: bash
-        run: |
-          listed="$(go test -list '^TestPipeline' ./cmd/rtdd/)"
-          case "$listed" in
-            *TestPipelinePython*) ;;
-            *) echo "the TestPipeline* gates are gone from ./cmd/rtdd/"; exit 1 ;;
-          esac
-          go test -count=1 -v -run '^TestPipeline' ./cmd/rtdd/ | tee pipeline.log
-          if grep -E -- '--- SKIP: TestPipeline(Python|Go|Jest|Vitest|Cargo|Maven|Dotnet|PHPUnit|RSpec)' pipeline.log; then
-            echo "a pipeline test skipped: its toolchain is missing on this runner"
-            exit 1
-          fi
 
       # PRD #368 AC11 (#380): the archives a release would publish, and install.sh
       # driven against them. Both tests below read build/dist, which .gitignore ignores —
