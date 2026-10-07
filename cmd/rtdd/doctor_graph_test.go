@@ -22,7 +22,7 @@ func TestDoctorReportsTheGraphTestFilesAndOverLinkedNames(t *testing.T) {
 		gittest.Write(t, dir, fmt.Sprintf("src/m%d.py", i), src)
 	}
 	gittest.Write(t, dir, "tests/test_run.py", "def test_run():\n    assert run() == 0\n")
-	gittest.Write(t, dir, "tests/conftest_data.txt", "fixture data, not code\n")
+	gittest.Write(t, dir, "tests/conftest_data.json", "{\"fixture\": \"data, not code\"}\n")
 	gittest.Commit(t, dir, "init")
 
 	code, out, errOut := rtdd(t, dir, "doctor")

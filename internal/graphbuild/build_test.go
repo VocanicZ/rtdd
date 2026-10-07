@@ -32,7 +32,7 @@ func build(t *testing.T, root string) *Result {
 var calcProject = map[string]string{
 	"src/calc.py":        "def add(a, b):\n    return a + b\n\n\ndef total(xs):\n    return add(xs[0], xs[1])\n",
 	"tests/test_calc.py": "from src.calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n",
-	"README.md":          "# calc\n",
+	"config.yaml":        "name: calc\n",
 }
 
 // PRD #409 AC9, scanner half: with no graphify graph the scanner builds everything.

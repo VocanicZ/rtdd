@@ -17,7 +17,7 @@ import (
 // working-tree changed set.
 func TestCacheRescansOnlyChangedBlobsAndTheWorkingTreeChangedSet(t *testing.T) {
 	root := repo(t, calcProject)
-	if got, want := build(t, root).Scanned, []string{"README.md", "src/calc.py", "tests/test_calc.py"}; !reflect.DeepEqual(got, want) {
+	if got, want := build(t, root).Scanned, []string{"config.yaml", "src/calc.py", "tests/test_calc.py"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("cold build scanned %v, want %v", got, want)
 	}
 	if got := build(t, root).Scanned; len(got) != 0 {
@@ -160,8 +160,8 @@ func TestCacheIsGraphifyShapedWithBuiltAtCommitAndBlobIDs(t *testing.T) {
 	if doc.Files["src/calc.py"] != blobs["src/calc.py"] || doc.Files["src/calc.py"] == "" {
 		t.Errorf("rtdd_files[src/calc.py] = %q, want HEAD's blob %q", doc.Files["src/calc.py"], blobs["src/calc.py"])
 	}
-	if _, ok := doc.Files["README.md"]; !ok {
-		t.Errorf("rtdd_files = %v, want README.md listed though it has no nodes", doc.Files)
+	if _, ok := doc.Files["config.yaml"]; !ok {
+		t.Errorf("rtdd_files = %v, want config.yaml listed though it has no nodes", doc.Files)
 	}
 }
 

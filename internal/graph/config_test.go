@@ -26,7 +26,8 @@ func TestLoadConfigWithoutAFileIsTheSpecDefaults(t *testing.T) {
 	}
 	want := Config{
 		ScanExclude: []string{"vendor/**", "node_modules/**", "third_party/**", "**/*.min.js",
-			"dist/**", "build/**", ".rtdd/**", "graphify-out/**"},
+			"dist/**", "build/**", ".rtdd/**", "graphify-out/**",
+			"**/*.md", "**/*.markdown", "**/*.rst", "**/*.txt", "**/*.adoc"},
 		TestFiles: []string{"**/test_*", "**/*_test.*", "**/*.test.*", "**/*.spec.*", "**/*Test.*",
 			"**/*Tests.*", "**/tests/**", "**/test/**", "**/spec/**", "**/__tests__/**"},
 		TestExclude:   []string{"**/testdata/**", "**/fixtures/**"},

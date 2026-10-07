@@ -61,14 +61,14 @@ func TestEveryChangedFileIsScannedWhateverItsExtension(t *testing.T) {
 	}
 }
 
-// PRD #409 AC5 (#441): the max_stale_ratio numerator counts code files only — a README
+// PRD #409 AC5 (#441): the max_stale_ratio numerator counts code files only — a config
 // edit or a new language overlaid from the scanner does not push graphify over 50 %.
 func TestNonCodeAndNewLanguageFilesDoNotCountTowardTheRatio(t *testing.T) {
 	root := repo(t, map[string]string{
-		"a.py": "def a():\n    return 1\n", "b.py": "def b():\n    return 2\n", "README.md": "# r\n",
+		"a.py": "def a():\n    return 1\n", "b.py": "def b():\n    return 2\n", "config.yaml": "name: r\n",
 	})
-	pyGraphify(t, root, []string{"a.py", "b.py"}, []string{"a.py", "b.py", "README.md"})
-	gittest.Write(t, root, "README.md", "# changed\n")
+	pyGraphify(t, root, []string{"a.py", "b.py"}, []string{"a.py", "b.py", "config.yaml"})
+	gittest.Write(t, root, "config.yaml", "name: changed\n")
 	for _, f := range []string{"x.sh", "y.sh", "z.sh"} {
 		gittest.Write(t, root, f, strings.TrimSuffix(f, ".sh")+"() {\n  echo hi\n}\n")
 	}
@@ -80,7 +80,7 @@ func TestNonCodeAndNewLanguageFilesDoNotCountTowardTheRatio(t *testing.T) {
 	if res.StaleCodeFiles != 0 {
 		t.Errorf("StaleCodeFiles = %d, want 0", res.StaleCodeFiles)
 	}
-	if want := []string{"README.md", "x.sh", "y.sh", "z.sh"}; !reflect.DeepEqual(res.StaleFiles, want) {
+	if want := []string{"config.yaml", "x.sh", "y.sh", "z.sh"}; !reflect.DeepEqual(res.StaleFiles, want) {
 		t.Errorf("StaleFiles = %v, want %v", res.StaleFiles, want)
 	}
 	if ids := nodeIDs(res.Graph); !ids["x.sh::x"] || !ids["a.py::a"] {
