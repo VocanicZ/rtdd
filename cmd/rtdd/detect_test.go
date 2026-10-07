@@ -7,8 +7,7 @@ import (
 )
 
 // newDetectableRepo is the repo the documented setup path produces: a python toolchain
-// marker, source, tests, and NO .rtdd/adapter.yaml. `rtdd init` writes no adapter file,
-// so this — not the fixture-installed state — is what `which` actually meets.
+// marker, source and tests, committed.
 func newDetectableRepo(t *testing.T) string {
 	t.Helper()
 	dir := gittest.Init(t)
@@ -19,13 +18,4 @@ func newDetectableRepo(t *testing.T) string {
 	gittest.Write(t, dir, ".gitignore", ".rtdd/\n")
 	gittest.Commit(t, dir, "init")
 	return dir
-}
-
-func containsString(hay []string, want string) bool {
-	for _, s := range hay {
-		if s == want {
-			return true
-		}
-	}
-	return false
 }

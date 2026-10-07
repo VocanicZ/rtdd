@@ -131,16 +131,16 @@ func TestOnlyTestFilesImportGittest(t *testing.T) {
 	}
 }
 
-// The import guard above is the rule; this is the consequence it exists to prevent.
-// internal/pytestfixture is the package that reached for gittest, and the cheapest
-// statement of "it did not reach again" is its own dependency graph.
+// The import guard above is the rule; this is the consequence it exists to prevent. The
+// binary's dependency graph is every non-test package rtdd ships, so `testing` absent from
+// it is the cheapest statement that no test-only helper leaked into production code.
 func TestTestOnlyHelpersDoNotCompileInTesting(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skipf("go toolchain not on PATH: %v", err)
 	}
 	root := repoRoot(t)
 
-	for _, pkg := range []string{"./internal/pytestfixture", "./cmd/rtdd", "./internal/adapter"} {
+	for _, pkg := range []string{"./cmd/rtdd"} {
 		cmd := exec.Command("go", "list", "-deps", pkg)
 		cmd.Dir = root
 		out, err := cmd.CombinedOutput()

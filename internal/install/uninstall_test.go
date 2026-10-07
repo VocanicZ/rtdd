@@ -112,8 +112,8 @@ func installedRepo(t *testing.T) string {
 // stepFor lives in install_test.go — uninstall asserts on the same Step list.
 
 // TestPlanUninstallRemovesExactlyWhatPlanWrites is the symmetry claim: uninstall covers
-// the front-ends, the marker block and the .gitattributes line, which is the whole of what
-// Plan writes outside .rtdd/.
+// the front-ends and the marker block, which is the whole of what Plan writes outside
+// .rtdd/, and the .gitattributes line a v0.2 init wrote.
 func TestPlanUninstallRemovesExactlyWhatPlanWrites(t *testing.T) {
 	root := installedRepo(t)
 	steps, err := PlanUninstall(root, UninstallOptions{})

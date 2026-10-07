@@ -10,10 +10,8 @@ import (
 	"github.com/VocanicZ/rtdd/internal/protocol"
 )
 
-// markDetectable gives a fixture repo the python toolchain marker `rtdd init` now gates
-// on (spec §5). newTestRepo describes a python source tree but carries no marker file,
-// and init refuses a repo no adapter matches — so every test below that expects an
-// install to happen declares one, exactly as a real python repository does.
+// markDetectable gives a fixture repo the python toolchain marker a real python repository
+// carries. v0.3.0's init gates on nothing, so the marker only makes the fixture realistic.
 func markDetectable(t *testing.T, dir string) {
 	t.Helper()
 	writeFile(t, dir, "pyproject.toml", "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n")
@@ -21,7 +19,7 @@ func markDetectable(t *testing.T, dir string) {
 
 func TestRenderInit(t *testing.T) {
 	steps := []install.Step{
-		{Path: ".gitattributes", Action: install.Create},
+		{Path: ".claude/skills/rtdd/SKILL.md", Action: install.Create},
 		{Path: ".rtdd/config.yaml", Action: install.Create},
 		{Path: "AGENTS.md", Action: install.Create},
 		{Path: "CLAUDE.md", Action: install.AppendBlock},
@@ -29,7 +27,7 @@ func TestRenderInit(t *testing.T) {
 	}
 	got := RenderInit(steps)
 	want := "" +
-		"create         .gitattributes\n" +
+		"create         .claude/skills/rtdd/SKILL.md\n" +
 		"create         .rtdd/config.yaml\n" +
 		"create         AGENTS.md\n" +
 		"append-block   CLAUDE.md\n" +
@@ -49,7 +47,7 @@ func TestInitInstallsIntoTheWorkingDirectory(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
-	for _, want := range []string{".gitattributes", ".rtdd/config.yaml", "AGENTS.md", ".cursor/rules/rtdd.mdc", ".claude/skills/rtdd/SKILL.md"} {
+	for _, want := range []string{".rtdd/config.yaml", "AGENTS.md", ".cursor/rules/rtdd.mdc", ".claude/skills/rtdd/SKILL.md"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("init output is missing %q:\n%s", want, stdout)
 		}
@@ -62,8 +60,9 @@ func TestInitInstallsIntoTheWorkingDirectory(t *testing.T) {
 	if !strings.Contains(agents, protocol.BeginMarker) {
 		t.Errorf("AGENTS.md did not gain the managed block:\n%s", agents)
 	}
-	if got := readRepoFileForTest(t, dir, ".gitattributes"); !strings.Contains(got, ".rtdd/map.jsonl merge=union") {
-		t.Errorf(".gitattributes = %q, want the union merge driver", got)
+	// PRD #410 AC5 / #452: no merge driver for a coverage map nothing writes.
+	if _, err := os.Stat(filepath.Join(dir, ".gitattributes")); err == nil {
+		t.Errorf("init wrote a .gitattributes:\n%s", readRepoFileForTest(t, dir, ".gitattributes"))
 	}
 	// The host repo never had a CLAUDE.md, so init must not introduce one — the
 	// generated Claude Code skill under .claude/skills/rtdd/ is the right surface.
@@ -112,7 +111,7 @@ func TestInitDryRunPrintsThePlanAndWritesNothing(t *testing.T) {
 	if !strings.Contains(stdout, "AGENTS.md") {
 		t.Errorf("dry-run output is missing the plan:\n%s", stdout)
 	}
-	for _, rel := range []string{".gitattributes", ".rtdd/config.yaml", "AGENTS.md", ".cursor/rules/rtdd.mdc", ".claude/skills/rtdd/SKILL.md"} {
+	for _, rel := range []string{".rtdd/config.yaml", "AGENTS.md", ".cursor/rules/rtdd.mdc", ".claude/skills/rtdd/SKILL.md"} {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err == nil {
 			t.Errorf("--dry-run must not write %s", rel)
 		}
@@ -181,13 +180,7 @@ func readRepoFileForTest(t *testing.T, dir, rel string) string {
 }
 
 // `rtdd init` run from a subdirectory installs at the REPO ROOT, not at the working
-// directory. Every other command resolves the root with findRepoRoot; init must agree.
-//
-// The `.gitattributes` assertion is deliberately made through `git check-attr` rather
-// than by reading the file: attribute patterns are directory-scoped, so a
-// `.gitattributes` written into sub/deep/ binds `merge=union` to a path that does not
-// exist and leaves the real map at the root with no union merge driver at all. Reading
-// file contents cannot see that; asking git can.
+// directory. Every other command resolves the root from git; init must agree.
 func TestInitInstallsAtTheRepoRootFromASubdirectory(t *testing.T) {
 	dir := newTestRepo(t)
 	markDetectable(t, dir)
@@ -201,18 +194,13 @@ func TestInitInstallsAtTheRepoRootFromASubdirectory(t *testing.T) {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
 
-	for _, rel := range []string{".gitattributes", ".rtdd/config.yaml", "AGENTS.md", ".cursor/rules/rtdd.mdc", ".claude/skills/rtdd/SKILL.md"} {
+	for _, rel := range []string{".rtdd/config.yaml", "AGENTS.md", ".cursor/rules/rtdd.mdc", ".claude/skills/rtdd/SKILL.md"} {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
 			t.Errorf("%s was not installed at the repo root: %v", rel, err)
 		}
 		if _, err := os.Stat(filepath.Join(deep, filepath.FromSlash(rel))); err == nil {
 			t.Errorf("%s was installed into the working directory sub/deep, not the repo root", rel)
 		}
-	}
-
-	got := gitRun(t, dir, "check-attr", "merge", "--", ".rtdd/map.jsonl")
-	if !strings.Contains(got, "merge: union") {
-		t.Errorf("git check-attr merge -- .rtdd/map.jsonl = %q, want the union merge driver", got)
 	}
 }
 
@@ -229,7 +217,7 @@ func TestInitFallsBackToTheWorkingDirectoryOutsideAGitRepository(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
-	for _, rel := range []string{".gitattributes", ".rtdd/config.yaml", "AGENTS.md", ".cursor/rules/rtdd.mdc", ".claude/skills/rtdd/SKILL.md"} {
+	for _, rel := range []string{".rtdd/config.yaml", "AGENTS.md", ".cursor/rules/rtdd.mdc", ".claude/skills/rtdd/SKILL.md"} {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
 			t.Errorf("%s was not installed into the working directory: %v", rel, err)
 		}
@@ -260,7 +248,7 @@ func TestInitIgnoresAStrayGitAncestorAndInstallsIntoTheWorkingDirectory(t *testi
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
-	for _, rel := range []string{".gitattributes", ".rtdd/config.yaml", "AGENTS.md", ".cursor/rules/rtdd.mdc", ".claude/skills/rtdd/SKILL.md"} {
+	for _, rel := range []string{".rtdd/config.yaml", "AGENTS.md", ".cursor/rules/rtdd.mdc", ".claude/skills/rtdd/SKILL.md"} {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
 			t.Errorf("%s was not installed into the working directory: %v", rel, err)
 		}

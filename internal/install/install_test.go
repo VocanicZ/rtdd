@@ -37,7 +37,6 @@ func TestPlanOnACleanRepoCreatesEverything(t *testing.T) {
 		".claude/skills/rtdd/SKILL.md": Create,
 		".cursor/rules/rtdd.mdc":       Create,
 		"AGENTS.md":                    Create,
-		".gitattributes":               AppendBlock,
 		".rtdd/config.yaml":            Create,
 	}
 	for path, action := range want {
@@ -127,7 +126,9 @@ func TestPlanForceOverwritesADifferingWholeFile(t *testing.T) {
 	}
 }
 
-func TestPlanGitattributesAppendsTheUnionLineOnceThenSkips(t *testing.T) {
+// PRD #410 AC5 / #452: init writes no merge driver for a coverage map nothing writes any
+// more; a host's own .gitattributes is neither planned nor touched.
+func TestPlanLeavesGitattributesAlone(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, ".gitattributes"), []byte("*.png binary\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -136,24 +137,20 @@ func TestPlanGitattributesAppendsTheUnionLineOnceThenSkips(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := stepFor(t, steps, ".gitattributes")
-	if s.Action != AppendBlock {
-		t.Fatalf("action = %v, want AppendBlock", s.Action)
+	for _, s := range steps {
+		if s.Path == ".gitattributes" {
+			t.Fatalf("Plan still plans .gitattributes: %+v", s)
+		}
 	}
-	if !strings.Contains(s.Content, "*.png binary") || !strings.Contains(s.Content, "merge=union") {
-		t.Fatalf("gitattributes content = %q, want both the original line and the union merge driver", s.Content)
-	}
-
 	if err := Apply(root, steps); err != nil {
 		t.Fatal(err)
 	}
-	again, err := Plan(root, fakeFiles(), false, nil)
+	b, err := os.ReadFile(filepath.Join(root, ".gitattributes"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	s = stepFor(t, again, ".gitattributes")
-	if s.Action != Skip {
-		t.Fatalf("second Plan action = %v, want Skip", s.Action)
+	if string(b) != "*.png binary\n" {
+		t.Errorf(".gitattributes = %q, want it untouched", b)
 	}
 }
 
@@ -188,7 +185,7 @@ func TestApplyIsANoOpOnAllSkipStepsAndWritesEverythingElse(t *testing.T) {
 	if err := Apply(root, steps); err != nil {
 		t.Fatal(err)
 	}
-	for _, rel := range []string{".claude/skills/rtdd/SKILL.md", ".cursor/rules/rtdd.mdc", "AGENTS.md", ".gitattributes", ".rtdd/config.yaml"} {
+	for _, rel := range []string{".claude/skills/rtdd/SKILL.md", ".cursor/rules/rtdd.mdc", "AGENTS.md", ".rtdd/config.yaml"} {
 		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
 			t.Errorf("%s was not written: %v", rel, err)
 		}

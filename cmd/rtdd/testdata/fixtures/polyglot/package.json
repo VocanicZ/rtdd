@@ -1,5 +1,0 @@
-{
-  "name": "rtdd-fixture-polyglot",
-  "private": true,
-  "devDependencies": { "vitest": "*" }
-}

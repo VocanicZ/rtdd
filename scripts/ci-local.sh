@@ -57,18 +57,6 @@ file /tmp/rtdd | grep -q 'statically linked'
 echo "==> every release artifact is statically linked"
 go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' ./internal/installtest/
 
-# PRD #232 AC11: the shipped adapter set's gate, named as its own step so a red build
-# points straight at the adapter set. `go test ./...` above runs it already; what is
-# added here is the `-list` line in front of it, because `go test -run` on a pattern
-# that matches nothing exits 0 — a deleted or renamed gate would otherwise pass silently.
-echo "==> shipped-adapter completeness gate (#310)"
-listed="$(go test -list '^TestEveryShippedAdapterIsFullySpecified$' ./internal/contract/)"
-case "$listed" in
-  *TestEveryShippedAdapterIsFullySpecified*) ;;
-  *) echo "the shipped-adapter completeness gate is gone from ./internal/contract/"; exit 1 ;;
-esac
-go test -count=1 -run '^TestEveryShippedAdapterIsFullySpecified$' ./internal/contract/
-
 # PRD #410 AC8 (#454): `rtdd which` on this repository with a warm graph cache is under
 # 1 s. `go test ./...` above runs both tests already; this step names the budget and its
 # `-list` guard keeps a renamed or deleted test from passing as zero executed tests.

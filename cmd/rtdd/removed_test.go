@@ -65,11 +65,9 @@ func TestNoSourceImplementsARemovedCommand(t *testing.T) {
 	}
 }
 
-// rtdd init's closing line no longer sends anyone to a removed command. The repository
-// has a detectable adapter because v0.2 init still refuses one without (Task 7 drops that).
+// rtdd init's closing line no longer sends anyone to a removed command.
 func TestInitClosesByPointingAtWhichNotSeed(t *testing.T) {
 	dir := newDetectableRepo(t)
-	fixLookPath(t)
 	code, out, errOut := rtdd(t, dir, "init")
 	if code != 0 {
 		t.Fatalf("rtdd init = %d, stderr %q", code, errOut)
