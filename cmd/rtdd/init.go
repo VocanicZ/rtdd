@@ -26,9 +26,10 @@ func RenderInit(steps []install.Step) string {
 
 // cmdInit implements `rtdd init`: it installs the generated front-ends and the config
 // into the REPO ROOT. AGENTS.md and CLAUDE.md are merged between rtdd's own markers;
-// nothing outside them is ever touched, and nothing outside a marker-delimited target is
-// overwritten without --force. It detects nothing and refuses no git repository: the
-// node graph serves every language the scanner reads (spec §8).
+// nothing outside them is ever touched. A whole-file front-end is replaced only when an
+// earlier rtdd wrote it; one rtdd did not write is a conflict no flag overrides. It detects
+// nothing and refuses no git repository: the node graph serves every language the
+// scanner reads (spec §8).
 //
 // The root is resolved with findRepoRoot, so running init from a subdirectory installs
 // where the other commands will look. The working directory is only a fallback for the
@@ -37,12 +38,11 @@ func cmdInit(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dryRun := fs.Bool("dry-run", false, "print the plan and change nothing")
-	force := fs.Bool("force", false, "overwrite whole-file front-ends that exist and differ")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if fs.NArg() != 0 {
-		fmt.Fprintln(stderr, "usage: rtdd init [--dry-run] [--force]")
+		fmt.Fprintln(stderr, "usage: rtdd init [--dry-run]")
 		return 2
 	}
 
@@ -59,7 +59,7 @@ func cmdInit(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "rtdd init: %v\n", err)
 		return 2
 	}
-	steps, err := install.Plan(root, files, *force, nil)
+	steps, err := install.Plan(root, files)
 	if err != nil {
 		fmt.Fprintf(stderr, "rtdd init: %v\n", err)
 		return 2
@@ -77,7 +77,7 @@ func cmdInit(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	if conflicts > 0 {
-		fmt.Fprintf(stderr, "rtdd init: %d conflict(s); nothing written; re-run with --force to overwrite\n", conflicts)
+		fmt.Fprintf(stderr, "rtdd init: %d conflict(s); nothing written; move the named file(s) aside and re-run\n", conflicts)
 		return 2
 	}
 	if err := install.Apply(root, steps); err != nil {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/VocanicZ/rtdd/internal/protocol"
 )
@@ -15,25 +16,18 @@ type Step struct {
 	Note    string
 }
 
-const defaultConfig = `# .rtdd/config.yaml — rtdd defaults, see docs/specs for what each one does.
-stale_commits: 50
-drift_guard: 100
-hub_threshold: 0.40
-`
+// graphCacheLine is the .gitignore line for the graph cache (spec §4.5, §12).
+const graphCacheLine = ".rtdd/graph.json"
 
 // Plan computes what `rtdd init` would do without touching the filesystem.
 //
 // files maps the generator's output paths to their content, i.e. exactly what
-// protocol.RenderAll returns. Whole-file targets (the Claude Code skill, the
-// Cursor rule) are created but never overwritten without --force, because the
-// host may have edited them. Marker-delimited targets (AGENTS.md, CLAUDE.md) are
-// merged, which is always safe.
-//
-// detected is the adapter set `rtdd init` matched against this repository; it is recorded
-// into a NEWLY CREATED .rtdd/config.yaml (spec §5) and ignored when one already exists.
-// An empty slice is the --force install into a repo nothing matched, and writes the
-// unchanged defaults.
-func Plan(root string, files map[string]string, force bool, detected []AdapterRecord) ([]Step, error) {
+// protocol.RenderAll returns. Whole-file targets (the Claude Code skill, the Cursor rule)
+// are created, or replaced when the file on disk is an earlier rtdd render — it carries
+// protocol.Generated. A file there that rtdd did not write is a conflict: init never
+// overwrites someone else's file, and there is no flag that makes it. Marker-delimited
+// targets (AGENTS.md, CLAUDE.md) are merged, which is always safe.
+func Plan(root string, files map[string]string) ([]Step, error) {
 	steps := []Step{}
 
 	// 1. Whole-file targets.
@@ -51,12 +45,12 @@ func Plan(root string, files map[string]string, force bool, detected []AdapterRe
 			return nil, err
 		case string(existing) == content:
 			steps = append(steps, Step{Path: rel, Action: Skip, Note: "already current"})
-		case force:
-			steps = append(steps, Step{Path: rel, Action: Create, Content: content, Note: "overwritten by --force"})
+		case strings.Contains(string(existing), protocol.Generated):
+			steps = append(steps, Step{Path: rel, Action: Replace, Content: content, Note: "an earlier rtdd render"})
 		default:
 			steps = append(steps, Step{
 				Path: rel, Action: Conflict,
-				Note: "exists and differs; re-run with --force to overwrite",
+				Note: "exists and was not written by rtdd; move it aside and re-run",
 			})
 		}
 	}
@@ -86,12 +80,40 @@ func Plan(root string, files map[string]string, force bool, detected []AdapterRe
 	// 3. .rtdd/config.yaml — created, never overwritten.
 	cfg := filepath.Join(root, ".rtdd", "config.yaml")
 	if _, err := os.Stat(cfg); os.IsNotExist(err) {
-		steps = append(steps, Step{Path: ".rtdd/config.yaml", Action: Create, Content: ConfigWithAdapters(detected)})
+		steps = append(steps, Step{Path: ".rtdd/config.yaml", Action: Create, Content: DefaultConfig()})
 	} else {
 		steps = append(steps, Step{Path: ".rtdd/config.yaml", Action: Skip, Note: "keeping your config"})
 	}
 
-	return steps, nil
+	// 4. .gitignore — the graph cache is rebuilt in seconds and conflicts on every branch
+	// when committed (spec §4.5), so init ignores it, once.
+	step, err := planGitignore(root)
+	if err != nil {
+		return nil, err
+	}
+	return append(steps, step), nil
+}
+
+// planGitignore adds graphCacheLine to the host's .gitignore unless a line already names
+// it, spelled root-anchored or not.
+func planGitignore(root string) (Step, error) {
+	b, err := os.ReadFile(filepath.Join(root, ".gitignore"))
+	switch {
+	case os.IsNotExist(err):
+		return Step{Path: ".gitignore", Action: Create, Content: graphCacheLine + "\n"}, nil
+	case err != nil:
+		return Step{}, err
+	}
+	for _, l := range strings.Split(string(b), "\n") {
+		if l = strings.TrimSpace(l); l == graphCacheLine || l == "/"+graphCacheLine {
+			return Step{Path: ".gitignore", Action: Skip, Note: "already ignores " + graphCacheLine}, nil
+		}
+	}
+	body := string(b)
+	if body != "" && !strings.HasSuffix(body, "\n") {
+		body += "\n"
+	}
+	return Step{Path: ".gitignore", Action: AppendLine, Content: body + graphCacheLine + "\n"}, nil
 }
 
 func Apply(root string, steps []Step) error {

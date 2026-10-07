@@ -3,103 +3,45 @@ package install
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/VocanicZ/rtdd/internal/graph"
 )
 
-// Spec §5, the ≥1-adapter branch: init records the detected adapters in .rtdd/config.yaml.
-// The record is for a human reading the repo later — nothing parses it back.
-func TestConfigWithAdaptersRecordsTheName(t *testing.T) {
-	got := ConfigWithAdapters([]AdapterRecord{{Name: "python"}})
-
-	for _, want := range []string{"adapters:", "name: python"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("config does not record %q:\n%s", want, got)
-		}
-	}
-}
-
-// The v1 defaults are not replaced by the record; they are joined by it.
-func TestConfigWithAdaptersKeepsTheDefaults(t *testing.T) {
-	got := ConfigWithAdapters([]AdapterRecord{{Name: "python"}})
-	for _, want := range []string{"stale_commits: 50", "drift_guard: 100", "hub_threshold: 0.40"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("config lost the default %q:\n%s", want, got)
-		}
-	}
-}
-
-// A repo two adapters serve records both, in the order it was given them — which is the
-// order DetectAll returns, so repeated runs on one repo write the same file.
-func TestConfigWithAdaptersRecordsEveryDetectedAdapterInOrder(t *testing.T) {
-	got := ConfigWithAdapters([]AdapterRecord{
-		{Name: "vitest"},
-		{Name: "python"},
-	})
-	iv, ip := strings.Index(got, "name: vitest"), strings.Index(got, "name: python")
-	if iv < 0 || ip < 0 {
-		t.Fatalf("config does not record both adapters:\n%s", got)
-	}
-	if iv > ip {
-		t.Errorf("adapters recorded out of order:\n%s", got)
-	}
-}
-
-// No detected adapter is the `--force` install. It gets the unchanged three-key default:
-// an empty `adapters:` key would read as "RTDD looked and found an empty set of them",
-// which is a different claim from "this install made no detection promise at all".
-func TestConfigWithNoAdaptersIsTheUnchangedDefault(t *testing.T) {
-	if got := ConfigWithAdapters(nil); got != defaultConfig {
-		t.Errorf("ConfigWithAdapters(nil) = %q, want the unchanged default config", got)
-	}
-}
-
-// Plan is what puts the record on disk: given the detected set, the config step it emits
-// carries the record rather than the bare defaults.
-func TestPlanWritesTheDetectedAdaptersIntoTheConfigStep(t *testing.T) {
-	root := t.TempDir()
-	recs := []AdapterRecord{{Name: "python"}}
-
-	steps, err := Plan(root, fakeFiles(), false, recs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := stepFor(t, steps, ".rtdd/config.yaml")
-	if s.Action != Create {
-		t.Fatalf("action = %v, want Create", s.Action)
-	}
-	if s.Content != ConfigWithAdapters(recs) {
-		t.Errorf("config step content = %q, want ConfigWithAdapters(recs)", s.Content)
-	}
-}
-
-// An existing config is a config someone tuned. The record is worth having on a first
-// install and is never worth clobbering a tuned file for.
-func TestPlanNeverRewritesAnExistingConfigToAddTheRecord(t *testing.T) {
+// PRD #411 AC5: the config `rtdd init` writes is the graph's own defaults written out, so
+// the graph code loads it back to exactly graph.DefaultConfig() — one list, two spellings
+// that cannot drift.
+func TestDefaultConfigLoadsAsTheGraphDefaults(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".rtdd"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	tuned := "stale_commits: 999\n"
-	if err := os.WriteFile(filepath.Join(root, ".rtdd", "config.yaml"), []byte(tuned), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".rtdd", "config.yaml"), []byte(DefaultConfig()), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	got, err := graph.LoadConfig(root)
+	if err != nil {
+		t.Fatalf("graph.LoadConfig over DefaultConfig(): %v\n%s", err, DefaultConfig())
+	}
+	if want := graph.DefaultConfig(); !reflect.DeepEqual(got, want) {
+		t.Errorf("DefaultConfig() loads as\n%+v\nwant graph.DefaultConfig()\n%+v", got, want)
+	}
+}
 
-	steps, err := Plan(root, fakeFiles(), false, []AdapterRecord{{Name: "python"}})
-	if err != nil {
-		t.Fatal(err)
+// PRD #411 AC5: every key is written out, so a user edits a value rather than learning a
+// key name; no v0.2 key survives.
+func TestDefaultConfigNamesEveryKeyAndNoV02Key(t *testing.T) {
+	cfg := DefaultConfig()
+	for _, key := range []string{"scan_exclude:", "test_files:", "test_exclude:", "graphify_path:", "max_stale_ratio:"} {
+		if !strings.Contains(cfg, "\n"+key) {
+			t.Errorf("DefaultConfig() has no %s line:\n%s", key, cfg)
+		}
 	}
-	if s := stepFor(t, steps, ".rtdd/config.yaml"); s.Action != Skip {
-		t.Fatalf("action = %v, want Skip", s.Action)
-	}
-	if err := Apply(root, steps); err != nil {
-		t.Fatal(err)
-	}
-	b, err := os.ReadFile(filepath.Join(root, ".rtdd", "config.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(b) != tuned {
-		t.Errorf("config.yaml = %q, want it untouched at %q", string(b), tuned)
+	for _, gone := range []string{"adapters", "stale_commits", "drift_guard", "hub_threshold"} {
+		if strings.Contains(cfg, gone) {
+			t.Errorf("DefaultConfig() still says %q:\n%s", gone, cfg)
+		}
 	}
 }

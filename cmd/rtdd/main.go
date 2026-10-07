@@ -11,7 +11,7 @@ import (
 const usage = `rtdd - relational test-driven development
 
 usage:
-  rtdd init
+  rtdd init   [--dry-run]
   rtdd which  [--base <ref>] [--json]
   rtdd explain <file[:line]|name>
   rtdd graph  [--json]
