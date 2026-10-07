@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -23,16 +24,10 @@ const roundThree = "Round 3 — the full suite, once, at the end"
 // cmdWhich answers "which tests does this change need, in what order" from the node
 // graph (spec §7, §8). It runs nothing: no test, no toolchain. Every answer exits 0.
 func cmdWhich(args []string, stdout, stderr io.Writer) int {
-	// Until schema 3 lands (docs/plans/10-rounds-cutover.md Task 3), --json is still the
-	// v0.2 document, answered by the v0.2 path.
-	for _, a := range args {
-		if a == "--json" || strings.HasPrefix(a, "--json=") {
-			return cmdWhichV02(args, stdout, stderr)
-		}
-	}
 	fs := flag.NewFlagSet("which", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	base := fs.String("base", "HEAD", "the ref changes are measured from")
+	asJSON := fs.Bool("json", false, "emit machine-readable JSON (schema 3)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -60,6 +55,16 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 	}
 	ranges, warnings := changedRanges(changes)
 	r := rounds.Rounds(res.Graph, ranges)
+	if *asJSON {
+		enc := json.NewEncoder(stdout)
+		enc.SetEscapeHTML(false) // "<module>" stays readable
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(buildWhichJSON(*base, res, changes, r, warnings)); err != nil {
+			fmt.Fprintf(stderr, "rtdd which: %v\n", err)
+			return 3
+		}
+		return 0
+	}
 	for _, w := range warnings {
 		fmt.Fprintf(stderr, "rtdd which: warning: %s\n", w)
 	}
@@ -129,6 +134,108 @@ func graphLine(res *graphbuild.Result, cfg graph.Config) string {
 		len(res.StaleFiles), plural(len(res.StaleFiles), "file", "files"))
 	if res.GraphifyIgnored != "" {
 		s += fmt.Sprintf(" (graphify ignored — %s; run `graphify --update` to use it again)", ignoredWhy(res, cfg))
+	}
+	return s
+}
+
+// whichJSON is `rtdd which --json`, schema 3 (spec §9): exactly §9's nine top-level keys,
+// in §9's order. Every array is [], never null.
+type whichJSON struct {
+	Schema       int           `json:"schema"`
+	Command      string        `json:"command"`
+	Base         string        `json:"base"`
+	Graph        graphObject   `json:"graph"`
+	Changed      []changedFile `json:"changed"`
+	ChangedNodes []nodeJSON    `json:"changed_nodes"`
+	Rounds       []any         `json:"rounds"`   // testRound{1}, testRound{2}, fullSuiteRound{3}
+	Untested     []string      `json:"untested"` // node IDs
+	Warnings     []string      `json:"warnings"`
+}
+
+type changedFile struct {
+	Path  string      `json:"path"`
+	Lines []lineRange `json:"lines"` // [] for a deleted file
+}
+
+type lineRange struct {
+	Start int `json:"start"`
+	End   int `json:"end"`
+}
+
+type nodeJSON struct {
+	ID    string `json:"id"`
+	File  string `json:"file"`
+	Name  string `json:"name"`
+	Start int    `json:"start"`
+	End   int    `json:"end"`
+}
+
+type testJSON struct {
+	ID   string `json:"id"`
+	File string `json:"file"`
+	Name string `json:"name"`
+}
+
+type testRound struct {
+	Round int        `json:"round"`
+	Tests []testJSON `json:"tests"`
+	Files []string   `json:"files"` // the round's test files, de-duplicated, in test order
+}
+
+type fullSuiteRound struct {
+	Round     int  `json:"round"`
+	FullSuite bool `json:"full_suite"`
+}
+
+// buildWhichJSON is the schema-3 document (spec §9) for one answer.
+func buildWhichJSON(base string, res *graphbuild.Result, changes []gitctx.Change, r rounds.Result, warnings []string) whichJSON {
+	doc := whichJSON{Schema: 3, Command: "which", Base: base, Graph: graphObjectOf(res),
+		Changed: []changedFile{}, ChangedNodes: []nodeJSON{}, Untested: []string{}, Warnings: nonNilStrings(warnings)}
+	for _, c := range changes {
+		f := changedFile{Path: c.Path, Lines: []lineRange{}}
+		for _, l := range c.Lines {
+			f.Lines = append(f.Lines, lineRange{Start: l.Start, End: l.End})
+		}
+		doc.Changed = append(doc.Changed, f)
+	}
+	for _, n := range r.ChangedNodes {
+		doc.ChangedNodes = append(doc.ChangedNodes, nodeJSON{ID: n.ID, File: n.File, Name: n.Name, Start: n.Start, End: n.End})
+	}
+	for i, tests := range [][]graph.Node{r.Round1, r.Round2} {
+		rd := testRound{Round: i + 1, Tests: []testJSON{}, Files: []string{}}
+		seen := map[string]bool{}
+		for _, t := range tests {
+			rd.Tests = append(rd.Tests, testJSON{ID: t.ID, File: t.File, Name: t.Name})
+			if !seen[t.File] {
+				seen[t.File] = true
+				rd.Files = append(rd.Files, t.File)
+			}
+		}
+		doc.Rounds = append(doc.Rounds, rd)
+	}
+	doc.Rounds = append(doc.Rounds, fullSuiteRound{Round: 3, FullSuite: true})
+	for _, n := range r.Untested {
+		doc.Untested = append(doc.Untested, n.ID)
+	}
+	return doc
+}
+
+// graphObjectOf is the `graph` object `rtdd graph --json` and `rtdd which --json` share.
+func graphObjectOf(res *graphbuild.Result) graphObject {
+	obj := graphObject{Source: res.Source, BuiltAtCommit: res.BuiltAtCommit, StaleFiles: len(res.StaleFiles),
+		GraphifyIgnored: res.GraphifyIgnored, Nodes: len(res.Graph.Nodes), Edges: len(res.Graph.Edges)}
+	for _, n := range res.Graph.Nodes {
+		if n.IsTest {
+			obj.Tests++
+		}
+	}
+	return obj
+}
+
+// nonNilStrings guarantees a JSON array rather than null.
+func nonNilStrings(s []string) []string {
+	if s == nil {
+		return []string{}
 	}
 	return s
 }

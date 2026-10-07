@@ -64,13 +64,7 @@ func cmdGraph(args []string, stdout, stderr io.Writer) int {
 		return 3
 	}
 
-	obj := graphObject{Source: res.Source, BuiltAtCommit: res.BuiltAtCommit, StaleFiles: len(res.StaleFiles),
-		GraphifyIgnored: res.GraphifyIgnored, Nodes: len(res.Graph.Nodes), Edges: len(res.Graph.Edges)}
-	for _, n := range res.Graph.Nodes {
-		if n.IsTest {
-			obj.Tests++
-		}
-	}
+	obj := graphObjectOf(res)
 	if *asJSON {
 		b, _ := json.MarshalIndent(graphJSON{Schema: 3, Command: "graph", Graph: obj}, "", "  ")
 		fmt.Fprintln(stdout, string(b))
