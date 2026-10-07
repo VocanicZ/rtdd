@@ -5,8 +5,11 @@
 package graphbuild
 
 import (
+	"errors"
+
 	"github.com/VocanicZ/rtdd/internal/gitctx"
 	"github.com/VocanicZ/rtdd/internal/graph"
+	"github.com/VocanicZ/rtdd/internal/graphify"
 	"github.com/VocanicZ/rtdd/internal/scan"
 )
 
@@ -52,7 +55,64 @@ func Build(root string, cfg graph.Config, opt Options) (*Result, error) {
 	head, _ := gitctx.HeadSHA(root) // "" on an unborn HEAD
 
 	res := &Result{Source: SourceScanner, BuiltAtCommit: head, Scanned: files}
-	res.Graph = scan.Assemble(scan.ScanFiles(root, files))
+	gf, err := graphify.Load(root, cfg.GraphifyPath)
+	switch {
+	case errors.Is(err, graphify.ErrAbsent):
+		res.Graph = scan.Assemble(scan.ScanFiles(root, files))
+	case err != nil:
+		return nil, err
+	default:
+		if err := useGraphify(root, cfg, gf, files, res); err != nil {
+			return nil, err
+		}
+	}
 	graph.Classify(res.Graph.Nodes, cfg)
 	return res, nil
+}
+
+// useGraphify fills res from graphify's graph: the stale files (spec §5 step 1) are
+// read by the scanner and overlaid (steps 2-3), or, when staleness ignores graphify
+// entirely (step 4), the scanner reads every file.
+func useGraphify(root string, cfg graph.Config, gf *graphify.Graph, files []string, res *Result) error {
+	res.GraphifyCommit, res.GraphifyFiles = gf.BuiltAtCommit, len(gf.CodeFiles)
+	changed, err := changedSet(root)
+	if err != nil {
+		return err
+	}
+	stale, reason, err := staleness(root, gf, files, changed, cfg.MaxStaleRatio)
+	if err != nil {
+		return err
+	}
+	if reason != "" {
+		res.GraphifyIgnored = reason
+		res.Graph = scan.Assemble(scan.ScanFiles(root, files))
+		return nil
+	}
+	isStale := map[string]bool{}
+	for _, f := range stale {
+		isStale[f] = true
+	}
+	var toScan []string
+	for _, f := range files {
+		if isStale[f] {
+			toScan = append(toScan, f)
+		}
+	}
+	res.Source, res.BuiltAtCommit, res.StaleFiles, res.Scanned = SourceGraphifyScanner, gf.BuiltAtCommit, stale, toScan
+	res.Graph = Overlay(gf, isStale, scan.ScanFiles(root, toScan))
+	return nil
+}
+
+// changedSet is the working-tree changed set against HEAD as a path set, untracked files
+// included (spec §5 step 1's "current changed set" and "untracked").
+func changedSet(root string) (map[string]bool, error) {
+	cs, err := gitctx.ChangedSet(root, "HEAD")
+	if err != nil {
+		return nil, err
+	}
+	changed := map[string]bool{}
+	for _, c := range cs {
+		changed[c.Path] = true
+	}
+	return changed, nil
 }
