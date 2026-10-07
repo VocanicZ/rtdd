@@ -28,7 +28,11 @@ const graphCacheLine = ".rtdd/graph.json"
 // overwrites someone else's file, and there is no flag that makes it. Marker-delimited
 // targets (AGENTS.md, CLAUDE.md) are merged, which is always safe.
 func Plan(root string, files map[string]string) ([]Step, error) {
-	steps := []Step{}
+	// 0. What a v0.2 init left behind goes first, each removal its own printed step.
+	steps, err := PlanMigration(root)
+	if err != nil {
+		return nil, err
+	}
 
 	// 1. Whole-file targets.
 	whole := map[string]string{
@@ -77,11 +81,16 @@ func Plan(root string, files map[string]string) ([]Step, error) {
 		steps = append(steps, Step{Path: rel, Action: action, Content: merged})
 	}
 
-	// 3. .rtdd/config.yaml — created, never overwritten.
-	cfg := filepath.Join(root, ".rtdd", "config.yaml")
-	if _, err := os.Stat(cfg); os.IsNotExist(err) {
+	// 3. .rtdd/config.yaml — created; replaced only when it is v0.2's (isV02Config).
+	cfg, err := os.ReadFile(filepath.Join(root, ".rtdd", "config.yaml"))
+	switch {
+	case os.IsNotExist(err):
 		steps = append(steps, Step{Path: ".rtdd/config.yaml", Action: Create, Content: DefaultConfig()})
-	} else {
+	case err != nil:
+		return nil, err
+	case isV02Config(cfg):
+		steps = append(steps, Step{Path: ".rtdd/config.yaml", Action: Replace, Content: DefaultConfig(), Note: "the v0.2 config; v0.3.0 reads none of its keys"})
+	default:
 		steps = append(steps, Step{Path: ".rtdd/config.yaml", Action: Skip, Note: "keeping your config"})
 	}
 
@@ -125,6 +134,12 @@ func Apply(root string, steps []Step) error {
 			return fmt.Errorf("%s: %s", s.Path, s.Note)
 		}
 		abs := filepath.Join(root, filepath.FromSlash(s.Path))
+		if s.Action == Delete {
+			if err := os.RemoveAll(abs); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 			return err
 		}

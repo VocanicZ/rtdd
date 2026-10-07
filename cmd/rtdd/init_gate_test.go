@@ -95,7 +95,7 @@ func TestInitNeverRewritesAnExistingConfigToAddTheRecord(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, ".rtdd"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	tuned := "stale_commits: 999\n"
+	tuned := "max_stale_ratio: 0.3\n"
 	cfg := filepath.Join(dir, ".rtdd", "config.yaml")
 	if err := os.WriteFile(cfg, []byte(tuned), 0o644); err != nil {
 		t.Fatalf("write: %v", err)

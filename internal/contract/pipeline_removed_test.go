@@ -32,6 +32,9 @@ var v02StateAllowed = map[string]string{
 	"internal/install/uninstall.go":              "removes the v0.2 merge-driver line from a host repository",
 	"internal/install/uninstall_test.go":         "proves uninstall leaves v0.2 state it does not own",
 	"internal/contract/pipeline_removed_test.go": "this guard",
+	"internal/install/migrate.go":                "rtdd init deletes v0.2 state from a host repository (PRD #411 AC6)",
+	"internal/install/migrate_test.go":           "builds the v0.2 state PlanMigration deletes",
+	"cmd/rtdd/init_migrate_test.go":              "builds the v0.2 repository rtdd init migrates",
 }
 
 // removedAPI matches `<removed package>.<Exported>`: a Go file — comments included — that
