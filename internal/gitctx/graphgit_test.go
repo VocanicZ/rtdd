@@ -30,3 +30,34 @@ func TestDiffNamesSinceCoversCommittedStagedUnstagedAndDeleted(t *testing.T) {
 		t.Errorf("DiffNamesSince = %v, want %v", got, want)
 	}
 }
+
+func TestBlobIDsChangeOnlyWhenACommitChangesTheFile(t *testing.T) {
+	dir := gittest.Init(t)
+	gittest.Write(t, dir, "a.py", "def a():\n    pass\n")
+	gittest.Write(t, dir, "lib/b.py", "def b():\n    pass\n")
+	gittest.Commit(t, dir, "one")
+	first, err := gitctx.BlobIDs(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 2 || len(first["a.py"]) != 40 || len(first["lib/b.py"]) != 40 {
+		t.Fatalf("BlobIDs = %v, want 40-hex ids for a.py and lib/b.py", first)
+	}
+	gittest.Write(t, dir, "a.py", "def a():\n    return 1\n")
+	if again, _ := gitctx.BlobIDs(dir); !reflect.DeepEqual(again, first) {
+		t.Errorf("an uncommitted edit changed BlobIDs: %v -> %v (HEAD's tree is the source)", first, again)
+	}
+	gittest.Commit(t, dir, "two")
+	second, _ := gitctx.BlobIDs(dir)
+	if second["a.py"] == first["a.py"] || second["lib/b.py"] != first["lib/b.py"] {
+		t.Errorf("after committing a.py: %v -> %v; want only a.py's id to change", first, second)
+	}
+}
+
+func TestBlobIDsOnAnUnbornHeadIsEmpty(t *testing.T) {
+	dir := gittest.Init(t)
+	got, err := gitctx.BlobIDs(dir)
+	if err != nil || len(got) != 0 {
+		t.Errorf("BlobIDs(unborn) = %v, %v; want empty, nil", got, err)
+	}
+}

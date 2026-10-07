@@ -1,7 +1,11 @@
 package scan
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -105,4 +109,25 @@ func lastSegment(s string) string {
 		return s[i+1:]
 	}
 	return s
+}
+
+// spanRules versions the language-agnostic rules in scan.go. Bump it with any change to
+// how spans, ownership or edges are computed, so every cached graph is rebuilt.
+const spanRules = "1"
+
+// Fingerprint identifies this scanner: the pattern table, the keyword set, the call-site
+// expressions and the span rules. The graph cache is valid only for the fingerprint that
+// wrote it.
+func Fingerprint() string {
+	h := sha256.New()
+	for _, p := range patterns {
+		fmt.Fprintf(h, "%d %s\n", p.shape, p.re)
+	}
+	keys := make([]string, 0, len(controlKeywords))
+	for k := range controlKeywords {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	fmt.Fprintf(h, "%s\n%s\n%s\n%s\n%s\n%s\n", methodTail, callSite, commandSite, declared, strings.Join(keys, " "), spanRules)
+	return hex.EncodeToString(h.Sum(nil))[:16]
 }
