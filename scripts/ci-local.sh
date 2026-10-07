@@ -69,6 +69,23 @@ case "$listed" in
 esac
 go test -count=1 -run '^TestEveryShippedAdapterIsFullySpecified$' ./internal/contract/
 
+# PRD #410 AC8 (#454): `rtdd which` on this repository with a warm graph cache is under
+# 1 s. `go test ./...` above runs both tests already; this step names the budget and its
+# `-list` guard keeps a renamed or deleted test from passing as zero executed tests.
+echo "==> rtdd which stays interactive on this repository (#454)"
+listed="$(go test -list '^TestWhichOnThisRepositoryWithAWarmCacheIsUnder1s$' ./cmd/rtdd/)"
+case "$listed" in
+  *TestWhichOnThisRepositoryWithAWarmCacheIsUnder1s*) ;;
+  *) echo "the warm rtdd which budget test is gone from ./cmd/rtdd/"; exit 1 ;;
+esac
+go test -count=1 -run '^TestWhichOnThisRepositoryWithAWarmCacheIsUnder1s$' ./cmd/rtdd/
+listed="$(go test -list '^TestRoundsOfEveryLineOfThisRepositoryIsUnder1s$' ./internal/rounds/)"
+case "$listed" in
+  *TestRoundsOfEveryLineOfThisRepositoryIsUnder1s*) ;;
+  *) echo "the Rounds budget test is gone from ./internal/rounds/"; exit 1 ;;
+esac
+go test -count=1 -run '^TestRoundsOfEveryLineOfThisRepositoryIsUnder1s$' ./internal/rounds/
+
 # PRD #368 AC11 (#380): the archives a release would publish, and install.sh driven
 # against them. Both tests below read build/dist, which .gitignore ignores — on a clean
 # checkout nothing fills it, so the snapshot build is what makes them mean anything. It

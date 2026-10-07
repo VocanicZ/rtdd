@@ -161,13 +161,20 @@ func Rounds(g graph.Graph, changed map[string][]LineRange) Result {
 		}
 		return ix.in[id]
 	}
+	// testsOf is memoized: a widely called neighbour is reached from many changed nodes,
+	// and re-walking its callers for each one made a large diff quadratic (#454).
+	tests := map[string][]graph.Node{}
 	testsOf := func(id string) []graph.Node {
+		if out, ok := tests[id]; ok {
+			return out
+		}
 		var out []graph.Node
 		for _, e := range in(id) {
 			if t, ok := ix.byID[e.From]; ok && t.IsTest {
 				out = append(out, t)
 			}
 		}
+		tests[id] = out
 		return out
 	}
 
@@ -192,8 +199,13 @@ func Rounds(g graph.Graph, changed map[string][]LineRange) Result {
 	}
 
 	round2 := map[string]graph.Node{}
+	seen := map[string]bool{}
 	for _, ns := range neighbours {
 		for _, nb := range ns {
+			if seen[nb] {
+				continue
+			}
+			seen[nb] = true
 			for _, t := range testsOf(nb) {
 				if _, in1 := round1[t.ID]; !in1 {
 					round2[t.ID] = t
