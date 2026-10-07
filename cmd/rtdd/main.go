@@ -22,6 +22,7 @@ usage:
   rtdd status [--adapter <path>]
   rtdd which  [--base <ref>] [--json] [--adapter <path>]
   rtdd explain <file>
+  rtdd graph  [--json]
   rtdd doctor [--limit <n>]
   rtdd update [--check] [--version <tag>]
   rtdd skill install   [--dry-run] [--force]
@@ -59,6 +60,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdWhich(args[1:], stdout, stderr)
 	case "explain":
 		return cmdExplain(args[1:], stdout, stderr)
+	case "graph":
+		return cmdGraph(args[1:], stdout, stderr)
 	case "doctor":
 		return cmdDoctor(args[1:], stdout, stderr)
 	case "update":
