@@ -1,5 +1,0 @@
-{
-  "name": "rtdd/fixture-phpunit",
-  "require-dev": { "phpunit/phpunit": "*" },
-  "autoload": { "psr-4": { "Calc\\": "src/" } }
-}

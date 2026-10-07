@@ -1,6 +1,0 @@
-{
-  "name": "rtdd-fixture-vitest",
-  "private": true,
-  "type": "module",
-  "devDependencies": { "vitest": "*", "@vitest/coverage-v8": "*" }
-}

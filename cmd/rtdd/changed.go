@@ -25,16 +25,13 @@ func changedSet(repoRoot, base string) ([]gitctx.Change, error) {
 
 // excludeRtddDir removes rtdd's own writes from a changed set.
 //
-// Every completed run rewrites .rtdd/meta.json (the cycle counter), and .rtdd/ is a
-// COMMITTED directory — map.jsonl is specified as committed, so it cannot be
-// gitignored away. The python adapter classifies `**/*.json` as opaque, so left in,
-// meta.json escalates every run after the first to T1 on nothing the developer
-// touched: the tool would permanently pin its own selections one tier wide.
+// .rtdd/ holds rtdd's config and its graph cache (graph.json, rewritten whenever the
+// graph is rebuilt). Left in, rtdd's own cache write would read as a change the
+// developer made and select on nothing they touched.
 //
-// OldPath is cleared rather than kept, because the selector feeds both Path and
-// OldPath into the changed set: a rename out of .rtdd/ would otherwise smuggle a
-// .rtdd/ path through a Path-only filter. The file itself survives — it is a real
-// user file now.
+// OldPath is cleared rather than kept: a rename out of .rtdd/ would otherwise smuggle a
+// .rtdd/ path through a Path-only filter. The file itself survives — it is a real user
+// file now.
 func excludeRtddDir(in []gitctx.Change) []gitctx.Change {
 	out := make([]gitctx.Change, 0, len(in))
 	for _, c := range in {

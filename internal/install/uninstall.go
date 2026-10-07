@@ -9,6 +9,11 @@ import (
 	"github.com/VocanicZ/rtdd/internal/protocol"
 )
 
+// gitattributesLine is the union merge driver v0.2's `rtdd init` appended to a host
+// repository's .gitattributes for its coverage map. v0.3.0 writes it no more, and
+// uninstall still removes it from a repository a v0.2 init left it in.
+const gitattributesLine = ".rtdd/map.jsonl merge=union"
+
 // RemoveBlock is MergeBlock's inverse: it deletes the marker-delimited rtdd block and
 // leaves every other byte of the host's file where it was.
 //
@@ -62,9 +67,10 @@ type UninstallOptions struct {
 
 // PlanUninstall computes what `rtdd uninstall` would do, without touching the filesystem.
 //
-// It is Plan's inverse and covers exactly what Plan writes: the two whole-file front-ends,
-// the marker block in AGENTS.md and CLAUDE.md, and the .gitattributes line. The binary is
-// not in this list, because a repository is not where the binary lives.
+// It is Plan's inverse and covers what Plan writes — the two whole-file front-ends and the
+// marker block in AGENTS.md and CLAUDE.md — plus the .gitattributes line a v0.2 init
+// wrote. The binary is not in this list, because a repository is not where the binary
+// lives.
 func PlanUninstall(root string, opts UninstallOptions) ([]Step, error) {
 	steps := []Step{}
 

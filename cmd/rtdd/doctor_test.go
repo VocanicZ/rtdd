@@ -7,8 +7,6 @@ import (
 
 func TestDoctorWithAPositionalArgumentIsAUsageError(t *testing.T) {
 	dir := newTestRepo(t)
-	installRTDD(t, dir, headShort(t, dir), 0)
-
 	code, _, stderr := rtdd(t, dir, "doctor", "src/db.py")
 	if code != 2 {
 		t.Errorf("exit code = %d, want 2", code)
@@ -20,8 +18,6 @@ func TestDoctorWithAPositionalArgumentIsAUsageError(t *testing.T) {
 
 func TestDoctorWithAnUnknownFlagIsAUsageError(t *testing.T) {
 	dir := newTestRepo(t)
-	installRTDD(t, dir, headShort(t, dir), 0)
-
 	code, _, stderr := rtdd(t, dir, "doctor", "--frobnicate")
 	if code != 2 {
 		t.Errorf("exit code = %d, want 2", code)

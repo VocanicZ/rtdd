@@ -6,11 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-
-	"github.com/VocanicZ/rtdd/internal/adapter"
-	"github.com/VocanicZ/rtdd/internal/gitctx"
-	"github.com/VocanicZ/rtdd/internal/mapstore"
 )
 
 const usage = `rtdd - relational test-driven development
@@ -31,7 +26,7 @@ usage:
 exit codes:
   0  success - an empty selection is a signal, not a failure
   2  usage or configuration error
-  3  fatal environment error (git unavailable, unreadable coverage)
+  3  fatal environment error (not a git repository, git unavailable, a graph that cannot be built)
 `
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
@@ -83,107 +78,4 @@ func removedCommand(args []string, stderr io.Writer) int {
 	fmt.Fprintf(stderr, "rtdd %s: removed in v0.3.0 — rtdd no longer runs tests or keeps a coverage map.\n"+
 		"Run `rtdd which` and run its rounds with the project's own test command.\n", name)
 	return 2
-}
-
-// env is everything a command needs from the host repository: where it is, and what
-// .rtdd/ currently says about it.
-type env struct {
-	root     string
-	mapPath  string
-	metaPath string
-	adPath   string
-	m        *mapstore.Map
-	meta     mapstore.Meta
-	ad       *adapter.Adapter // nil only when no file was present AND detection resolved nothing
-	// ads is every adapter this repository resolved, since adapter.Detect returns a set
-	// (#309). A named --adapter file, or a .rtdd/adapter.yaml, is a deliberate override
-	// of the whole question and yields exactly one; detection yields as many as matched.
-	// ad is ads[0] and stays the answer for the commands that speak of one adapter.
-	ads []*adapter.Adapter
-	// adDetected records that ad came from detection rather than from adPath, so every
-	// message about the adapter names where it actually came from.
-	adDetected bool
-	// adErr is why detection resolved no adapter. It is the reason the missing-adapter
-	// warning states, so a repo with no recognisable toolchain still says so.
-	adErr error
-}
-
-// adapterSource names where the loaded adapter came from, for human output.
-func (e *env) adapterSource() string {
-	if e.adDetected {
-		return "detected"
-	}
-	return e.adPath
-}
-
-// noAdapterReason explains an absent adapter: either detection ran and found nothing, or
-// no detection was attempted because the configured file is what was missing.
-func (e *env) noAdapterReason() string {
-	if e.adErr != nil {
-		return e.adErr.Error()
-	}
-	return fmt.Sprintf("%s not found", e.adPath)
-}
-
-// loadEnv resolves the repo root and loads .rtdd/. The returned int is the process exit
-// code to use when err is non-nil.
-//
-// An explicit --adapter path is an OVERRIDE, not a hint: a path the caller named and that
-// does not exist is a configuration error, never a silent fall back to detection.
-func loadEnv(adapterPath string, warn io.Writer) (*env, int, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil, 3, err
-	}
-	root, err := gitctx.RepoRoot(wd)
-	if err != nil {
-		return nil, 3, fmt.Errorf("not inside a git work tree, or git is unavailable: %w", err)
-	}
-
-	explicit := adapterPath != ""
-	e := &env{
-		root:     root,
-		mapPath:  mapPath(root),
-		metaPath: metaPath(root),
-		adPath:   adapterPath,
-	}
-	if e.adPath == "" {
-		e.adPath = filepath.Join(".rtdd", "adapter.yaml")
-	}
-
-	// Duplicate `t` lines left by a union merge are resolved with real commit ages.
-	if e.m, err = mapstore.LoadWith(e.mapPath, gitctx.Older(root)); err != nil {
-		return nil, 2, err
-	}
-	if e.meta, err = mapstore.LoadMeta(e.metaPath); err != nil {
-		return nil, 2, err
-	}
-	e.m = currentMap(e.m, e.meta)
-
-	abs := e.adPath
-	if !filepath.IsAbs(abs) {
-		abs = filepath.Join(root, abs)
-	}
-	// Detection replaces the file default (docs/plans/00-interfaces.md:912): `rtdd init`
-	// writes no .rtdd/adapter.yaml, so on the documented setup path the file is absent and
-	// only detection can answer. Without this fallback these commands classified nothing
-	// while `rtdd run` and `rtdd seed`, which call detectAdapters directly, classified the
-	// same repo as python — the advisory command and the executing command disagreeing
-	// about one tree.
-	switch _, statErr := os.Stat(abs); {
-	case statErr == nil:
-		if e.ad, err = adapter.Load(abs); err != nil {
-			return nil, 2, err
-		}
-		e.ads = []*adapter.Adapter{e.ad}
-	case explicit:
-		return nil, 2, fmt.Errorf("--adapter %s: %w", adapterPath, statErr)
-	default:
-		if ads, derr := detectAdapters(root, warn); derr != nil {
-			e.adErr = derr
-		} else {
-			e.ads, e.ad, e.adDetected = ads, ads[0], true
-		}
-	}
-	return e, 0, nil
 }
