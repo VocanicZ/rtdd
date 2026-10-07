@@ -97,9 +97,18 @@ The full regex set lives in one Go file and is the only place language shapes ap
   line before the next non-blank line indented at or below the definition, or at EOF. Nested
   definitions are their own nodes; a line belongs to the **innermost** node containing it.
 - **`method` edge** from a class node to every node nested directly inside it.
-- **`calls` edge** from node A to every node named `X` when `X(` appears as a whole word in
-  A's body (excluding A's own definition line). Same-named definitions are all linked —
-  over-linking is accepted; a direct call is never missed.
+- **`calls` edge** from node A to the nodes named `X` when `X(` appears as a whole word in
+  A's body (excluding A's own definition line). **Own file type first:** if A's file has
+  extension `.e` and any node named `X` lives in a file with extension `.e`, A links to
+  **only** those — a Go call never reaches a Python definition. Otherwise A falls back to
+  every node named `X` whose file's extension **shares a directory** with `.e` somewhere in
+  the graph (some directory holds a node-bearing file of each), which keeps `.ts`→`.js`,
+  `.c`→`.h` and similar cross-extension calls while a name no `.e` file defines — most often
+  a builtin such as Python's `len(` — is not captured by a stray definition in another
+  language. No language list is involved: extensions are compared as strings. Within the
+  chosen set, same-named definitions are all linked — over-linking is accepted. The same
+  rule links the scanner's calls from stale files against the merged graph in the §5
+  overlay (step 3's re-pointing stays within one file, so one extension).
 
 ### 4.4 Fixture corpus
 

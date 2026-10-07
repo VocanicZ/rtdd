@@ -171,9 +171,15 @@ func ScanFile(rel string, src []byte) FileResult {
 	return res
 }
 
-// Link makes the calls edges: from each caller to EVERY node bearing a name it calls
-// (spec §4.3 — over-linking is accepted; a direct call is never missed). nodes is the
-// whole graph's node set, whichever source produced each node. No self edges.
+// Link makes the calls edges: from each caller to every node bearing a name it calls
+// (spec §4.3 — over-linking is accepted; a direct call is never missed). When nodes of
+// that name exist in files of the caller's own extension only those are linked, since a
+// call cannot cross into another language. Otherwise the call links to every node of
+// that name whose extension shares a directory with the caller's somewhere in the graph
+// (`.ts` -> `.js`, `.c` -> `.h`): files that call each other across extensions live
+// together, while a name no file of the caller's type defines is most often a builtin
+// (`len(` in Python) that a stray definition elsewhere must not capture.
+// nodes is the whole graph's node set, whichever source produced each node. No self edges.
 func Link(nodes []graph.Node, calls map[string][]string) []graph.Edge {
 	g := graph.Graph{Edges: link(nodes, calls)}
 	graph.Sort(&g)
@@ -182,15 +188,48 @@ func Link(nodes []graph.Node, calls map[string][]string) []graph.Edge {
 
 // link is Link unsorted, for a caller that sorts the whole graph once afterwards.
 func link(nodes []graph.Node, calls map[string][]string) []graph.Edge {
+	type extName struct{ ext, name string }
 	byName := map[string][]string{}
+	byExtName := map[extName][]string{}
+	extOf := map[string]string{}
+	dirs := map[string]map[string]bool{} // extension -> directories holding a node of it
 	for _, n := range nodes {
+		ext := filepath.Ext(n.File)
+		extOf[n.ID] = ext
 		byName[n.Name] = append(byName[n.Name], n.ID)
+		byExtName[extName{ext, n.Name}] = append(byExtName[extName{ext, n.Name}], n.ID)
+		if dirs[ext] == nil {
+			dirs[ext] = map[string]bool{}
+		}
+		dirs[ext][filepath.Dir(n.File)] = true
+	}
+	together := map[[2]string]bool{}
+	sharesDir := func(a, b string) bool {
+		k := [2]string{a, b}
+		if v, ok := together[k]; ok {
+			return v
+		}
+		v := false
+		for d := range dirs[a] {
+			if dirs[b][d] {
+				v = true
+				break
+			}
+		}
+		together[k] = v
+		return v
 	}
 	var out []graph.Edge
 	for from, names := range calls {
+		ext := extOf[from]
 		for _, name := range names {
-			for _, to := range byName[name] {
-				if to != from {
+			targets := byExtName[extName{ext, name}]
+			fallback := len(targets) == 0
+			if fallback {
+				targets = byName[name]
+			}
+			for _, to := range targets {
+				if to != from && (!fallback || sharesDir(ext, extOf[to])) {
 					out = append(out, graph.Edge{From: from, To: to, Relation: graph.RelCalls})
 				}
 			}

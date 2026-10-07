@@ -12,6 +12,7 @@ import (
 	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
 	"github.com/VocanicZ/rtdd/internal/graph"
 	"github.com/VocanicZ/rtdd/internal/graphify"
+	"github.com/VocanicZ/rtdd/internal/scan"
 )
 
 // gfNode is one graphify code node: a function `name()` at line in file.
@@ -194,5 +195,21 @@ func TestStaleSetSources(t *testing.T) {
 				t.Errorf("StaleSet = %v, want %v", got, c.want)
 			}
 		})
+	}
+}
+
+// Issue #467: the scanner's calls from a stale file are linked by the same rule as the
+// scanner's own graph — a Go call reaches graphify's Go `Parse`, not its Python one.
+func TestOverlayLinksAStaleFilesCallsToItsOwnFileTypeFirst(t *testing.T) {
+	gf := &graphify.Graph{Nodes: []graph.Node{
+		{ID: "util_go_parse", File: "util.go", Name: "Parse", Kind: graph.KindFunc, Start: 3, End: 3},
+		{ID: "util_py_parse", File: "util.py", Name: "Parse", Kind: graph.KindFunc, Start: 1, End: 1},
+	}}
+	stale := map[string]bool{"main.go": true}
+	scanned := []scan.FileResult{scan.ScanFile("main.go", []byte("package util\n\nfunc Run() int {\n\treturn Parse(\"x\")\n}\n"))}
+	g := Overlay(gf, stale, scanned)
+	want := []graph.Edge{{From: "main.go::Run", To: "util_go_parse", Relation: graph.RelCalls}}
+	if !reflect.DeepEqual(g.Edges, want) {
+		t.Errorf("edges = %v\nwant %v", g.Edges, want)
 	}
 }
