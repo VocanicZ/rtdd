@@ -213,3 +213,32 @@ func TestOverlayLinksAStaleFilesCallsToItsOwnFileTypeFirst(t *testing.T) {
 		t.Errorf("edges = %v\nwant %v", g.Edges, want)
 	}
 }
+
+// #471, spec §5 step 1: a file committed between Options.Base and graphify's
+// built_at_commit is in the current changed set, so it is stale and its nodes come from
+// the scanner with full spans; with no Base (HEAD), the same fresh graphify is trusted.
+func TestBuildBaseMakesFilesChangedAgainstItStale(t *testing.T) {
+	root := repo(t, overlayProject)
+	gittest.Write(t, root, "src/calc.py", strings.Replace(overlayProject["src/calc.py"], "return a + b", "return b + a", 1))
+	gittest.Commit(t, root, "edit add")
+	overlayGraphify(t, root)
+
+	if res := build(t, root); len(res.StaleFiles) != 0 {
+		t.Errorf("against HEAD, StaleFiles = %v, want none", res.StaleFiles)
+	}
+	res, err := Build(root, graph.DefaultConfig(), Options{Base: "HEAD~1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Source != SourceGraphifyScanner || !reflect.DeepEqual(res.StaleFiles, []string{"src/calc.py"}) {
+		t.Fatalf("Source %q, StaleFiles %v; want graphify+scanner with src/calc.py stale", res.Source, res.StaleFiles)
+	}
+	for _, n := range res.Graph.Nodes {
+		if n.ID == "src/calc.py::add" && (n.Start != 1 || n.End != 2) {
+			t.Errorf("add spans %d-%d, want the scanner's 1-2", n.Start, n.End)
+		}
+	}
+	if _, err := Build(root, graph.DefaultConfig(), Options{Base: "no-such-ref"}); err == nil {
+		t.Error("an unknown Base should be an error")
+	}
+}

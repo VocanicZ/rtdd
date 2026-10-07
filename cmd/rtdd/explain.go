@@ -37,7 +37,7 @@ func cmdExplain(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "rtdd explain: %v\n", err)
 		return 3
 	}
-	_, res, code, err := buildGraph(root)
+	_, res, code, err := buildGraph(root, "")
 	if err != nil {
 		fmt.Fprintf(stderr, "rtdd explain: %v\n", err)
 		return code
