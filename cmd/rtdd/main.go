@@ -18,7 +18,7 @@ const usage = `rtdd - relational test-driven development
 usage:
   rtdd init
   rtdd which  [--base <ref>] [--json]
-  rtdd explain <file>
+  rtdd explain <file[:line]|name>
   rtdd graph  [--json]
   rtdd doctor
   rtdd update [--check] [--version <tag>]
