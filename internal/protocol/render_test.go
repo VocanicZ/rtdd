@@ -32,8 +32,8 @@ uncovered body
 empty body
 <!-- rtdd:endsection -->
 
-<!-- rtdd:section id=fidelity title="Selection fidelity" targets=skill,agents,mdc,global,global-agents order=55 -->
-fidelity body
+<!-- rtdd:section id=graphify title="graphify is optional" targets=skill,agents,mdc,global,global-agents order=55 -->
+graphify body
 <!-- rtdd:endsection -->
 
 <!-- rtdd:section id=json title="JSON output" targets=skill,global order=60 -->

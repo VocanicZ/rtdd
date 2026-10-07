@@ -53,6 +53,15 @@ When Rounds 1 and 2 are empty, `rtdd which` prints `no linked test`. Read it as 
 that — no linked test, never a pass: nothing in the graph links a test to the code you
 changed. Write the test the change needs. Round 3 still runs the full suite once at the end.
 
+## graphify is optional
+
+rtdd's own scanner builds the graph, and needs nothing installed. graphify is optional: its
+graph is used when `graphify-out/graph.json` exists (`graphify_path` in `.rtdd/config.yaml`
+moves it). It is never trusted for changed files — rtdd rescans every file that changed
+since graphify built its graph, and ignores the graph entirely, saying so, when more than
+half of it is stale. graphify is never run by rtdd: if you want its graph, run or update
+graphify yourself.
+
 ## JSON output
 
 `rtdd which --json` emits one object, schema 3:

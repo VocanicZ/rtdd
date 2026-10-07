@@ -80,6 +80,19 @@ Empty Rounds 1 and 2 print `no linked test`: no linked test, never a pass.
 <!-- rtdd:endvariant -->
 <!-- rtdd:endsection -->
 
+<!-- rtdd:section id=graphify title="graphify is optional" targets=skill,agents,mdc,global,global-agents order=50 -->
+rtdd's own scanner builds the graph, and needs nothing installed. graphify is optional: its
+graph is used when `graphify-out/graph.json` exists (`graphify_path` in `.rtdd/config.yaml`
+moves it). It is never trusted for changed files — rtdd rescans every file that changed
+since graphify built its graph, and ignores the graph entirely, saying so, when more than
+half of it is stale. graphify is never run by rtdd: if you want its graph, run or update
+graphify yourself.
+<!-- rtdd:variant target=agents -->
+graphify is optional: used when `graphify-out/graph.json` exists, never trusted for changed
+files, and never run by rtdd — run or update it yourself if you want it.
+<!-- rtdd:endvariant -->
+<!-- rtdd:endsection -->
+
 <!-- rtdd:section id=json title="JSON output" targets=skill,global order=60 -->
 `rtdd which --json` emits one object, schema 3:
 
