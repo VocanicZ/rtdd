@@ -156,14 +156,15 @@ class ReplayOptions:
 
 
 def strategy_order(ids: Sequence[str]) -> list[str]:
-    """`rtdd` first, `random` then `full` last.
+    """`rtdd` first, `rtdd-r12` straight after it, `random` then `full` last.
 
     `random` is ratio-matched against RTDD's selection size, so RTDD has to have
-    answered before it runs. `full` goes last because it is the most expensive and
-    its answer never depends on a peer.
+    answered before it runs. `rtdd-r12` answers from the graph `rtdd`'s `prepare`
+    built, so it follows its peer directly. `full` goes last because it is the most
+    expensive and its answer never depends on a peer.
     """
-    rest = [i for i in ids if i not in ("rtdd", "random", "full")]
-    out = [i for i in ids if i == "rtdd"] + sorted(rest)
+    rest = [i for i in ids if i not in ("rtdd", "rtdd-r12", "random", "full")]
+    out = [i for i in ids if i == "rtdd"] + [i for i in ids if i == "rtdd-r12"] + sorted(rest)
     out += [i for i in ids if i == "random"]
     out += [i for i in ids if i == "full"]
     return out
@@ -316,10 +317,11 @@ def replay_repo(
                 f"unfrozen pin."
             )
 
-    # `random` is seeded from the config and `rtdd` is bound to the binary under
-    # test, so both are re-registered with this run's parameters.
+    # `random` is seeded from the config and both rtdd arms are bound to the binary
+    # under test, so all three are re-registered with this run's parameters.
     sbase.register(RandomRatio(seed=cfg.random_seed))
     sbase.register(_rtdd.Rtdd(binary=opts.rtdd_binary))
+    sbase.register(_rtdd.RtddRounds12(binary=opts.rtdd_binary))
 
     out = ReplayOutput()
     python = opts.python or sys.executable
