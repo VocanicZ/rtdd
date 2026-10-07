@@ -3,6 +3,7 @@ package gitctx
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +12,10 @@ import (
 	"strconv"
 	"strings"
 )
+
+// ErrUnknownBase is ChangedSet's error for a base that names no commit, so a caller can
+// tell the user's typo (a usage error) from git failing (an environment error).
+var ErrUnknownBase = errors.New("unknown base")
 
 // ChangedSet returns the union of `git diff --name-only --unified=0 <base>` and
 // `git status --porcelain -uall`. Untracked files are included (Status=Added with the
@@ -27,7 +32,7 @@ func ChangedSet(repoRoot, base string) ([]Change, error) {
 	hasBase := true
 	if _, err := git(repoRoot, "rev-parse", "--verify", "-q", base+"^{commit}"); err != nil {
 		if base != "HEAD" {
-			return nil, fmt.Errorf("gitctx: unknown base %q", base)
+			return nil, fmt.Errorf("gitctx: %w %q", ErrUnknownBase, base)
 		}
 		hasBase = false // a repository with no commits yet
 	}

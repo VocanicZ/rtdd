@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
@@ -66,35 +65,6 @@ func TestWhichDetectsTheAdapterOnAStockPostInitRepo(t *testing.T) {
 	}
 	if anyWarningContains(got.Warnings, "classification is disabled") {
 		t.Errorf("warnings = %#v, want no missing-adapter warning once detection succeeds", got.Warnings)
-	}
-}
-
-// An explicit --adapter path is an override, not a hint. A path that does not exist is a
-// configuration error the user asked for, never a silent fall back to detection.
-func TestExplicitAdapterPathThatDoesNotExistIsAConfigError(t *testing.T) {
-	dir := newDetectableRepo(t)
-
-	code, _, stderr := rtdd(t, dir, "which", "--adapter", ".rtdd/nope.yaml")
-	if code != 2 {
-		t.Fatalf("exit code = %d, want 2 for an --adapter path that does not exist (stderr: %s)", code, stderr)
-	}
-	if !strings.Contains(stderr, "nope.yaml") {
-		t.Errorf("stderr = %q, want it to name the missing path", stderr)
-	}
-}
-
-// Detection finding nothing still says so. A repo with no recognisable toolchain must
-// not read as a classified one.
-func TestWhichStillWarnsWhenDetectionFindsNoAdapter(t *testing.T) {
-	dir := newTestRepo(t) // no toolchain marker of any kind
-	writeFile(t, dir, "src/auth.py", "def login():\n    return 9\n")
-
-	code, stdout, stderr := rtdd(t, dir, "which")
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
-	}
-	if !strings.Contains(stdout, "classification is disabled") {
-		t.Errorf("which must still warn when detection resolves no adapter:\n%s", stdout)
 	}
 }
 

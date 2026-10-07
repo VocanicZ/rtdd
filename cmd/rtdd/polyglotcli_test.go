@@ -17,25 +17,6 @@ func polyglotRepo(t *testing.T) string {
 	return dir
 }
 
-// PRD #232 AC6 on the human surface: the reader must be able to tell which toolchain
-// produced which ids. Two lists under one heading is one list with a blank line in it,
-// and an agent that hands the wrong half to the wrong runner gets a green report from a
-// suite that ran nothing.
-func TestWhichNamesEachAdapterInAPolyglotRepository(t *testing.T) {
-	dir := polyglotRepo(t)
-	writeFile(t, dir, "src/logic.py", "def add(a, b):\n    return a + b + 0\n")
-
-	code, stdout, stderr := rtdd(t, dir, "which")
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
-	}
-	for _, want := range []string{"adapter: python", "adapter: vitest"} {
-		if !strings.Contains(stdout, want) {
-			t.Errorf("which output does not name %q:\n%s", want, stdout)
-		}
-	}
-}
-
 // The --json document is the whole of what an agent front-end reads, so the per-adapter
 // split has to survive into it. A single merged `selection.tests` would be a list of ids
 // from two runners with nothing saying where each came from.

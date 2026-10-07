@@ -1,6 +1,7 @@
 package gitctx
 
 import (
+	"errors"
 	"reflect"
 	"sort"
 	"testing"
@@ -222,8 +223,16 @@ func TestChangedSetUnknownBaseIsAnError(t *testing.T) {
 	write(t, dir, "src/a.py", "a = 1\n")
 	commit(t, dir, "one")
 
-	if _, err := ChangedSet(dir, "no-such-ref"); err == nil {
+	_, err := ChangedSet(dir, "no-such-ref")
+	if err == nil {
 		t.Fatal("ChangedSet against an unknown base returned nil error")
+	}
+	// rtdd which exits 2 (the user's typo) on this error and 3 on every other one.
+	if !errors.Is(err, ErrUnknownBase) {
+		t.Errorf("ChangedSet unknown-base error %v does not wrap ErrUnknownBase", err)
+	}
+	if want := `gitctx: unknown base "no-such-ref"`; err.Error() != want {
+		t.Errorf("error text = %q, want %q", err.Error(), want)
 	}
 }
 
