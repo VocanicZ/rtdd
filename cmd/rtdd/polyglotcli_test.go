@@ -82,22 +82,3 @@ func TestWhichJSONOmitsSelectionsForASingleAdapter(t *testing.T) {
 		t.Errorf("adapter = %q, want python", out.Adapter)
 	}
 }
-
-// `rtdd run` reports which adapter produced each selection for the same reason `which`
-// does: it is the command an agent actually calls, and its tier line is the only place
-// the split is visible before the tests run.
-func TestRunNamesEachAdapterInAPolyglotRepository(t *testing.T) {
-	dir := polyglotRepo(t)
-	writeFile(t, dir, "src/logic.ts", "export const add = (a: number, b: number) => a + b + 0;\n")
-	chdir(t, dir)
-
-	// The exit code is not the subject here — neither toolchain is installed in the
-	// fixture — and the tier lines are printed before either runner is invoked.
-	out := captureStdout(t, func() { cmdRun(nil) })
-
-	for _, want := range []string{"adapter: python", "adapter: vitest"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("run output does not name %q:\n%s", want, out)
-		}
-	}
-}

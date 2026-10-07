@@ -22,6 +22,7 @@ from replay.replay import (
     replay_repo,
     strategy_order,
 )
+from tests.v02binary import requires_v02_rtdd
 
 ADD = "tests/test_alpha.py::test_add"
 MUL = "tests/test_beta.py::test_mul"
@@ -755,6 +756,7 @@ def test_the_parallel_baselines_subset_runs_are_actually_parallel(
     assert parallel.isdisjoint(serial)
 
 
+@requires_v02_rtdd
 def test_a_base_tree_rtdd_refuses_to_seed_is_skipped_not_fatal(synth, cache_root, monkeypatch):
     """A parent tree the tool under test will not seed is data, not an abort.
 

@@ -137,10 +137,10 @@ func cmdInit(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// RenderNextStep is the line `rtdd init` closes with: every adapter records coverage, so
-// the next step is always to seed.
+// RenderNextStep is the line `rtdd init` closes with. v0.3.0 has no seed step: the graph
+// is built on first use, so the next step is to edit code and ask `rtdd which`.
 func RenderNextStep() string {
-	return "\nNext: run `rtdd seed` once to build .rtdd/map.jsonl, then commit it.\n"
+	return "\nNext: edit code, then run `rtdd which` for the tests to run, in rounds.\n"
 }
 
 // adapterRecords is what spec §5 has init record in a newly created .rtdd/config.yaml:

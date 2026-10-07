@@ -23,6 +23,7 @@ from replay.gitwork import Change
 from replay.rtddio import WhichResult
 from replay.strategies.base import CommitContext, get
 from replay.strategies.rtdd import Rtdd
+from tests.v02binary import requires_v02_rtdd
 
 ALL = ("tests/test_alpha.py::test_add", "tests/test_beta.py::test_mul")
 
@@ -130,6 +131,7 @@ def test_the_rtdd_strategy_is_registered_under_its_plan_id():
 
 
 @pytest.mark.skipif(shutil.which("rtdd") is None, reason="rtdd binary not on PATH")
+@requires_v02_rtdd
 def test_verified_against_the_synthetic_repo(synth, monkeypatch):
     """End to end on the synth fixture: seed at c2, edit alpha, select test_add."""
     # PYTHONPATH is environment setup the orchestrator owns, not a tuning flag.

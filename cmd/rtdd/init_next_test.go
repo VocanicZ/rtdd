@@ -1,7 +1,6 @@
 package main
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
@@ -22,20 +21,4 @@ func newPolyglotRepo(t *testing.T) string {
 	gittest.Write(t, dir, ".gitignore", ".rtdd/\n")
 	gittest.Commit(t, dir, "init")
 	return dir
-}
-
-// The Python-only path is unchanged, word for word: seeding really is the next step for
-// an adapter that records coverage.
-func TestInitInACoverageRepoKeepsTheSeedNextStep(t *testing.T) {
-	dir := newDetectableRepo(t)
-	fixLookPath(t)
-
-	code, stdout, stderr := rtdd(t, dir, "init")
-	if code != 0 {
-		t.Fatalf("rtdd init = %d, want 0 (stderr: %s)", code, stderr)
-	}
-	const want = "Next: run `rtdd seed` once to build .rtdd/map.jsonl, then commit it."
-	if !strings.Contains(stdout, want) {
-		t.Errorf("stdout does not contain %q:\n%s", want, stdout)
-	}
 }

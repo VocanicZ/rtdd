@@ -135,69 +135,6 @@ func captureStdout(t *testing.T, f func()) string {
 	return out
 }
 
-// The regression this issue is about, end to end against real pytest: seed, change
-// ONE source file, run twice. The second run's only new dirt is rtdd's own
-// meta.json rewrite, so it must report exactly the tier the first one did.
-func TestCmdRunTierIsStableAcrossConsecutiveRuns(t *testing.T) {
-	repo := realRepo(t)
-	chdir(t, repo)
-	if code := cmdSeed(nil, io.Discard, io.Discard); code != 1 {
-		t.Fatalf("cmdSeed = %d, want 1", code)
-	}
-	touchLogic(t, repo)
-
-	var lines []string
-	for i := 1; i <= 2; i++ {
-		out := captureStdout(t, func() {
-			if code := cmdRun(nil); code != 0 && code != 1 {
-				t.Errorf("cmdRun #%d = %d, want 0 or 1", i, code)
-			}
-		})
-		line := tierLine(t, out)
-		if !strings.HasPrefix(line, "tier T0:") {
-			t.Errorf("run #%d reported %q, want tier T0 — only src/logic.py changed", i, line)
-		}
-		if strings.Contains(line, ".rtdd") {
-			t.Errorf("run #%d reason names rtdd's own bookkeeping: %q", i, line)
-		}
-		lines = append(lines, line)
-	}
-	if lines[0] != lines[1] {
-		t.Errorf("two runs over the same source change disagree:\n #1 %s\n #2 %s", lines[0], lines[1])
-	}
-}
-
-// The filter must not blunt the real signal: a user-authored .json is still an
-// opaque change and still escalates.
-func TestCmdRunStillEscalatesOnAUserAuthoredJSON(t *testing.T) {
-	repo := realRepo(t)
-	chdir(t, repo)
-	if code := cmdSeed(nil, io.Discard, io.Discard); code != 1 {
-		t.Fatalf("cmdSeed = %d, want 1", code)
-	}
-	touchLogic(t, repo)
-	data := filepath.Join(repo, "fixtures", "data.json")
-	if err := os.MkdirAll(filepath.Dir(data), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if err := os.WriteFile(data, []byte("{\"a\": 1}\n"), 0o644); err != nil {
-		t.Fatalf("write data.json: %v", err)
-	}
-
-	out := captureStdout(t, func() {
-		if code := cmdRun(nil); code != 0 && code != 1 {
-			t.Errorf("cmdRun = %d, want 0 or 1", code)
-		}
-	})
-	line := tierLine(t, out)
-	if !strings.HasPrefix(line, "tier T1:") {
-		t.Errorf("reported %q, want tier T1 — a user-authored opaque .json changed", line)
-	}
-	if !strings.Contains(line, "fixtures/data.json") {
-		t.Errorf("reported %q, want the reason to name fixtures/data.json", line)
-	}
-}
-
 func tierLine(t *testing.T, out string) string {
 	t.Helper()
 	for _, line := range strings.Split(out, "\n") {

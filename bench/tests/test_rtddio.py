@@ -25,6 +25,7 @@ from replay.rtddio import (
     parse_which,
     read_cycles,
 )
+from tests.v02binary import requires_v02_rtdd
 
 # A trimmed but structurally faithful `rtdd which --base HEAD --json` document,
 # schema v2 (cmd/rtdd/jsonout.go). Real output carries every changed path
@@ -497,6 +498,7 @@ def test_rtdd_version_raises_when_the_binary_is_missing(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("rtdd") is None, reason="rtdd binary not on PATH")
+@requires_v02_rtdd
 def test_real_binary_honours_the_consumed_schema(synth, monkeypatch):
     # The adapter's `pytest` is the console script, which does not put the repo
     # root on sys.path the way `python -m pytest` does; PYTHONPATH is environment
