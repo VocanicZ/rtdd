@@ -28,8 +28,8 @@ func RenderUninstall(steps []install.Step) string {
 //
 // It removes what init wrote into THIS REPOSITORY — the Claude Code skill, the Cursor
 // rule, rtdd's marker block in AGENTS.md and CLAUDE.md, and the .gitattributes line — and
-// stops there. Two things it leaves unless asked: .rtdd/, because the recorded map is the
-// expensive thing to rebuild, and the binary, because a repository is not where the binary
+// stops there. Two things it leaves unless asked: .rtdd/, because the config in it may be
+// tuned by hand, and the binary, because a repository is not where the binary
 // lives.
 //
 // AGENTS.md and CLAUDE.md belong to the host project. A file rtdd cannot read
@@ -39,7 +39,7 @@ func cmdUninstall(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("uninstall", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dryRun := fs.Bool("dry-run", false, "print the plan and change nothing")
-	state := fs.Bool("state", false, "also remove .rtdd/ — the config and the recorded map")
+	state := fs.Bool("state", false, "also remove .rtdd/ — the config and the graph cache")
 	binary := fs.Bool("binary", false, "also delete the installed rtdd binary")
 	global := fs.Bool("global", false, "also remove the machine-wide agent front-ends `rtdd skill install` wrote")
 	if err := fs.Parse(args); err != nil {

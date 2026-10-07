@@ -127,7 +127,7 @@ func TestPlanConfigIsCreatedOnceThenNeverOverwritten(t *testing.T) {
 	if err := Apply(root, steps); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".rtdd", "config.yaml"), []byte("stale_commits: 999\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".rtdd", "config.yaml"), []byte("max_stale_ratio: 0.3\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	again, err := Plan(root, fakeFiles())

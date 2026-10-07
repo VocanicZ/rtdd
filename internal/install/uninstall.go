@@ -59,9 +59,9 @@ func RemoveBlock(existing string) (string, Action, error) {
 
 // UninstallOptions selects how much of rtdd's footprint to take out.
 type UninstallOptions struct {
-	// State also removes .rtdd/, which holds the config and the recorded coverage map.
-	// Off by default: the map is the expensive thing to rebuild, and removing the agent
-	// front-ends is not a request to throw away a seed run.
+	// State also removes .rtdd/, which holds the config and the graph cache.
+	// Off by default: the config may be tuned by hand, and removing the agent front-ends
+	// is not a request to throw it away.
 	State bool
 }
 
@@ -127,13 +127,13 @@ func PlanUninstall(root string, opts UninstallOptions) ([]Step, error) {
 	rtddDir := filepath.Join(root, ".rtdd")
 	switch _, err := os.Stat(rtddDir); {
 	case !opts.State:
-		steps = append(steps, Step{Path: ".rtdd/", Action: Skip, Note: "kept; --state removes the config and the recorded map"})
+		steps = append(steps, Step{Path: ".rtdd/", Action: Skip, Note: "kept; --state removes the config and the graph cache"})
 	case os.IsNotExist(err):
 		steps = append(steps, Step{Path: ".rtdd/", Action: Skip, Note: "not present"})
 	case err != nil:
 		return nil, err
 	default:
-		steps = append(steps, Step{Path: ".rtdd/", Action: Delete, Note: "config and recorded map"})
+		steps = append(steps, Step{Path: ".rtdd/", Action: Delete, Note: "config and graph cache"})
 	}
 
 	return steps, nil
