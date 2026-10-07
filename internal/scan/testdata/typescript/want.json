@@ -1,0 +1,26 @@
+{
+  "nodes": [
+    {"id": "calc.test.ts::calc", "name": "calc", "kind": "test", "start": 4, "end": 12},
+    {"id": "calc.test.ts::calc::adds", "name": "adds", "kind": "test", "start": 5, "end": 7},
+    {"id": "calc.test.ts::calc::sums", "name": "sums", "kind": "test", "start": 9, "end": 11},
+    {"id": "calc.test.ts::clamps", "name": "clamps", "kind": "test", "start": 14, "end": 16},
+    {"id": "calc.ts::add", "name": "add", "kind": "func", "start": 1, "end": 3},
+    {"id": "calc.ts::sum", "name": "sum", "kind": "func", "start": 5, "end": 11},
+    {"id": "calc.ts::twice", "name": "twice", "kind": "func", "start": 13, "end": 15},
+    {"id": "calc.ts::Acc", "name": "Acc", "kind": "class", "start": 17, "end": 29},
+    {"id": "calc.ts::Acc::push", "name": "push", "kind": "method", "start": 20, "end": 22},
+    {"id": "calc.ts::Acc::of", "name": "of", "kind": "method", "start": 24, "end": 28},
+    {"id": "util.js::clamp", "name": "clamp", "kind": "func", "start": 3, "end": 5},
+    {"id": "util.js::double", "name": "double", "kind": "func", "start": 7, "end": 7}
+  ],
+  "calls": [
+    {"from": "calc.test.ts::calc::adds", "to": "calc.ts::add"},
+    {"from": "calc.test.ts::calc::sums", "to": "calc.ts::sum"},
+    {"from": "calc.test.ts::clamps", "to": "util.js::clamp"},
+    {"from": "calc.ts::Acc::of", "to": "calc.ts::Acc"},
+    {"from": "calc.ts::Acc::of", "to": "calc.ts::Acc::push"},
+    {"from": "calc.ts::Acc::push", "to": "calc.ts::add"},
+    {"from": "calc.ts::sum", "to": "calc.ts::add"},
+    {"from": "calc.ts::twice", "to": "calc.ts::add"}
+  ]
+}

@@ -46,3 +46,13 @@ func TestEverySameNamedDefinitionIsCalledButNotFromTheDefinitionLine(t *testing.
 		t.Errorf("Link = %v\nwant %v", got, want)
 	}
 }
+
+// A keyword is a call statement's opener only when it stands alone: after `.` or `::` it is
+// a member or path segment, so `Calc::new()` and `p.delete()` are calls that must not be
+// missed (spec §4.3), while a bare `new(` or `return(` is still no call.
+func TestAQualifiedNameIsACallEvenWhenItIsAKeyword(t *testing.T) {
+	r := ScanFile("lib.rs", []byte("fn make() {\n    let c = Calc::new();\n    store.delete(c);\n    return(c);\n}\n"))
+	if got, want := r.Calls["lib.rs::make"], []string{"delete", "new"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("make calls %v, want %v", got, want)
+	}
+}
