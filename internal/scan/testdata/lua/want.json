@@ -1,0 +1,17 @@
+{
+  "nodes": [
+    {"id": "calc.lua::add", "name": "add", "kind": "func", "start": 3, "end": 4},
+    {"id": "calc.lua::load", "name": "load", "kind": "func", "start": 7, "end": 9},
+    {"id": "calc.lua::push", "name": "push", "kind": "func", "start": 12, "end": 14},
+    {"id": "calc.lua::total", "name": "total", "kind": "func", "start": 17, "end": 22},
+    {"id": "calc.lua::new", "name": "new", "kind": "func", "start": 25, "end": 26},
+    {"id": "calc_spec.lua::calc", "name": "calc", "kind": "test", "start": 3, "end": 7},
+    {"id": "calc_spec.lua::calc::totals a list", "name": "totals a list", "kind": "test", "start": 4, "end": 6}
+  ],
+  "calls": [
+    {"from": "calc.lua::push", "to": "calc.lua::add"},
+    {"from": "calc.lua::total", "to": "calc.lua::new"},
+    {"from": "calc.lua::total", "to": "calc.lua::push"},
+    {"from": "calc_spec.lua::calc::totals a list", "to": "calc.lua::total"}
+  ]
+}

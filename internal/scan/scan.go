@@ -26,6 +26,15 @@ type FileResult struct {
 // callSite is `X(` with X a whole word.
 var callSite = regexp.MustCompile(`[A-Za-z_$][\w$]*\(`)
 
+// commandSite is a word in command position — the first word of a statement, followed by
+// an argument or nothing — as in `add 1 2` (shell) or `helper x` (Ruby). An assignment
+// (`x = 1`, `x := f()`), a member access or a literal (`Calc { total: 0 }`) is not one.
+var commandSite = regexp.MustCompile(`(?:^|;|&&|\|\||\||\$\(|` + "`" + `)\s*([A-Za-z_][\w]*)(?:\s+[^\s=:+\-*/%<>!&|^.,;)\]{}]|\s*$)`)
+
+// declared is what follows a declaration's leading word — `let c = …`, `let c: T`,
+// `Calc c = …` — so the word is a keyword or a type, not a command.
+var declared = regexp.MustCompile(`^\s+[A-Za-z_]\w*\s*(?::|=(?:[^=~]|$))`)
+
 type def struct {
 	name   string
 	shape  shape
@@ -124,6 +133,16 @@ func ScanFile(rel string, src []byte) FileResult {
 			// After `.` or `:` a keyword is a member or path segment (`Calc::new()`), a call.
 			qualified := loc[0] > 0 && (line[loc[0]-1] == '.' || line[loc[0]-1] == ':')
 			if controlKeywords[name] && !qualified || strings.Trim(name, "$") == "" {
+				continue
+			}
+			if called[o] == nil {
+				called[o] = map[string]bool{}
+			}
+			called[o][name] = true
+		}
+		for _, m := range commandSite.FindAllStringSubmatchIndex(line, -1) {
+			name := line[m[2]:m[3]]
+			if controlKeywords[name] || declared.MatchString(line[m[3]:]) {
 				continue
 			}
 			if called[o] == nil {

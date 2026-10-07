@@ -1,0 +1,17 @@
+{
+  "nodes": [
+    {"id": "calc.sh::add", "name": "add", "kind": "func", "start": 3, "end": 5},
+    {"id": "calc.sh::double", "name": "double", "kind": "func", "start": 7, "end": 9},
+    {"id": "calc.sh::total", "name": "total", "kind": "func", "start": 11, "end": 17},
+    {"id": "test/calc_test.sh::test_add", "name": "test_add", "kind": "func", "start": 4, "end": 6},
+    {"id": "test/calc_test.sh::test_double", "name": "test_double", "kind": "func", "start": 8, "end": 10},
+    {"id": "test/calc_test.sh::test_total", "name": "test_total", "kind": "func", "start": 12, "end": 14}
+  ],
+  "calls": [
+    {"from": "calc.sh::double", "to": "calc.sh::add"},
+    {"from": "calc.sh::total", "to": "calc.sh::add"},
+    {"from": "test/calc_test.sh::test_add", "to": "calc.sh::add"},
+    {"from": "test/calc_test.sh::test_double", "to": "calc.sh::double"},
+    {"from": "test/calc_test.sh::test_total", "to": "calc.sh::total"}
+  ]
+}

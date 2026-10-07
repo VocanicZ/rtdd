@@ -36,6 +36,9 @@ type pattern struct {
 var patterns = []pattern{
 	// test: it('label' / test("label" / describe(`label` / context('label'
 	{shapeTest, regexp.MustCompile("^\\s*(?:it|test|describe|context)\\s*\\(\\s*['\"`]([^'\"`]*)")},
+	// test, block form: it "label" do / describe 'label' do |x| — the trailing `do` keeps a
+	// shell `test "$x" = y` out
+	{shapeTest, regexp.MustCompile(`^\s*(?:it|test|describe|context)\s+['"]([^'"]*)['"].*\bdo\s*(?:\|[^|]*\|)?\s*$`)},
 	// func: def / fn / func / function / fun / sub / proc, optional Go receiver
 	{shapeCallable, regexp.MustCompile(`^\s*` + modifiers + `(?:def|fn|func|function|fun|sub|proc)\s+(?:\([^)]*\)\s*)?(` + path + `)`)},
 	// class: class / struct / interface / trait / impl / module / object / enum
@@ -60,7 +63,7 @@ func init() {
 	for _, k := range strings.Fields(`if else elif for foreach while do switch case catch try
 		finally return throw throws new delete yield await defer go goto raise assert print
 		puts echo local not and or in is del lambda when unless until then sizeof typeof
-		with import from using package require`) {
+		with import from using package require end fi done esac`) {
 		controlKeywords[k] = true
 	}
 }

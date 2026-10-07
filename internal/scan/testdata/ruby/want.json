@@ -1,0 +1,20 @@
+{
+  "nodes": [
+    {"id": "lib/calc.rb::Arith", "name": "Arith", "kind": "class", "start": 1, "end": 8},
+    {"id": "lib/calc.rb::Arith::add", "name": "add", "kind": "method", "start": 2, "end": 3},
+    {"id": "lib/calc.rb::Arith::twice", "name": "twice", "kind": "method", "start": 6, "end": 7},
+    {"id": "lib/calc.rb::Calc", "name": "Calc", "kind": "class", "start": 11, "end": 25},
+    {"id": "lib/calc.rb::Calc::initialize", "name": "initialize", "kind": "method", "start": 14, "end": 15},
+    {"id": "lib/calc.rb::Calc::push", "name": "push", "kind": "method", "start": 18, "end": 20},
+    {"id": "lib/calc.rb::Calc::log", "name": "log", "kind": "method", "start": 23, "end": 24},
+    {"id": "spec/calc_spec.rb::pushes", "name": "pushes", "kind": "test", "start": 4, "end": 7},
+    {"id": "spec/calc_spec.rb::doubles", "name": "doubles", "kind": "test", "start": 10, "end": 11}
+  ],
+  "calls": [
+    {"from": "lib/calc.rb::Arith::twice", "to": "lib/calc.rb::Arith::add"},
+    {"from": "lib/calc.rb::Calc::push", "to": "lib/calc.rb::Arith::add"},
+    {"from": "lib/calc.rb::Calc::push", "to": "lib/calc.rb::Calc::log"},
+    {"from": "spec/calc_spec.rb::doubles", "to": "lib/calc.rb::Arith::twice"},
+    {"from": "spec/calc_spec.rb::pushes", "to": "lib/calc.rb::Calc::push"}
+  ]
+}
