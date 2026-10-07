@@ -86,16 +86,17 @@ func Build(root string, cfg graph.Config, opt Options) (*Result, error) {
 	c := readCache(cachePath)
 	results, scanned := scanCached(root, toScan, blobs, changed, c)
 	res.Scanned = scanned
-	if len(scanned) > 0 || !c.covers(head, files) {
-		if err := writeCache(cachePath, head, files, blobs, changed, c, results); err != nil {
-			return nil, err
-		}
-	}
-
+	var whole *graph.Graph // results assembled, when they are the whole scanner graph
 	if stale != nil {
 		res.Graph = Overlay(gf, stale, results)
 	} else {
 		res.Graph = scan.Assemble(results)
+		whole = &res.Graph
+	}
+	if !c.current(head, files, changed, results, scanned) {
+		if err := writeCache(cachePath, head, files, blobs, changed, c, results, whole); err != nil {
+			return nil, err
+		}
 	}
 	graph.Classify(res.Graph.Nodes, cfg)
 	return res, nil

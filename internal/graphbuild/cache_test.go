@@ -5,10 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"testing"
 
 	"github.com/VocanicZ/rtdd/internal/gitctx"
 	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
+	"github.com/VocanicZ/rtdd/internal/graph"
 )
 
 // PRD #409 AC8: a file is re-scanned only when its blob id changed or it is in the
@@ -49,6 +51,74 @@ func TestWarmBuildEqualsColdBuild(t *testing.T) {
 	warm := build(t, root)
 	if !reflect.DeepEqual(warm.Graph, cold.Graph) {
 		t.Errorf("warm graph differs from cold:\n warm %+v\n cold %+v", warm.Graph, cold.Graph)
+	}
+}
+
+// A class's method edges survive the cache: a warm build that re-reads nothing still
+// has every class -> method edge a cold build had.
+func TestWarmBuildKeepsMethodEdges(t *testing.T) {
+	root := repo(t, map[string]string{
+		"pkg/shapes.py": "class Shape:\n    def area(self):\n        return 0\n\n    def name(self):\n        return self.area()\n",
+		"pkg/other.py":  "class Other:\n    def area(self):\n        return 1\n",
+	})
+	cold := build(t, root)
+	warm := build(t, root)
+	if len(warm.Scanned) != 0 {
+		t.Fatalf("warm build scanned %v, want nothing", warm.Scanned)
+	}
+	methods := 0
+	for _, e := range warm.Graph.Edges {
+		if e.Relation == graph.RelMethod {
+			methods++
+		}
+	}
+	if methods != 3 {
+		t.Errorf("warm graph has %d method edges, want 3: %+v", methods, warm.Graph.Edges)
+	}
+	if !reflect.DeepEqual(warm.Graph, cold.Graph) {
+		t.Errorf("warm graph differs from cold:\n warm %+v\n cold %+v", warm.Graph, cold.Graph)
+	}
+}
+
+// While a file is being edited it is re-read on every build (it is in the changed set),
+// but a re-read that finds what the cache already holds leaves the cache file alone;
+// a further edit rewrites it.
+func TestRescanOfAnUnchangedEditDoesNotRewriteTheCache(t *testing.T) {
+	root := repo(t, calcProject)
+	cachePath := filepath.Join(root, ".rtdd", "graph.json")
+	build(t, root)
+	gittest.Write(t, root, "src/calc.py", calcProject["src/calc.py"]+"\n\ndef sub(a, b):\n    return a - b\n")
+	build(t, root) // records the edit
+	before, err := os.Stat(cachePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := build(t, root).Scanned, []string{"src/calc.py"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("scanned %v, want %v", got, want)
+	}
+	after, err := os.Stat(cachePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(before, after) {
+		t.Errorf("the cache was rewritten though the re-read file is unchanged since it was cached")
+	}
+
+	gittest.Write(t, root, "src/calc.py", calcProject["src/calc.py"]+"\n\ndef mul(a, b):\n    return a * b\n")
+	res := build(t, root)
+	again, err := os.Stat(cachePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if os.SameFile(after, again) {
+		t.Errorf("the cache was not rewritten after a further edit")
+	}
+	names := map[string]bool{}
+	for _, n := range readCache(cachePath).results["src/calc.py"].Nodes {
+		names[n.Name] = true
+	}
+	if !names["mul"] || names["sub"] || len(res.Graph.Nodes) != 4 {
+		t.Errorf("cache holds %v for src/calc.py and the graph %d nodes; want mul, not sub, and 4 nodes", names, len(res.Graph.Nodes))
 	}
 }
 
@@ -99,7 +169,7 @@ func TestCorruptOrForeignCacheIsRebuiltNotAnError(t *testing.T) {
 	for name, body := range map[string]string{
 		"corrupt":       "{\"nodes\": [",
 		"other version": "{\"rtdd_cache\": 99, \"nodes\": []}",
-		"other scanner": "{\"rtdd_cache\": 1, \"rtdd_scanner\": \"not-this-one\", \"nodes\": []}",
+		"other scanner": "{\"rtdd_cache\": " + strconv.Itoa(cacheVersion) + ", \"rtdd_scanner\": \"not-this-one\", \"nodes\": []}",
 	} {
 		t.Run(name, func(t *testing.T) {
 			root := repo(t, calcProject)
