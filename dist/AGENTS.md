@@ -16,4 +16,7 @@ Untracked files count. `rtdd which --json` is the machine-readable form.
 
 Empty Rounds 1 and 2 print `no linked test`: no linked test, never a pass.
 
+graphify is optional: used when `graphify-out/graph.json` exists, never trusted for changed
+files, and never run by rtdd — run or update it yourself if you want it.
+
 <!-- END rtdd -->
