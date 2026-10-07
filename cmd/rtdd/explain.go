@@ -1,76 +1,27 @@
 package main
 
 import (
+	"cmp"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
+	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 
-	"github.com/VocanicZ/rtdd/internal/mapstore"
+	"github.com/VocanicZ/rtdd/internal/graph"
 	"github.com/VocanicZ/rtdd/internal/paths"
+	"github.com/VocanicZ/rtdd/internal/rounds"
 )
 
-// explainIDColumn is the minimum width of the test-id column. A longer id widens the
-// column for the whole listing rather than pushing its own duration out of line.
-const explainIDColumn = 25
+// fileLine is an explain argument naming a line: "src/calc.py:6".
+var fileLine = regexp.MustCompile(`^(.+):([0-9]+)$`)
 
-// RenderExplain lists the tests covering path, ascending by duration then id.
-func RenderExplain(m *mapstore.Map, path string) string {
-	ids := m.TestsCovering([]string{path})
-	var b strings.Builder
-
-	if len(ids) == 0 {
-		fmt.Fprintf(&b, "%s is covered by 0 tests.\n", path)
-		if m.Len() == 0 {
-			b.WriteString("  The map is empty. Run `rtdd seed` first.\n")
-			return b.String()
-		}
-		b.WriteString("  No map row lists this file: no recorded unit executed it.\n")
-		return b.String()
-	}
-
-	rows := make([]mapstore.Row, 0, len(ids))
-	width := explainIDColumn
-	for _, id := range ids {
-		r, ok := m.Get(id)
-		if !ok {
-			continue
-		}
-		rows = append(rows, r)
-		if len(r.T) > width {
-			width = len(r.T)
-		}
-	}
-	// Cheapest first: the listing doubles as a run order, and a fast covering test is
-	// the one an agent should reach for.
-	sort.Slice(rows, func(i, j int) bool {
-		if rows[i].D != rows[j].D {
-			return rows[i].D < rows[j].D
-		}
-		return rows[i].T < rows[j].T
-	})
-
-	fmt.Fprintf(&b, "%s is covered by %d %s:\n", path, len(rows), plural(len(rows), "test", "tests"))
-	for _, r := range rows {
-		fmt.Fprintf(&b, "    %-*s%4dms  %s\n", width, r.T, r.D, r.S)
-	}
-	return b.String()
-}
-
-// plural picks the noun form for n.
-func plural(n int, one, many string) string {
-	if n == 1 {
-		return one
-	}
-	return many
-}
-
-// cmdExplain implements `rtdd explain <file>`: which tests cover this path, and what it
-// means when none do. It runs no tests, so its only non-zero exits are usage and
-// environment errors.
+// cmdExplain implements `rtdd explain <file[:line]|name>` (spec §8): for each node the
+// argument names, its tests, callers and callees, from the graph. It runs nothing.
 func cmdExplain(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("explain", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -78,34 +29,92 @@ func cmdExplain(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "usage: rtdd explain <file>")
+		fmt.Fprintln(stderr, "usage: rtdd explain <file[:line]|name>")
 		return 2
 	}
-	arg := fs.Arg(0)
-
-	e, code, err := loadEnv("", stderr)
+	root, err := graphRoot()
+	if err != nil {
+		fmt.Fprintf(stderr, "rtdd explain: %v\n", err)
+		return 3
+	}
+	_, res, code, err := buildGraph(root)
 	if err != nil {
 		fmt.Fprintf(stderr, "rtdd explain: %v\n", err)
 		return code
 	}
-
-	// The argument is relative to the caller's working directory, not to the repo root;
-	// internal/paths is the only place either becomes a map key.
-	abs := arg
-	if !filepath.IsAbs(abs) {
-		wd, wdErr := os.Getwd()
-		if wdErr != nil {
-			fmt.Fprintf(stderr, "rtdd explain: %v\n", wdErr)
-			return 3
-		}
-		abs = filepath.Join(wd, abs)
-	}
-	rel, ok := paths.Normalize(e.root, abs)
-	if !ok {
-		fmt.Fprintf(stderr, "rtdd explain: %q is outside the repository\n", arg)
+	nodes := explainTargets(root, res.Graph, fs.Arg(0))
+	if len(nodes) == 0 {
+		fmt.Fprintf(stderr, "rtdd explain: no node matches %q (give a file, file:line, node id or name)\n", fs.Arg(0))
 		return 2
 	}
-
-	fmt.Fprint(stdout, RenderExplain(e.m, rel))
+	for i, n := range nodes {
+		if i > 0 {
+			fmt.Fprintln(stdout)
+		}
+		fmt.Fprint(stdout, renderExplain(n, rounds.LinksOf(res.Graph, n.ID)))
+	}
 	return 0
+}
+
+// explainTargets resolves the argument, in order: a node ID; file:line (the innermost
+// node owning that line); a file (all its nodes); a name (every node so named — all
+// same-named definitions, spec §12). A path is relative to the caller's directory.
+func explainTargets(root string, g graph.Graph, arg string) []graph.Node {
+	var out []graph.Node
+	for _, n := range g.Nodes {
+		if n.ID == arg {
+			return []graph.Node{n}
+		}
+	}
+	rel := func(p string) string {
+		abs := p
+		if !filepath.IsAbs(abs) {
+			wd, _ := os.Getwd()
+			abs = filepath.Join(wd, p)
+		}
+		r, _ := paths.Normalize(root, abs)
+		return r
+	}
+	if m := fileLine.FindStringSubmatch(arg); m != nil {
+		line, _ := strconv.Atoi(m[2])
+		if n, ok := rounds.Owner(g, rel(m[1]), line); ok {
+			return []graph.Node{n}
+		}
+		return nil
+	}
+	file := rel(arg)
+	for _, n := range g.Nodes {
+		if n.File == file {
+			out = append(out, n)
+		}
+	}
+	if len(out) == 0 {
+		for _, n := range g.Nodes {
+			if n.Name == arg {
+				out = append(out, n)
+			}
+		}
+	}
+	slices.SortFunc(out, func(a, b graph.Node) int {
+		return cmp.Or(strings.Compare(a.File, b.File), cmp.Compare(a.Start, b.Start), strings.Compare(a.ID, b.ID))
+	})
+	return out
+}
+
+func renderExplain(n graph.Node, l rounds.Links) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s  (%s, lines %d-%d)\n", n.ID, n.Kind, n.Start, n.End)
+	for _, sec := range []struct {
+		head  string
+		links []rounds.Link
+	}{{"tests", l.Tests}, {"callers", l.Callers}, {"callees", l.Callees}} {
+		fmt.Fprintf(&b, "  %s:\n", sec.head)
+		if len(sec.links) == 0 {
+			b.WriteString("    none\n")
+		}
+		for _, x := range sec.links {
+			fmt.Fprintf(&b, "    %s  (%s:%d, %s)\n", x.Node.ID, x.Node.File, x.Node.Start, x.Relation)
+		}
+	}
+	return b.String()
 }
