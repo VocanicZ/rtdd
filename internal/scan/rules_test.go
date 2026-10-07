@@ -56,3 +56,21 @@ func TestAQualifiedNameIsACallEvenWhenItIsAKeyword(t *testing.T) {
 		t.Errorf("make calls %v, want %v", got, want)
 	}
 }
+
+func TestAnUnbalancedQuoteOpensNoStringButLiteralBracesStaySkipped(t *testing.T) {
+	for _, c := range []struct {
+		line         string
+		paren, brace int
+	}{
+		{`fn greet(name: &'static str) -> String {`, 0, 1},
+		{`if c == '{' {`, 0, 1},
+		{`let s = "}"; let t = '\'' ; {`, 0, 1},
+		{`print("it's {")`, 0, 0},
+	} {
+		var tk tokenizer
+		tk.line(c.line)
+		if tk.paren != c.paren || tk.brace != c.brace {
+			t.Errorf("%s: paren %d brace %d, want %d %d", c.line, tk.paren, tk.brace, c.paren, c.brace)
+		}
+	}
+}

@@ -55,3 +55,15 @@ mod tests {
         assert_eq!(Op::Sub.apply(3, 1), 2);
     }
 }
+
+fn greet(name: &'static str) -> String {
+    format!("hi {}", name)
+}
+
+fn other() -> u32 {
+    1
+}
+
+fn third() -> u32 {
+    other()
+}
