@@ -6,9 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/VocanicZ/rtdd/internal/graph"
 )
@@ -166,6 +169,13 @@ func ScanFile(rel string, src []byte) FileResult {
 // (spec §4.3 — over-linking is accepted; a direct call is never missed). nodes is the
 // whole graph's node set, whichever source produced each node. No self edges.
 func Link(nodes []graph.Node, calls map[string][]string) []graph.Edge {
+	g := graph.Graph{Edges: link(nodes, calls)}
+	graph.Sort(&g)
+	return g.Edges
+}
+
+// link is Link unsorted, for a caller that sorts the whole graph once afterwards.
+func link(nodes []graph.Node, calls map[string][]string) []graph.Edge {
 	byName := map[string][]string{}
 	for _, n := range nodes {
 		byName[n.Name] = append(byName[n.Name], n.ID)
@@ -180,9 +190,7 @@ func Link(nodes []graph.Node, calls map[string][]string) []graph.Edge {
 			}
 		}
 	}
-	g := graph.Graph{Edges: out}
-	graph.Sort(&g)
-	return g.Edges
+	return out
 }
 
 func isWord(c byte) bool {
@@ -276,16 +284,32 @@ func (t *tokenizer) line(s string) {
 	}
 }
 
-// ScanFiles scans each of files (repo-relative, already Filtered) under root. A file that
-// cannot be read is skipped.
+// ScanFiles scans each of files (repo-relative, already Filtered) under root, in order,
+// over one worker per CPU. A file that cannot be read is skipped.
 func ScanFiles(root string, files []string) []FileResult {
+	scanned := make([]*FileResult, len(files))
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	for range min(runtime.GOMAXPROCS(0), len(files)) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := int(next.Add(1)) - 1; i < len(files); i = int(next.Add(1)) - 1 {
+				b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(files[i])))
+				if err != nil {
+					continue
+				}
+				r := ScanFile(files[i], b)
+				scanned[i] = &r
+			}
+		}()
+	}
+	wg.Wait()
 	var out []FileResult
-	for _, rel := range files {
-		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
-		if err != nil {
-			continue
+	for _, r := range scanned {
+		if r != nil {
+			out = append(out, *r)
 		}
-		out = append(out, ScanFile(rel, b))
 	}
 	return out
 }
@@ -302,7 +326,7 @@ func Assemble(results []FileResult) graph.Graph {
 			calls[id] = names
 		}
 	}
-	g.Edges = append(g.Edges, Link(g.Nodes, calls)...)
+	g.Edges = append(g.Edges, link(g.Nodes, calls)...)
 	graph.Sort(&g)
 	return g
 }

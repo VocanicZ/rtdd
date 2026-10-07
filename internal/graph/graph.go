@@ -3,8 +3,9 @@
 package graph
 
 import (
+	"cmp"
 	"slices"
-	"sort"
+	"strings"
 )
 
 // Kind is what a node is. Only the scanner and the graphify loader assign it.
@@ -70,25 +71,23 @@ type Graph struct {
 // Sort puts g in its canonical order: nodes by File then Start then ID, edges by From,
 // To, Relation, with duplicate edges removed.
 func Sort(g *Graph) {
-	sort.Slice(g.Nodes, func(i, j int) bool {
-		a, b := g.Nodes[i], g.Nodes[j]
-		if a.File != b.File {
-			return a.File < b.File
+	slices.SortFunc(g.Nodes, func(a, b Node) int {
+		if c := strings.Compare(a.File, b.File); c != 0 {
+			return c
 		}
-		if a.Start != b.Start {
-			return a.Start < b.Start
+		if c := cmp.Compare(a.Start, b.Start); c != 0 {
+			return c
 		}
-		return a.ID < b.ID
+		return strings.Compare(a.ID, b.ID)
 	})
-	sort.Slice(g.Edges, func(i, j int) bool {
-		a, b := g.Edges[i], g.Edges[j]
-		if a.From != b.From {
-			return a.From < b.From
+	slices.SortFunc(g.Edges, func(a, b Edge) int {
+		if c := strings.Compare(a.From, b.From); c != 0 {
+			return c
 		}
-		if a.To != b.To {
-			return a.To < b.To
+		if c := strings.Compare(a.To, b.To); c != 0 {
+			return c
 		}
-		return a.Relation < b.Relation
+		return strings.Compare(string(a.Relation), string(b.Relation))
 	})
 	g.Edges = slices.Compact(g.Edges)
 }
