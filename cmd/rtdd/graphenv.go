@@ -24,15 +24,16 @@ func graphRoot() (string, error) {
 }
 
 // buildGraph loads .rtdd/config.yaml and builds the node graph, as `rtdd graph` does.
-// base is the ref changes are measured from ("" is HEAD): files changed against it are
-// scanned rather than taken from graphify (spec §5 step 1). code is the exit code for a
+// opt.Base is the ref changes are measured from ("" is HEAD): files changed against it,
+// and those in opt.Rescan, are scanned rather than taken from graphify (spec §5 step 1).
+// code is the exit code for a
 // non-nil err: 2 for a malformed config (the user's to fix), 3 for a graph that cannot
 // be built or read.
-func buildGraph(root, base string) (cfg graph.Config, res *graphbuild.Result, code int, err error) {
+func buildGraph(root string, opt graphbuild.Options) (cfg graph.Config, res *graphbuild.Result, code int, err error) {
 	if cfg, err = graph.LoadConfig(root); err != nil {
 		return cfg, nil, 2, err
 	}
-	if res, err = graphbuild.Build(root, cfg, graphbuild.Options{Base: base}); err != nil {
+	if res, err = graphbuild.Build(root, cfg, opt); err != nil {
 		return cfg, nil, 3, err
 	}
 	return cfg, res, 0, nil

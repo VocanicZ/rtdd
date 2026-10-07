@@ -242,3 +242,23 @@ func TestBuildBaseMakesFilesChangedAgainstItStale(t *testing.T) {
 		t.Error("an unknown Base should be an error")
 	}
 }
+
+// #472, spec §5: a file named in Options.Rescan is stale for this build, so its nodes
+// come from the scanner with full spans, though graphify is fresh against HEAD.
+func TestBuildRescanMakesTheNamedFileStale(t *testing.T) {
+	root := repo(t, overlayProject)
+	overlayGraphify(t, root)
+
+	res, err := Build(root, graph.DefaultConfig(), Options{Rescan: []string{"src/calc.py"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Source != SourceGraphifyScanner || !reflect.DeepEqual(res.StaleFiles, []string{"src/calc.py"}) {
+		t.Fatalf("Source %q, StaleFiles %v; want graphify+scanner with src/calc.py stale", res.Source, res.StaleFiles)
+	}
+	for _, n := range res.Graph.Nodes {
+		if n.ID == "src/calc.py::add" && (n.Start != 1 || n.End != 2) {
+			t.Errorf("add spans %d-%d, want the scanner's 1-2", n.Start, n.End)
+		}
+	}
+}

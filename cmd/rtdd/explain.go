@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/VocanicZ/rtdd/internal/graph"
+	"github.com/VocanicZ/rtdd/internal/graphbuild"
 	"github.com/VocanicZ/rtdd/internal/paths"
 	"github.com/VocanicZ/rtdd/internal/rounds"
 )
@@ -37,7 +38,13 @@ func cmdExplain(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "rtdd explain: %v\n", err)
 		return 3
 	}
-	_, res, code, err := buildGraph(root, "")
+	// A file:line is resolved with real spans: the named file is rescanned rather than
+	// taken from graphify, whose nodes span one line (spec §5, #472).
+	var opt graphbuild.Options
+	if m := fileLine.FindStringSubmatch(fs.Arg(0)); m != nil {
+		opt.Rescan = []string{repoRel(root, m[1])}
+	}
+	_, res, code, err := buildGraph(root, opt)
 	if err != nil {
 		fmt.Fprintf(stderr, "rtdd explain: %v\n", err)
 		return code
@@ -66,23 +73,14 @@ func explainTargets(root string, g graph.Graph, arg string) []graph.Node {
 			return []graph.Node{n}
 		}
 	}
-	rel := func(p string) string {
-		abs := p
-		if !filepath.IsAbs(abs) {
-			wd, _ := os.Getwd()
-			abs = filepath.Join(wd, p)
-		}
-		r, _ := paths.Normalize(root, abs)
-		return r
-	}
 	if m := fileLine.FindStringSubmatch(arg); m != nil {
 		line, _ := strconv.Atoi(m[2])
-		if n, ok := rounds.Owner(g, rel(m[1]), line); ok {
+		if n, ok := rounds.Owner(g, repoRel(root, m[1]), line); ok {
 			return []graph.Node{n}
 		}
 		return nil
 	}
-	file := rel(arg)
+	file := repoRel(root, arg)
 	for _, n := range g.Nodes {
 		if n.File == file {
 			out = append(out, n)
@@ -99,6 +97,17 @@ func explainTargets(root string, g graph.Graph, arg string) []graph.Node {
 		return cmp.Or(strings.Compare(a.File, b.File), cmp.Compare(a.Start, b.Start), strings.Compare(a.ID, b.ID))
 	})
 	return out
+}
+
+// repoRel is p, a path relative to the caller's directory, relative to root.
+func repoRel(root, p string) string {
+	abs := p
+	if !filepath.IsAbs(abs) {
+		wd, _ := os.Getwd()
+		abs = filepath.Join(wd, p)
+	}
+	r, _ := paths.Normalize(root, abs)
+	return r
 }
 
 func renderExplain(n graph.Node, l rounds.Links) string {
