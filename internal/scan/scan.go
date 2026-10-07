@@ -121,7 +121,9 @@ func ScanFile(rel string, src []byte) FileResult {
 				continue
 			}
 			name := line[loc[0] : loc[1]-1]
-			if controlKeywords[name] || strings.Trim(name, "$") == "" {
+			// After `.` or `:` a keyword is a member or path segment (`Calc::new()`), a call.
+			qualified := loc[0] > 0 && (line[loc[0]-1] == '.' || line[loc[0]-1] == ':')
+			if controlKeywords[name] && !qualified || strings.Trim(name, "$") == "" {
 				continue
 			}
 			if called[o] == nil {

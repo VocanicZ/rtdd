@@ -1,0 +1,23 @@
+{
+  "nodes": [
+    {"id": "Calc.java::Calc", "name": "Calc", "kind": "class", "start": 6, "end": 39},
+    {"id": "Calc.java::Calc::Calc", "name": "Calc", "kind": "method", "start": 9, "end": 11},
+    {"id": "Calc.java::Calc::apply", "name": "apply", "kind": "method", "start": 14, "end": 18},
+    {"id": "Calc.java::Calc::wrap", "name": "wrap", "kind": "method", "start": 20, "end": 24},
+    {"id": "Calc.java::Calc::sum", "name": "sum", "kind": "method", "start": 26, "end": 38},
+    {"id": "CalcTest.java::CalcTest", "name": "CalcTest", "kind": "class", "start": 7, "end": 18},
+    {"id": "CalcTest.java::CalcTest::testApply", "name": "testApply", "kind": "method", "start": 9, "end": 11},
+    {"id": "CalcTest.java::CalcTest::testSum", "name": "testSum", "kind": "method", "start": 14, "end": 17},
+    {"id": "Op.java::Op", "name": "Op", "kind": "class", "start": 3, "end": 5}
+  ],
+  "calls": [
+    {"from": "Calc.java::Calc::sum", "to": "Calc.java::Calc::apply"},
+    {"from": "CalcTest.java::CalcTest::testApply", "to": "Calc.java::Calc"},
+    {"from": "CalcTest.java::CalcTest::testApply", "to": "Calc.java::Calc::Calc"},
+    {"from": "CalcTest.java::CalcTest::testApply", "to": "Calc.java::Calc::apply"},
+    {"from": "CalcTest.java::CalcTest::testSum", "to": "Calc.java::Calc"},
+    {"from": "CalcTest.java::CalcTest::testSum", "to": "Calc.java::Calc::Calc"},
+    {"from": "CalcTest.java::CalcTest::testSum", "to": "Calc.java::Calc::sum"},
+    {"from": "Op.java::Op", "to": "Calc.java::Calc::apply"}
+  ]
+}

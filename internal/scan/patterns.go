@@ -45,6 +45,8 @@ var patterns = []pattern{
 	{shapeCallable, regexp.MustCompile(`^\s*(?:export\s+)?(?:const|let|var)\s+(` + ident + `)\s*=\s*(?:async\s+)?(?:function\b|\([^)]*\)\s*=>|` + ident + `\s*=>)`)},
 	// shell: Name() {
 	{shapeCallable, regexp.MustCompile(`^\s*(` + ident + `)\s*\(\)\s*\{`)},
+	// JS/TS class member: indented `Name(<params>)(: Type)? {` with no type tokens before it
+	{shapeCallable, regexp.MustCompile(`^\s+(?:(?:static|async|get|set|public|private|protected|readonly|override)\s+)*(` + ident + `)\s*\([^)]*\)\s*(?::\s*[^={;]+)?\{\s*$`)},
 	// method: <type tokens> Name(<params>) <modifiers> {? — no trailing ';'
 	{shapeCallable, regexp.MustCompile(`^\s*((?:[\w$<>\[\],.?*&:]+\s+)+)[*&]*(` + ident + `)\s*\([^;]*$`)},
 }
@@ -72,6 +74,9 @@ func matchDefinition(line string) (string, shape, bool) {
 		m := p.re.FindStringSubmatch(line)
 		if m == nil {
 			continue
+		}
+		if i == len(patterns)-2 && controlKeywords[m[1]] { // the member row
+			return "", 0, false
 		}
 		if i == len(patterns)-1 { // the method row
 			for _, tok := range strings.Fields(m[1]) {

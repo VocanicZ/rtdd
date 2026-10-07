@@ -1,0 +1,26 @@
+{
+  "nodes": [
+    {"id": "calc.rs::Op", "name": "Op", "kind": "class", "start": 1, "end": 4},
+    {"id": "calc.rs::Apply", "name": "Apply", "kind": "class", "start": 6, "end": 8},
+    {"id": "calc.rs::Apply::apply", "name": "apply", "kind": "method", "start": 7, "end": 7},
+    {"id": "calc.rs::Calc", "name": "Calc", "kind": "class", "start": 10, "end": 12},
+    {"id": "calc.rs::Calc@14", "name": "Calc", "kind": "class", "start": 14, "end": 22},
+    {"id": "calc.rs::Calc::new", "name": "new", "kind": "method", "start": 15, "end": 17},
+    {"id": "calc.rs::Calc::push", "name": "push", "kind": "method", "start": 19, "end": 21},
+    {"id": "calc.rs::Op@24", "name": "Op", "kind": "class", "start": 24, "end": 31},
+    {"id": "calc.rs::Op::apply", "name": "apply", "kind": "method", "start": 25, "end": 30},
+    {"id": "calc.rs::add", "name": "add", "kind": "func", "start": 33, "end": 35},
+    {"id": "calc.rs::adds", "name": "adds", "kind": "func", "start": 42, "end": 44},
+    {"id": "calc.rs::pushes", "name": "pushes", "kind": "func", "start": 47, "end": 51},
+    {"id": "calc.rs::applies", "name": "applies", "kind": "func", "start": 54, "end": 56}
+  ],
+  "calls": [
+    {"from": "calc.rs::Calc::push", "to": "calc.rs::add"},
+    {"from": "calc.rs::Op::apply", "to": "calc.rs::add"},
+    {"from": "calc.rs::adds", "to": "calc.rs::add"},
+    {"from": "calc.rs::applies", "to": "calc.rs::Apply::apply"},
+    {"from": "calc.rs::applies", "to": "calc.rs::Op::apply"},
+    {"from": "calc.rs::pushes", "to": "calc.rs::Calc::new"},
+    {"from": "calc.rs::pushes", "to": "calc.rs::Calc::push"}
+  ]
+}
