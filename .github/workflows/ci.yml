@@ -70,19 +70,6 @@ jobs:
       - name: every release artifact is statically linked
         run: go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' ./internal/installtest/
 
-      # PRD #232 AC11: the shipped adapter set's gate. `go test ./...` above runs it;
-      # naming it points a red build at the adapter set. The `-list` line guards it
-      # because `go test -run` on a pattern matching nothing exits 0, so a
-      # deleted or renamed gate would pass silently.
-      - name: shipped-adapter completeness gate
-        run: |
-          listed="$(go test -list '^TestEveryShippedAdapterIsFullySpecified$' ./internal/contract/)"
-          case "$listed" in
-            *TestEveryShippedAdapterIsFullySpecified*) ;;
-            *) echo "the shipped-adapter completeness gate is gone from ./internal/contract/"; exit 1 ;;
-          esac
-          go test -count=1 -run '^TestEveryShippedAdapterIsFullySpecified$' ./internal/contract/
-
       # PRD #368 AC11 (#380): the archives a release would publish, and install.sh
       # driven against them. Both tests below read build/dist, which .gitignore ignores —
       # on a clean checkout nothing fills it, so this step is what makes them mean

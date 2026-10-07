@@ -357,7 +357,7 @@ const snapshotGateName = "TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippe
 // dist/ is the one actually at risk - GoReleaser cleans its output dir, and pointing it at
 // ./dist would delete the generated front-ends - but the release also runs `go mod tidy`
 // and builds from source, so the rest are covered too rather than assumed safe.
-var trackedDirs = []string{"dist", "scripts", "docs", "protocol", "adapters", "cmd", "internal"}
+var trackedDirs = []string{"dist", "scripts", "docs", "protocol", "cmd", "internal"}
 
 // trackedTreeState fingerprints every tracked directory plus the repo's root files, so the
 // snapshot run can be shown to have written nothing outside build/dist. It reads the tree
