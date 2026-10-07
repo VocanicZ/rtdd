@@ -77,8 +77,16 @@ name `load`/`Load`):
 | class | `(export )?(abstract )?(class\|struct\|interface\|trait\|impl\|module\|object\|enum) Name` | most OO languages |
 | func | `(const\|let\|var) Name = (async )?(function\|(...) =>)` | JS/TS assigned functions |
 | func | `Name() {` / `function Name` | shell |
-| method | `<type tokens> Name(<params>) <modifiers> {?` with no trailing `;`, Name not a control keyword | Java, C#, C, C++, Swift, PHP, Dart |
+| method | `<type tokens> Name(<params>) <modifiers> {?` with no trailing `;`, Name not a control keyword, line not inside a func's or test's body | Java, C#, C, C++, Swift, PHP, Dart |
 | test | `(it\|test\|describe\|context)(\s*)\((\s*)['"\`]Label` | JS/TS, Ruby-style block tests |
+
+A captured name that is itself a definition keyword (`def fn func function fun sub proc
+class struct interface trait impl module object enum`) is an anonymous literal — Go
+`func(x int) {`, JS `onDone: function (err) {` — not a node; its body belongs to the node
+that encloses it. Inside a func's or test's body the method row does not apply, so a
+statement such as `if n := len(x); n > 0 {` or a call's continuation line
+`a, len(b), f(c),` is never read as a definition; nested definitions are still found by
+the other rows.
 
 The full regex set lives in one Go file and is the only place language shapes appear.
 
