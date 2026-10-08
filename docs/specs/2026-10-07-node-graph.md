@@ -63,8 +63,8 @@ Pure text, no parser, no dependency.
 Tracked plus untracked-not-ignored files (`gitctx.ListFiles`), excluding: binary files (a NUL
 byte in the first 8 KiB), files over **1 MiB**, and paths matching `scan_exclude`
 (default `vendor/**`, `node_modules/**`, `third_party/**`, `**/*.min.js`, `dist/**`, `build/**`,
-`.rtdd/**`, `graphify-out/**`, and the prose files `**/*.md`, `**/*.markdown`, `**/*.rst`,
-`**/*.txt`, `**/*.adoc`). Prose is never code (§3): a code sample in a plan document must not
+`.rtdd/**`, `graphify-out/**`, and the prose files `**/*.md`, `**/*.mdc`, `**/*.markdown`,
+`**/*.rst`, `**/*.txt`, `**/*.adoc`). Prose is never code (§3): a code sample in a plan document must not
 become a node that "calls" the real code. Like every default, `scan_exclude` in
 `.rtdd/config.yaml` replaces the list wholesale.
 

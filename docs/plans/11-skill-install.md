@@ -342,6 +342,7 @@ scan_exclude:
   - ".rtdd/**"
   - "graphify-out/**"
   - "**/*.md"
+  - "**/*.mdc"
   - "**/*.markdown"
   - "**/*.rst"
   - "**/*.txt"
