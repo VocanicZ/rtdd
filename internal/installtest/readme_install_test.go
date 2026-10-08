@@ -103,7 +103,7 @@ func TestInstallEditLeavesTheProductClaimsAlone(t *testing.T) {
 	text := readREADME(t, "README.md")
 	for _, claim := range []string{
 		"It is a context provider, not a gate.",
-		"rtdd init      # front-ends, .gitattributes merge=union, config",
+		"rtdd init      # front-ends, .rtdd/config.yaml, .gitignore line for the graph cache",
 	} {
 		if !strings.Contains(text, claim) {
 			t.Errorf("README.md no longer states %q — the Install edit was not confined to install routes", claim)

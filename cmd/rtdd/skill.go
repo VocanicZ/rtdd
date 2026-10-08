@@ -180,8 +180,8 @@ func cmdSkillPrompt(args []string, stdout, stderr io.Writer) int {
 // intact; a three-backtick wrapper would be closed by the first example inside it.
 func RenderSkillPrompt(body string) string {
 	var b strings.Builder
-	b.WriteString("rtdd is installed on this machine. rtdd runs only the tests that cover the code\n")
-	b.WriteString("you changed, using coverage recorded from real runs.\n\n")
+	b.WriteString("rtdd is installed on this machine. rtdd names the tests a code change needs, in rounds;\n")
+	b.WriteString("rtdd runs no tests — you run each round with the project's own test command.\n\n")
 	b.WriteString("Save the document below verbatim wherever you keep your global, user-level agent\n")
 	b.WriteString("instructions — the place whose contents apply in every project, not just this one.\n")
 	b.WriteString("Then follow it whenever you are about to run tests after an edit.\n\n")
