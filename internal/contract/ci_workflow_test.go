@@ -242,3 +242,42 @@ func TestREADMEBaselineComparisonPageExists(t *testing.T) {
 		readRepoFile(t, "docs/results/axis2-selection-baselines.md")
 	}
 }
+
+// localRtddBuild matches ci-local.sh building rtdd from this checkout into a directory
+// held in a shell variable, and captures that variable's name.
+var localRtddBuild = regexp.MustCompile(`go build -o "\$(\w+)/rtdd" \./cmd/rtdd`)
+
+// TestLocalCIPutsTheCheckoutsRtddFirstOnPathBeforeTheBenchGates is issue #496. The bench
+// suites shell out to whatever `rtdd` is first on PATH, so a gate that does not put the
+// tree under test there runs them against an ambient binary — a stale v0.2 install fails
+// the gate, and a stale build that happens to pass proves nothing about this checkout.
+// ci.yml's `rtdd on PATH` step (#377) does this for the hosted gate; ci-local.sh must do
+// the same before the first bench step, which is the prereg gate.
+func TestLocalCIPutsTheCheckoutsRtddFirstOnPathBeforeTheBenchGates(t *testing.T) {
+	const rel = "scripts/ci-local.sh"
+	src := readRepoFile(t, rel)
+
+	m := localRtddBuild.FindStringSubmatchIndex(src)
+	if m == nil {
+		t.Fatalf("%s does not build ./cmd/rtdd into a directory of its own (no match for %s)", rel, localRtddBuild)
+	}
+	dir := src[m[2]:m[3]]
+	prepend := `export PATH="$` + dir + `:$PATH"`
+	at := strings.Index(src, prepend)
+	if at < 0 {
+		t.Fatalf("%s builds rtdd into $%s but never puts that directory first on PATH (no %q)", rel, dir, prepend)
+	}
+	if at < m[1] {
+		t.Errorf("%s puts $%s on PATH before it builds rtdd there", rel, dir)
+	}
+	for _, step := range []string{"scripts/ci-prereg.sh", "==> bench replay gate"} {
+		i := strings.Index(src, step)
+		if i < 0 {
+			t.Errorf("%s no longer runs %q", rel, step)
+			continue
+		}
+		if i < at {
+			t.Errorf("%s runs %q before the checkout's rtdd is first on PATH", rel, step)
+		}
+	}
+}

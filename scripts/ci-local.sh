@@ -36,6 +36,16 @@ go run ./cmd/rtdd-gen verify
 echo "==> embedded protocol copy must match the source"
 diff -u protocol/PROTOCOL.md internal/install/protocol.md
 
+# Issue #496: the bench suites below shell out to whatever `rtdd` is first on PATH, so
+# without this they test an ambient binary — a stale v0.2 install fails the gate on a
+# green tree, and a stale build that happens to pass proves nothing about this one. The
+# mirror of ci.yml's `rtdd on PATH` step (#377): the tool under test is the tree under test.
+echo "==> rtdd on PATH"
+rtdd_bin="$(mktemp -d)"
+trap 'rm -rf "$rtdd_bin"' EXIT
+go build -o "$rtdd_bin/rtdd" ./cmd/rtdd
+export PATH="$rtdd_bin:$PATH"
+
 echo "==> prereg gate"
 scripts/ci-prereg.sh
 
