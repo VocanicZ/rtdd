@@ -118,3 +118,29 @@ func TestInitHasNoForceFlag(t *testing.T) {
 		t.Errorf("rtdd --help does not document `rtdd init [--dry-run]`:\n%s", usage)
 	}
 }
+
+// Issue #500: on a fresh repository, before init's own files are committed, `rtdd which`
+// names none of them — init's `.cursor/rules/rtdd.mdc` is prose, and prose is never code
+// (spec §4.1).
+func TestWhichAfterAFreshInitNamesNothingUnderCursor(t *testing.T) {
+	dir := gittest.Init(t)
+	gittest.Write(t, dir, "pkg/add.go", "package pkg\n\nfunc Add(a, b int) int { return a + b }\n")
+	gittest.Commit(t, dir, "init")
+	if code, out, errOut := rtdd(t, dir, "init"); code != 0 {
+		t.Fatalf("rtdd init = %d, want 0\nstdout:\n%s\nstderr:\n%s", code, out, errOut)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".cursor", "rules", "rtdd.mdc")); err != nil {
+		t.Fatalf("rtdd init did not write .cursor/rules/rtdd.mdc: %v", err)
+	}
+	w, _ := runE2EWhich(t, dir)
+	for _, id := range w.changed() {
+		if strings.HasPrefix(id, ".cursor/") {
+			t.Errorf("changed_nodes has %s", id)
+		}
+	}
+	for _, id := range w.Untested {
+		if strings.HasPrefix(id, ".cursor/") {
+			t.Errorf("untested has %s", id)
+		}
+	}
+}
