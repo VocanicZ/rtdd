@@ -8,7 +8,11 @@ import (
 
 // v030Docs are the pages that describe rtdd as it is now (PRD #411 AC7). README.md and
 // README.positive.md are one file twice (internal/installtest/outcomes_test.go).
-var v030Docs = []string{"README.md", "docs/outcomes/README.positive.md", "DEVELOPMENT.md", "docs/LIMITATIONS.md"}
+var v030Docs = []string{"README.md", "docs/outcomes/README.positive.md", "DEVELOPMENT.md", "docs/LIMITATIONS.md",
+	"docs/PRIOR-ART.md"}
+
+// v030Guides are the v030Docs that teach the commands and the process, so they must name them.
+var v030Guides = map[string]bool{"README.md": true, "docs/outcomes/README.positive.md": true, "DEVELOPMENT.md": true}
 
 // A v0.2 measurement or changelog kept on a v0.3.0 page sits between these markers, and
 // the v0.2 vocabulary guard does not read it: it is a dated record, not a description.
@@ -57,8 +61,8 @@ var v02AsCurrent = []struct {
 
 var saysWhatV030DoesNot = regexp.MustCompile(`(?i)\bno\s+(coverage|adapters?)\b`)
 
-// PRD #411 AC7: README, DEVELOPMENT.md and LIMITATIONS.md present no v0.2 behaviour as
-// current, and README and DEVELOPMENT.md describe the v0.3.0 commands and process.
+// PRD #411 AC7: README, DEVELOPMENT.md, LIMITATIONS.md and PRIOR-ART.md present no v0.2
+// behaviour as current, and README and DEVELOPMENT.md describe the v0.3.0 commands and process.
 func TestUserDocsDescribeV030NotV02(t *testing.T) {
 	for _, rel := range v030Docs {
 		body := saysWhatV030DoesNot.ReplaceAllString(outsideV02Records(t, rel, readRepoFile(t, rel)), "")
@@ -67,7 +71,7 @@ func TestUserDocsDescribeV030NotV02(t *testing.T) {
 				t.Errorf("%s presents %s as current (%q) outside a v0.2 record", rel, v.what, m)
 			}
 		}
-		if rel == "docs/LIMITATIONS.md" {
+		if !v030Guides[rel] {
 			continue
 		}
 		for _, want := range []string{"rtdd init", "rtdd which", "rtdd graph", "rtdd explain", "rtdd doctor",
