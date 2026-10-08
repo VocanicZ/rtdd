@@ -714,7 +714,7 @@ def test_the_parallel_baselines_subset_runs_are_actually_parallel(
 def test_a_base_tree_rtdd_cannot_graph_is_skipped_not_fatal(synth, cache_root, monkeypatch):
     """A parent tree the tool under test cannot build a graph of costs its own cycle."""
     import replay.replay as mod
-    from replay.rtddio import RtddError
+    from replay.rtddio import RtddError, WhichResult
 
     built = {"n": 0}
 
@@ -724,6 +724,15 @@ def test_a_base_tree_rtdd_cannot_graph_is_skipped_not_fatal(synth, cache_root, m
             raise RtddError("rtdd graph exited 3: not a git repository")
 
     monkeypatch.setattr(mod.rtddio, "graph", refuse_once)
+    # Issue #496: stubbed too, so the cycles after the refused one never reach whatever
+    # `rtdd` is first on PATH — a stale v0.2 install there must not decide this test.
+    monkeypatch.setattr(
+        mod.rtddio,
+        "which",
+        lambda work, binary="rtdd", base="HEAD": WhichResult(
+            round1=(ADD,), round2=(), changed=(), untested=(), source="scanner", wall_ms=1
+        ),
+    )
     spec = _spec(synth)
     cfg = _cfg(strategies=("rtdd", "full"))
     out = replay_repo(

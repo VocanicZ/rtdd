@@ -119,7 +119,9 @@ stock coverage tool, and the map is built from that.
 
 `bench/` is Python, managed with `uv`, and is deliberately outside the Go module.
 `scripts/ci-local.sh` runs `scripts/ci-prereg.sh` as part of the gate, so `uv` must be on
-PATH alongside `go`:
+PATH alongside `go`. Before the bench steps it builds `rtdd` from the checkout into a temp
+dir and puts that dir first on PATH, as ci.yml's `rtdd on PATH` step does, so an older
+`rtdd` installed elsewhere on PATH cannot decide the gate:
 
 ```bash
 cd bench/swebench && uv sync && uv run pytest -q
