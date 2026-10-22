@@ -170,7 +170,7 @@ def cmd_doctor(args) -> int:
     return EXIT_OK
 
 
-def results_dir_for(repo_id: str, commit_selection: str) -> pathlib.Path:
+def results_dir_for(repo_id: str, commit_selection: str, label: str = "") -> pathlib.Path:
     """Where a run's results go, keyed by which commits it chose to replay.
 
     A non-default commit selection writes to its own subtree and can never land on
@@ -181,10 +181,29 @@ def results_dir_for(repo_id: str, commit_selection: str) -> pathlib.Path:
     population that happens to share a filename, which is exactly the substitution a
     pre-registration exists to prevent. Measured the hard way: it happened once, and the
     files had to be restored from git.
+
+    A `label` (`--results-label`) moves the run under `bench/results/<label>/` for the
+    same reason: a run measured on a different binary is kept beside the published
+    result, never on it. A label wins over a non-default commit selection and nests it.
     """
+    root = RESULTS / label if label else RESULTS
     if commit_selection and commit_selection != "recent":
-        return RESULTS / commit_selection / repo_id
-    return RESULTS / repo_id
+        return root / commit_selection / repo_id
+    return root / repo_id
+
+
+def _label_error(label: str, corpus) -> str:
+    """Why `label` cannot name a results subtree, or "" when it can."""
+    if not label:
+        return ""
+    if "/" in label or "\\" in label or label == "." or ".." in label:
+        return f"--results-label must be one path segment under bench/results/; got {label!r}"
+    if label in corpus.ids():
+        return (
+            f"--results-label {label!r} is a corpus id: the run would land on that row's "
+            "published directory"
+        )
+    return ""
 
 
 def cmd_replay(args) -> int:
@@ -194,6 +213,10 @@ def cmd_replay(args) -> int:
         spec = corpus.require(args.repo)
     except CorpusError as exc:
         print(str(exc), file=sys.stderr)
+        return EXIT_GUARD
+    label = getattr(args, "results_label", "")
+    if error := _label_error(label, corpus):
+        print(error, file=sys.stderr)
         return EXIT_GUARD
     wallclock_enabled = _wallclock_enabled(hw, args)
     strategies = tuple(args.strategies.split(",")) if args.strategies else DEFAULT_STRATEGIES
@@ -252,7 +275,7 @@ def cmd_replay(args) -> int:
         ),
         corpus=corpus,
     )
-    out_dir = results_dir_for(spec.id, getattr(args, "commit_selection", "recent"))
+    out_dir = results_dir_for(spec.id, getattr(args, "commit_selection", "recent"), label)
     summary = write_results(
         out_dir,
         output,
@@ -565,6 +588,16 @@ def build_parser() -> argparse.ArgumentParser:
             "non-test file, the one shape `probe` can detect anything from. `paired` biases "
             "the population toward commits that changed code and tests together; publish "
             "that bias beside any number it produces"
+        ),
+    )
+    r.add_argument(
+        "--results-label",
+        default="",
+        dest="results_label",
+        help=(
+            "write to bench/results/<label>/<repo>/ instead of bench/results/<repo>/ — how "
+            "a run that must not replace a published result is kept beside it; one path "
+            "segment, never a corpus id"
         ),
     )
     r.add_argument("--seed", type=int, default=1)

@@ -236,6 +236,37 @@ def test_replay_allows_rounds_1_2_when_rtdd_is_in_the_same_run(bench, stub_repla
     assert "cloned" in stub_replay
 
 
+def test_replay_writes_a_labelled_run_beside_the_published_result(
+    bench, stub_replay, monkeypatch
+):
+    """`--results-label` keeps a run that must not replace a published result beside it."""
+    _no_ci(monkeypatch)
+    rc = cli.main(
+        ["--rtdd-binary", _fake_rtdd(bench), "replay", "--repo", "synth", "--results-label", "n4"]
+    )
+    assert rc == cli.EXIT_OK
+    assert stub_replay["written"] == bench / "results" / "n4" / "synth"
+
+
+def test_a_label_wins_over_a_non_default_commit_selection(bench):
+    assert cli.results_dir_for("synth", "paired", label="n4") == bench / "results" / "n4" / "paired" / "synth"
+    assert cli.results_dir_for("synth", "recent", label="n4") == bench / "results" / "n4" / "synth"
+    assert cli.results_dir_for("synth", "paired") == bench / "results" / "paired" / "synth"
+    assert cli.results_dir_for("synth", "recent") == bench / "results" / "synth"
+
+
+@pytest.mark.parametrize("label", ["a/b", "..", "n4/..", "synth"])
+def test_replay_refuses_a_label_that_is_not_one_fresh_path_segment_before_any_clone(
+    bench, stub_replay, capsys, label
+):
+    """A label containing `/` or `..` escapes `bench/results/`; one equal to a corpus id
+    lands on that row's published directory. Either replaces a published result."""
+    rc = cli.main(["replay", "--repo", "synth", "--results-label", label])
+    assert rc == cli.EXIT_GUARD
+    assert "--results-label" in capsys.readouterr().err
+    assert "cloned" not in stub_replay
+
+
 def test_the_default_run_holds_both_rtdd_arms():
     assert cli.DEFAULT_STRATEGIES.index("rtdd-r12") == cli.DEFAULT_STRATEGIES.index("rtdd") + 1
 
