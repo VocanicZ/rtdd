@@ -42,7 +42,7 @@ func TestEverySameNamedDefinitionIsCalledButNotFromTheDefinitionLine(t *testing.
 		{From: "c.py::start", To: "a.py::load", Relation: graph.RelCalls},
 		{From: "c.py::start", To: "b.py::load", Relation: graph.RelCalls},
 	}
-	if got := Link(nodes, calls); !reflect.DeepEqual(got, want) {
+	if got, _ := Link(nodes, Refs{Calls: calls}); !reflect.DeepEqual(got, want) {
 		t.Errorf("Link = %v\nwant %v", got, want)
 	}
 }
@@ -58,7 +58,8 @@ func linkAll(files ...[2]string) []graph.Edge {
 			calls[k] = v
 		}
 	}
-	return Link(nodes, calls)
+	got, _ := Link(nodes, Refs{Calls: calls})
+	return got
 }
 
 // Issue #467: a Go call can never reach a Python definition, so when a same-named
@@ -109,10 +110,11 @@ func TestTheFallbackReachesOnlyExtensionsThatShareADirectoryWithTheCaller(t *tes
 
 // A keyword is a call statement's opener only when it stands alone: after `.` or `::` it is
 // a member or path segment, so `Calc::new()` and `p.delete()` are calls that must not be
-// missed (spec §4.3), while a bare `new(` or `return(` is still no call.
+// missed (spec §4.3), while a bare `new(` or `return(` is still no call. Each call token
+// carries the receiver it was made on (issue #508).
 func TestAQualifiedNameIsACallEvenWhenItIsAKeyword(t *testing.T) {
 	r := ScanFile("lib.rs", []byte("fn make() {\n    let c = Calc::new();\n    store.delete(c);\n    return(c);\n}\n"))
-	if got, want := r.Calls["lib.rs::make"], []string{"delete", "new"}; !reflect.DeepEqual(got, want) {
+	if got, want := r.Calls["lib.rs::make"], []string{"Calc.new", "store.delete"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("make calls %v, want %v", got, want)
 	}
 }

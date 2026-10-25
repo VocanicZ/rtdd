@@ -12,7 +12,8 @@ import (
 )
 
 // PRD #410 AC4: doctor prints graph source, graphify staleness, test-file counts and the
-// names defined at least 8 times — and nothing about adapters or a coverage map.
+// names defined at least 8 times — and nothing about adapters or a coverage map. Issue
+// #508: test_run's bare run() matches 8 definitions nothing narrows, so it links to none.
 func TestDoctorReportsTheGraphTestFilesAndOverLinkedNames(t *testing.T) {
 	dir := gittest.Init(t)
 	for i := 0; i < 8; i++ {
@@ -34,13 +35,17 @@ func TestDoctorReportsTheGraphTestFilesAndOverLinkedNames(t *testing.T) {
 		"built at:      " + gittest.HeadShort(t, dir) + "\n" +
 		"graphify:      not present (graphify-out/graph.json)\n" +
 		"nodes:         16\n" +
-		"edges:         8\n" +
+		"edges:         0\n" +
 		"test files:    2 matched by test_files, 1 with a test node\n" +
 		"test nodes:    1\n" +
-		"names defined 8 or more times (a call to one links to every definition):\n" +
-		"  run  8\n" +
-		"legacy files (an older rtdd wrote them outside .rtdd/):\n" +
-		"  none\n"
+		"names defined 8 or more times (a call to one is linked only when its scope, receiver or imports narrow it):
+" +
+		"  run  8
+" +
+		"legacy files (an older rtdd wrote them outside .rtdd/):
+" +
+		"  none
+"
 	if out != want {
 		t.Errorf("stdout:\n%s\nwant:\n%s", out, want)
 	}

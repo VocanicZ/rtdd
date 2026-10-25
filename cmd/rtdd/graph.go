@@ -28,6 +28,10 @@ type graphObject struct {
 	Nodes           int    `json:"nodes"`
 	Edges           int    `json:"edges"`
 	Tests           int    `json:"tests"`
+	Imports         int    `json:"imports"`         // file -> file imports the scanner resolved
+	Inherits        int    `json:"inherits"`        // inherits edges
+	Implements      int    `json:"implements"`      // implements edges
+	AmbiguousCalls  int    `json:"ambiguous_calls"` // calls linked to none: too many definitions matched
 }
 
 // cmdGraph builds or refreshes the node graph and reports what it holds (spec §8). It
@@ -74,6 +78,10 @@ func cmdGraph(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "nodes:           %d\n", obj.Nodes)
 	fmt.Fprintf(stdout, "edges:           %d\n", obj.Edges)
 	fmt.Fprintf(stdout, "tests:           %d\n", obj.Tests)
+	fmt.Fprintf(stdout, "imports:         %d\n", obj.Imports)
+	fmt.Fprintf(stdout, "inherits:        %d\n", obj.Inherits)
+	fmt.Fprintf(stdout, "implements:      %d\n", obj.Implements)
+	fmt.Fprintf(stdout, "ambiguous_calls: %d\n", obj.AmbiguousCalls)
 	fmt.Fprintf(stdout, "built_at_commit: %s\n", obj.BuiltAtCommit)
 	fmt.Fprintf(stdout, "stale_files:     %d\n", obj.StaleFiles)
 	if res.GraphifyIgnored != "" {

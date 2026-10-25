@@ -53,6 +53,8 @@ type Result struct {
 	GraphifyCommit  string      // graphify's built_at_commit as it recorded it, when it was read
 	GraphifyFiles   int         // graphify's code-file count, when it was read
 	Scanned         []string    // files the scanner read on this call, sorted
+	Imports         int         // file -> file imports edges the scanner resolved (spec §4.3)
+	AmbiguousCalls  int         // calls linked to no definition because too many matched (spec §4.3)
 }
 
 // Build builds the graph for the repository at root.
@@ -100,12 +102,14 @@ func Build(root string, cfg graph.Config, opt Options) (*Result, error) {
 	results, scanned := scanCached(root, toScan, blobs, changed, c)
 	res.Scanned = scanned
 	var whole *graph.Graph // results assembled, when they are the whole scanner graph
+	var st scan.Stats
 	if stale != nil {
-		res.Graph = Overlay(gf, stale, results)
+		res.Graph, st = overlay(gf, stale, results)
 	} else {
-		res.Graph = scan.Assemble(results)
+		res.Graph, st = scan.AssembleStats(results)
 		whole = &res.Graph
 	}
+	res.Imports, res.AmbiguousCalls = st.Imports, st.AmbiguousCalls
 	if !c.current(head, files, changed, results, scanned) {
 		if err := writeCache(cachePath, head, files, blobs, changed, c, results, whole); err != nil {
 			return nil, err

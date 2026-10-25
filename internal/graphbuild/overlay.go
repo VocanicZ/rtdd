@@ -10,8 +10,14 @@ import (
 // dropped and the scanner's scan of that file (in scanned) stands in. A graphify edge
 // from an unchanged file INTO a stale file is re-pointed to the scanner node(s) of the
 // same name in that file, or dropped when there is none (renamed, deleted). The
-// scanner's calls are then linked against the whole merged graph.
+// scanner's calls, imports and supertypes are then linked against the whole merged graph.
 func Overlay(gf *graphify.Graph, stale map[string]bool, scanned []scan.FileResult) graph.Graph {
+	g, _ := overlay(gf, stale, scanned)
+	return g
+}
+
+// overlay is Overlay and what its link resolved.
+func overlay(gf *graphify.Graph, stale map[string]bool, scanned []scan.FileResult) (graph.Graph, scan.Stats) {
 	var g graph.Graph
 	gnode := map[string]graph.Node{}
 	for _, n := range gf.Nodes {
@@ -21,16 +27,12 @@ func Overlay(gf *graphify.Graph, stale map[string]bool, scanned []scan.FileResul
 		}
 	}
 	byFileName := map[[2]string][]string{}
-	calls := map[string][]string{}
 	for _, r := range scanned {
 		g.Nodes = append(g.Nodes, r.Nodes...)
 		g.Edges = append(g.Edges, r.Edges...)
 		for _, n := range r.Nodes {
 			k := [2]string{n.File, n.Name}
 			byFileName[k] = append(byFileName[k], n.ID)
-		}
-		for id, names := range r.Calls {
-			calls[id] = names
 		}
 	}
 	for _, e := range gf.Edges {
@@ -46,7 +48,8 @@ func Overlay(gf *graphify.Graph, stale map[string]bool, scanned []scan.FileResul
 			}
 		}
 	}
-	g.Edges = append(g.Edges, scan.Link(g.Nodes, calls)...)
+	edges, st := scan.Link(g.Nodes, scan.RefsOf(scanned))
+	g.Edges = append(g.Edges, edges...)
 	graph.Sort(&g)
-	return g
+	return g, st
 }

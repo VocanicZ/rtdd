@@ -8,7 +8,11 @@
     "stale_files": 0,
     "nodes": 11,
     "edges": 8,
-    "tests": 5
+    "tests": 5,
+    "imports": 3,
+    "inherits": 0,
+    "implements": 0,
+    "ambiguous_calls": 0
   },
   "changed": [
     {

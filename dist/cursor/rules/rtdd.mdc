@@ -72,5 +72,6 @@ graphify yourself.
 
 ## What it cannot see
 
-Links are by name, so a common name over-links; a call through reflection, a string or a
-framework hook has no edge; depth is one, and Round 3 is the safety net.
+Links are by name, narrowed by scope, receiver type and imports, so a common name can link
+wrong or not at all; a call through reflection, a string or a framework hook has no edge;
+depth is one, and Round 3 is the safety net.

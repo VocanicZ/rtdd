@@ -100,18 +100,57 @@ The full regex set lives in one Go file and is the only place language shapes ap
   line before the next non-blank line indented at or below the definition, or at EOF. Nested
   definitions are their own nodes; a line belongs to the **innermost** node containing it.
 - **`method` edge** from a class node to every node nested directly inside it.
-- **`calls` edge** from node A to the nodes named `X` when `X(` appears as a whole word in
-  A's body (excluding A's own definition line). **Own file type first:** if A's file has
-  extension `.e` and any node named `X` lives in a file with extension `.e`, A links to
-  **only** those — a Go call never reaches a Python definition. Otherwise A falls back to
-  every node named `X` whose file's extension **shares a directory** with `.e` somewhere in
-  the graph (some directory holds a node-bearing file of each), which keeps `.ts`→`.js`,
-  `.c`→`.h` and similar cross-extension calls while a name no `.e` file defines — most often
-  a builtin such as Python's `len(` — is not captured by a stray definition in another
-  language. No language list is involved: extensions are compared as strings. Within the
-  chosen set, same-named definitions are all linked — over-linking is accepted. The same
-  rule links the scanner's calls from stale files against the merged graph in the §5
-  overlay (step 3's re-pointing stays within one file, so one extension).
+- **`calls` edge** from node A to the node(s) named `X` when `X(` appears as a whole word in
+  A's body (excluding A's own definition line). The candidates are the nodes named `X` of
+  A's **own file type**: if A's file has extension `.e` and any node named `X` lives in a
+  file with extension `.e`, only those — a Go call never reaches a Python definition.
+  Otherwise every node named `X` whose file's extension **shares a directory** with `.e`
+  somewhere in the graph (some directory holds a node-bearing file of each), which keeps
+  `.ts`→`.js`, `.c`→`.h` and similar cross-extension calls while a name no `.e` file
+  defines — most often a builtin such as Python's `len(` — is not captured by a stray
+  definition in another language. No language list is involved: extensions are compared
+  as strings. *(Amended by issue #508: the original rule linked every candidate —
+  "over-linking is accepted" — and on a 700-file Java project one node was linked from
+  145 tests.)* The candidates are then **narrowed**, cheapest signal first, no parser; the
+  first rule that finds a definition wins:
+  1. **Receiver type.** For `obj.X(` (also `obj?.X(`, `obj->X(`, `obj::X(`, `obj:X(`),
+     where `obj` is declared in A or an enclosing node as `Type obj`, `obj: Type` or
+     `obj = new Type(` / `obj = Type(` / `obj := &Type{` (`const`/`let`/`var` are never
+     a type): `Type`'s own `X`, else its supertypes', else every `X` in a class below
+     `Type` (an interface's implementations). If A's file imports `Type` by an import no
+     file resolves, `Type` is a library's and the call links to **nothing**; if it imports
+     `Type` from a file holding no class `Type` (a Java record), only that file's `X`. When
+     `obj` has no declared type but itself names a class (`Calc::new(`, `Store.open(`),
+     that class's `X` the same way. Otherwise the call goes on to rule 3.
+  2. **Scope.** A bare `X(` or `self.X(` / `this.X(` links to the `X` nested directly in
+     the innermost node enclosing A that has one — A's own class first — else in that
+     class's supertypes. `super.X(` / `super().X(` goes to the supertypes only, and links
+     to nothing when none is in the graph. A itself is never a target: a method `load`
+     whose body calls `load()` goes on to the next rule (a delegation, not a recursion).
+  3. **Same file**, then **imported files and A's own directory**, then the **same
+     package** — files whose directory has the same last two segments
+     (`src/test/java/a/b` and `src/main/java/a/b`). A call on a receiver (`x.X(`) never
+     links this way to a member of A's own class. Import lines are read with one regex
+     per shape (`import a.b.C;`, `import a.b as c, d`, `from a.b import c`,
+     `import x from './y'`, `require('./y')`, Go `import "m/p"`, `use crate::a::b`,
+     `mod x;`, `#include "x.h"`, `using A.B;`, Lua/Ruby `require`, shell `source` / `.`);
+     a spec resolves to the files whose path ends with it, else the directories that do,
+     else — for a module path — the directory a trailing run of its segments is; a
+     one-segment spec (`import utils`, Go's `import "errors"`) names only a file or
+     directory at the root or one directory down; a relative spec is joined to the
+     importing file's directory (`./b.js` also finds `b.ts`). These file→file
+     **imports** are not edges of the node graph (files are not nodes); they steer this
+     rule and are counted by `rtdd graph`.
+  4. **Whatever is left.** Past A's own file, a set of more than **5** definitions links
+     to **none**, and `rtdd graph` counts the call in `ambiguous_calls`. A name that
+     common carries no signal about which definition is meant.
+
+  The same rule links the scanner's calls from stale files against the merged graph in the
+  §5 overlay (step 3's re-pointing stays within one file, so one extension).
+- **`inherits` / `implements` edges** from a class node to the class nodes its definition
+  line names: `class A extends B implements C`, `interface A extends B`, `class A(B):`,
+  `class A : public B` / `struct A : B` / `class A(x: T) : B()`, `class A < B`, and
+  `impl Trait for A` (implements). A supertype name resolves to class nodes by rules 3-4.
 
 ### 4.4 Fixture corpus
 
@@ -181,7 +220,7 @@ Within a round, tests are ordered by file then line. Round 3 is always "the full
 | command | does |
 |---|---|
 | `rtdd which [--base <ref>] [--json]` | changed nodes, Round 1, Round 2, untested, graph source. Runs nothing. |
-| `rtdd graph [--json]` | builds/refreshes the graph cache; prints source, node/edge/test counts, staleness. |
+| `rtdd graph [--json]` | builds/refreshes the graph cache; prints source, node/edge/test counts, the `imports`, `inherits` and `implements` counts and `ambiguous_calls` (§4.3), staleness. |
 | `rtdd explain <file[:line]\|name>` | a node's tests, callers and callees. |
 | `rtdd doctor` | graph source, graphify staleness, test-file detection counts, names defined ≥ **8** times (over-link hubs). |
 | `rtdd init`, `update`, `uninstall`, `version`, `skill` | as today, minus adapter detection. `init` no longer refuses: every repository is supported. |
@@ -242,5 +281,5 @@ language and no framework.
 | depth-1 direction | both (callees and callers) |
 | `.rtdd/graph.json` | gitignored cache |
 | graphify too stale | ignore it past 50 % stale; never run it |
-| ambiguous names | link all same-named definitions; `doctor` lists names defined ≥ 8 times |
+| ambiguous names | narrow by receiver type, scope, file, imports, package; past **5** candidates link none and count `ambiguous_calls` (issue #508, superseding "link all"); `doctor` lists names defined ≥ 8 times |
 | version | v0.3.0; tagging and release remain a human action |
