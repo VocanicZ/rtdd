@@ -156,7 +156,7 @@ func Fingerprint() string {
 	for _, r := range importRows {
 		fmt.Fprintf(h, "import %s %s\n", r.sep, r.re)
 	}
-	fmt.Fprintf(h, "%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n", importWord, goImportBlock, goImportLine, generics, sortedKeys(supertypeWords), sortedKeys(selfReceivers), sortedKeys(bindingKeywords), superReceiver)
+	fmt.Fprintf(h, "%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n", strings.Join(importWords, " "), goImportBlock, goImportLine, generics, sortedKeys(supertypeWords), sortedKeys(selfReceivers), sortedKeys(bindingKeywords), superReceiver)
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
@@ -302,9 +302,18 @@ var importRows = []struct {
 	{regexp.MustCompile(`^\s*(?:source|\.)\s+['"]?([^'"\s;|&=][^'"\s;|&]*)`), "path"},
 }
 
-// importWord is on every line an import row can match: a line without it is skipped
-// before the rows are tried.
-var importWord = regexp.MustCompile(`\b(?:import|from|require|require_relative|use|mod|include|using|source)\b|^\s*\.\s`)
+// importWords: one is on every line an import row can match (or the line starts with a
+// shell `. `), so a line with none is skipped before the rows are tried.
+var importWords = []string{"import", "from", "require", "use", "mod", "include", "using", "source"}
+
+func mayImport(line string) bool {
+	for _, w := range importWords {
+		if strings.Contains(line, w) {
+			return true
+		}
+	}
+	return strings.HasPrefix(strings.TrimLeft(line, " \t"), ". ")
+}
 
 // goImportBlock opens and goImportLine is one line of a Go `import ( … )` block.
 var (
@@ -331,7 +340,7 @@ func imports(lines []string) []string {
 			}
 			continue
 		}
-		if !importWord.MatchString(line) {
+		if !mayImport(line) {
 			continue
 		}
 		if goImportBlock.MatchString(line) {

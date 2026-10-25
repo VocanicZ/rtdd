@@ -157,15 +157,28 @@ func ScanFile(rel string, src []byte) FileResult {
 			lineOf[o] = append(lineOf[o], l)
 		}
 	}
-	decls := make([]map[string]string, len(defs))
-	declsOf := func(d int) map[string]string {
+	decls := make([]map[string]string, len(defs)) // node -> receiver -> its type, "" for none
+	declOf := func(d int, recv string) string {
 		if decls[d] == nil {
 			decls[d] = map[string]string{}
-			for _, l := range lineOf[d] {
-				declarations(lines[l], decls[d])
+		}
+		if t, ok := decls[d][recv]; ok {
+			return t
+		}
+		t := ""
+		for _, l := range lineOf[d] {
+			if !strings.Contains(lines[l], recv) {
+				continue
+			}
+			found := map[string]string{}
+			declarations(lines[l], found)
+			if x, ok := found[recv]; ok {
+				t = x
+				break
 			}
 		}
-		return decls[d]
+		decls[d][recv] = t
+		return t
 	}
 	// token is the call token of name called on recv from node o: `X` bare or on self,
 	// `T#X` with T recv's declared type, `recv.X` when recv has none, `.X` on no named
@@ -178,7 +191,7 @@ func ScanFile(rel string, src []byte) FileResult {
 			return "." + name
 		}
 		for d := o; d >= 0; d = defs[d].parent {
-			if t, ok := declsOf(d)[recv]; ok {
+			if t := declOf(d, recv); t != "" {
 				return t + "#" + name
 			}
 		}
