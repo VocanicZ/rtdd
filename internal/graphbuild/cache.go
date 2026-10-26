@@ -19,8 +19,10 @@ import (
 // cacheVersion is the rtdd_cache value this build reads and writes. Any other value —
 // and any other scanner fingerprint — is a cache miss, never an error. 2: a method's
 // class is rtdd_parent on its node, so a read never decodes links. 3: a file's import
-// specs are rtdd_imports, a class's supertypes rtdd_supers on its node.
-const cacheVersion = 3
+// specs are rtdd_imports, a class's supertypes rtdd_supers on its node. 4: a file's line
+// count is rtdd_lines, the path tokens of its lines in no definition rtdd_refs, and a
+// node's rtdd_refs on the node (#504).
+const cacheVersion = 4
 
 // cacheFile is .rtdd/graph.json: graphify's graph.json node-link shape (so a graphify
 // reader can open it), plus rtdd's own keys, all prefixed rtdd_ (spec §4.5). Links are
@@ -34,6 +36,8 @@ type cacheFile struct {
 	Scanner       string              `json:"rtdd_scanner"`
 	Files         map[string]string   `json:"rtdd_files"`   // path -> blob id it was scanned from; "" = working-tree content
 	Imports       map[string][]string `json:"rtdd_imports"` // path -> its import specs, when it has any
+	Lines         map[string]int      `json:"rtdd_lines"`   // path -> its line count
+	Refs          map[string][]string `json:"rtdd_refs"`    // path -> the path tokens of its lines in no definition
 	Nodes         []cacheNode         `json:"nodes"`
 	Links         []cacheLink         `json:"links"`
 }
@@ -51,6 +55,7 @@ type cacheNode struct {
 	Calls          []string   `json:"rtdd_calls,omitempty"`
 	Parent         string     `json:"rtdd_parent,omitempty"` // the class of a method: its method edge
 	Supers         []string   `json:"rtdd_supers,omitempty"` // a class's supertypes, "<relation>:<name>"
+	Refs           []string   `json:"rtdd_refs,omitempty"`   // the path tokens in its code
 }
 
 // cacheRead is cacheFile without links. They are written for a graphify reader; rtdd
@@ -64,6 +69,8 @@ type cacheRead struct {
 	Scanner       string              `json:"rtdd_scanner"`
 	Files         map[string]string   `json:"rtdd_files"`
 	Imports       map[string][]string `json:"rtdd_imports"`
+	Lines         map[string]int      `json:"rtdd_lines"`
+	Refs          map[string][]string `json:"rtdd_refs"`
 }
 
 type cacheLink struct {
@@ -79,8 +86,15 @@ type cache struct {
 	results map[string]scan.FileResult
 }
 
-// readCache never fails: a missing, corrupt, other-version or other-scanner cache is empty.
-func readCache(p string) *cache {
+// scannerID is what a cache must have been scanned under to be read: the scanner's
+// fingerprint and the files it read as prose (definition_exclude), which ScanProse scans.
+func scannerID(definitionExclude []string) string {
+	return scan.Fingerprint() + " " + strings.Join(definitionExclude, " ")
+}
+
+// readCache never fails: a missing, corrupt, other-version or other-scanner cache is
+// empty. id is the scannerID the cache must have been written under.
+func readCache(p, id string) *cache {
 	c := &cache{blob: map[string]string{}, results: map[string]scan.FileResult{}}
 	fh, err := os.Open(p)
 	if err != nil {
@@ -88,7 +102,7 @@ func readCache(p string) *cache {
 	}
 	defer fh.Close()
 	f, err := decodeCache(fh)
-	if err != nil || f.Cache != cacheVersion || f.Scanner != scan.Fingerprint() {
+	if err != nil || f.Cache != cacheVersion || f.Scanner != id {
 		return c
 	}
 	c.builtAt = f.BuiltAtCommit
@@ -100,6 +114,12 @@ func readCache(p string) *cache {
 		r.Nodes = append(r.Nodes, graph.Node{ID: n.ID, File: n.SourceFile, Name: n.Name, Kind: n.Kind, Start: n.Start, End: n.End})
 		if len(n.Calls) > 0 {
 			r.Calls[n.ID] = n.Calls
+		}
+		if len(n.Refs) > 0 {
+			if r.Refs == nil {
+				r.Refs = map[string][]string{}
+			}
+			r.Refs[n.ID] = n.Refs
 		}
 		// Only method edges are cached: calls edges are re-linked from rtdd_calls on every
 		// build, which is what keeps a cached caller correct when its callee's file changes.
@@ -127,6 +147,21 @@ func readCache(p string) *cache {
 			c.results[p] = r
 		}
 	}
+	for p, n := range f.Lines {
+		if r, ok := c.results[p]; ok {
+			r.Lines = n
+			c.results[p] = r
+		}
+	}
+	for p, toks := range f.Refs {
+		if r, ok := c.results[p]; ok {
+			if r.Refs == nil {
+				r.Refs = map[string][]string{}
+			}
+			r.Refs[p] = toks
+			c.results[p] = r
+		}
+	}
 	return c
 }
 
@@ -139,7 +174,7 @@ func decodeCache(r io.Reader) (cacheRead, error) {
 		return f, errors.New("cache is not a JSON object")
 	}
 	seen := map[string]bool{}
-	for len(seen) < 6 && dec.More() {
+	for len(seen) < 8 && dec.More() {
 		t, err := dec.Token()
 		if err != nil {
 			return f, err
@@ -159,6 +194,10 @@ func decodeCache(r io.Reader) (cacheRead, error) {
 			v = &f.Files
 		case "rtdd_imports":
 			v = &f.Imports
+		case "rtdd_lines":
+			v = &f.Lines
+		case "rtdd_refs":
+			v = &f.Refs
 		default:
 			v = &json.RawMessage{}
 		}
@@ -181,7 +220,7 @@ func (c *cache) fresh(f string, blobs map[string]string, changed map[string]bool
 // scanCached returns a scan of every file in toScan, re-reading only a file whose HEAD
 // blob differs from the one cached, or that is in the working-tree changed set. The
 // second result is the files it re-read.
-func scanCached(root string, toScan []string, blobs map[string]string, changed map[string]bool, c *cache) ([]scan.FileResult, []string) {
+func scanCached(root string, toScan []string, blobs map[string]string, changed map[string]bool, c *cache, prose func(string) bool) ([]scan.FileResult, []string) {
 	var out []scan.FileResult
 	var reread []string
 	for _, f := range toScan {
@@ -191,7 +230,7 @@ func scanCached(root string, toScan []string, blobs map[string]string, changed m
 		}
 		reread = append(reread, f)
 	}
-	out = append(out, scan.ScanFiles(root, reread)...)
+	out = append(out, scan.ScanFilesProse(root, reread, prose)...)
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out, reread
 }
@@ -199,7 +238,7 @@ func scanCached(root string, toScan []string, blobs map[string]string, changed m
 // writeCache records results, plus every older entry still valid for a listed file.
 // whole, when not nil, is results already assembled; it is reused when results are every
 // file the cache keeps, so a build assembles its scanner graph once, not twice.
-func writeCache(p, head string, files []string, blobs map[string]string, changed map[string]bool, old *cache, results []scan.FileResult, whole *graph.Graph) error {
+func writeCache(p, id, head string, files []string, blobs map[string]string, changed map[string]bool, old *cache, results []scan.FileResult, whole *graph.Graph) error {
 	keep := map[string]scan.FileResult{}
 	for _, f := range files {
 		if r, ok := old.results[f]; ok && old.fresh(f, blobs, changed) {
@@ -209,7 +248,8 @@ func writeCache(p, head string, files []string, blobs map[string]string, changed
 	for _, r := range results {
 		keep[r.Path] = r
 	}
-	f := cacheFile{BuiltAtCommit: head, Cache: cacheVersion, Scanner: scan.Fingerprint(), Files: map[string]string{}, Imports: map[string][]string{}}
+	f := cacheFile{BuiltAtCommit: head, Cache: cacheVersion, Scanner: id, Files: map[string]string{}, Imports: map[string][]string{},
+		Lines: map[string]int{}, Refs: map[string][]string{}}
 	all := make([]scan.FileResult, 0, len(keep))
 	for path, r := range keep {
 		blob := blobs[path]
@@ -219,6 +259,10 @@ func writeCache(p, head string, files []string, blobs map[string]string, changed
 		f.Files[path] = blob
 		if len(r.Imports) > 0 {
 			f.Imports[path] = r.Imports
+		}
+		f.Lines[path] = r.Lines
+		if toks := r.Refs[path]; len(toks) > 0 {
+			f.Refs[path] = toks
 		}
 		all = append(all, r)
 	}
@@ -230,6 +274,14 @@ func writeCache(p, head string, files []string, blobs map[string]string, changed
 		g = scan.Assemble(all)
 	}
 	refs := scan.RefsOf(all)
+	nodeRefs := map[string][]string{}
+	for _, r := range all {
+		for id, toks := range r.Refs {
+			if id != r.Path {
+				nodeRefs[id] = toks
+			}
+		}
+	}
 	supers := map[string][]string{}
 	for id, sups := range refs.Supers {
 		for _, s := range sups {
@@ -246,7 +298,7 @@ func writeCache(p, head string, files []string, blobs map[string]string, changed
 	for _, n := range g.Nodes {
 		f.Nodes = append(f.Nodes, cacheNode{ID: n.ID, Label: label(n), FileType: "code", SourceFile: n.File,
 			SourceLocation: "L" + strconv.Itoa(n.Start), Name: n.Name, Kind: n.Kind, Start: n.Start, End: n.End,
-			Calls: refs.Calls[n.ID], Parent: parent[n.ID], Supers: supers[n.ID]})
+			Calls: refs.Calls[n.ID], Parent: parent[n.ID], Supers: supers[n.ID], Refs: nodeRefs[n.ID]})
 	}
 	f.Links = []cacheLink{}
 	for _, e := range g.Edges {
@@ -337,8 +389,8 @@ func (c *cache) current(head string, files []string, changed map[string]bool, re
 	return true
 }
 
-// sameScan reports whether two scans of one file hold the same nodes, method edges and
-// calls, whatever their order — a cached scan comes back in graph order.
+// sameScan reports whether two scans of one file hold the same nodes, method edges,
+// calls, line count and path tokens, whatever their order — a cached scan comes back in graph order.
 func sameScan(a, b scan.FileResult) bool {
 	return reflect.DeepEqual(canonical(a), canonical(b))
 }
@@ -346,7 +398,7 @@ func sameScan(a, b scan.FileResult) bool {
 func canonical(r scan.FileResult) scan.FileResult {
 	g := graph.Graph{Nodes: slices.Clone(r.Nodes), Edges: slices.Clone(r.Edges)}
 	graph.Sort(&g)
-	out := scan.FileResult{Path: r.Path, Calls: map[string][]string{}, Supers: map[string][]scan.Super{}}
+	out := scan.FileResult{Path: r.Path, Calls: map[string][]string{}, Supers: map[string][]scan.Super{}, Lines: r.Lines, Refs: map[string][]string{}}
 	if len(r.Imports) > 0 {
 		out.Imports = r.Imports
 	}
@@ -364,6 +416,11 @@ func canonical(r scan.FileResult) scan.FileResult {
 	for id, names := range r.Calls {
 		if len(names) > 0 {
 			out.Calls[id] = names
+		}
+	}
+	for id, toks := range r.Refs {
+		if len(toks) > 0 {
+			out.Refs[id] = toks
 		}
 	}
 	return out

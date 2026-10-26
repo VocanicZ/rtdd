@@ -6,7 +6,7 @@
     "source": "scanner",
     "built_at_commit": "<HEAD>",
     "stale_files": 0,
-    "nodes": 11,
+    "nodes": 17,
     "edges": 8,
     "tests": 5,
     "imports": 3,

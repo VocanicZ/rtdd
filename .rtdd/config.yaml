@@ -12,6 +12,9 @@ scan_exclude:
   - "build/**"
   - ".rtdd/**"
   - "graphify-out/**"
+
+# Files read for their file node and the paths they name, never for definitions.
+definition_exclude:
   - "**/*.md"
   - "**/*.mdc"
   - "**/*.markdown"

@@ -54,8 +54,8 @@ func TestGraphifyIsIgnoredWithAReason(t *testing.T) {
 			if res.Source != SourceScanner || res.GraphifyIgnored != c.want {
 				t.Errorf("Source %q, GraphifyIgnored %q; want scanner, %q", res.Source, res.GraphifyIgnored, c.want)
 			}
-			if len(res.Graph.Nodes) != 4+len(c.edits) {
-				t.Errorf("%d nodes, want the scanner's whole graph (%d)", len(res.Graph.Nodes), 4+len(c.edits))
+			if len(res.Graph.Nodes) != 4+len(c.edits)+4 {
+				t.Errorf("%d nodes, want the scanner's whole graph (%d, and 4 file nodes)", len(res.Graph.Nodes), 4+len(c.edits))
 			}
 			if !reflect.DeepEqual(res.Scanned, []string{"a.py", "b.py", "c.py", "d.py"}) {
 				t.Errorf("Scanned = %v, want every file", res.Scanned)

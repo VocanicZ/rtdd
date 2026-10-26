@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/VocanicZ/rtdd/internal/gitctx"
+	"github.com/VocanicZ/rtdd/internal/install"
 )
 
 // rtddDirName is the one directory rtdd writes into the host repository.
@@ -23,7 +24,8 @@ func changedSet(repoRoot, base string) ([]gitctx.Change, error) {
 	return excludeRtddDir(changes), nil
 }
 
-// excludeRtddDir removes rtdd's own writes from a changed set.
+// excludeRtddDir removes rtdd's own writes from a changed set: .rtdd/, and the front-ends
+// `rtdd init --project-skill` writes, which rtdd owns outright (#500, #504).
 //
 // .rtdd/ holds rtdd's config and its graph cache (graph.json, rewritten whenever the
 // graph is rebuilt). Left in, rtdd's own cache write would read as a change the
@@ -35,7 +37,7 @@ func changedSet(repoRoot, base string) ([]gitctx.Change, error) {
 func excludeRtddDir(in []gitctx.Change) []gitctx.Change {
 	out := make([]gitctx.Change, 0, len(in))
 	for _, c := range in {
-		if underRtddDir(c.Path) {
+		if underRtddDir(c.Path) || install.ProjectSkillFiles[c.Path] != "" {
 			continue
 		}
 		if underRtddDir(c.OldPath) {

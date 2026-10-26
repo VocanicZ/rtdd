@@ -14,7 +14,8 @@ type Link struct {
 }
 
 // Links is one node's depth-1 surroundings, as `rtdd explain` prints them: the tests with
-// an edge to it, the non-test nodes with an edge to it, and the nodes it has an edge to.
+// an edge to it, the non-test nodes with an edge to it, and the nodes it has an edge to. An
+// edge from a test file's lines in no test is from each of its tests (#504).
 // Each list is ordered by File, then Start, then ID, then Relation, and is non-nil.
 type Links struct {
 	Tests   []Link
@@ -28,7 +29,11 @@ func LinksOf(g graph.Graph, id string) Links {
 	l := Links{Tests: []Link{}, Callers: []Link{}, Callees: []Link{}}
 	for _, e := range ix.in[id] {
 		if n, ok := ix.byID[e.From]; ok {
-			if n.IsTest {
+			if ts := ix.testsIn[n.File]; n.Kind == graph.KindFile && len(ts) > 0 {
+				for _, t := range ts {
+					l.Tests = append(l.Tests, Link{t, e.Relation})
+				}
+			} else if n.IsTest {
 				l.Tests = append(l.Tests, Link{n, e.Relation})
 			} else {
 				l.Callers = append(l.Callers, Link{n, e.Relation})

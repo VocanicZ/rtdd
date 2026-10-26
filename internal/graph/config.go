@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"gopkg.in/yaml.v3"
 
@@ -16,8 +17,11 @@ import (
 // over repo-relative paths — never a per-language setting (spec §4.1, §6).
 type Config struct {
 	ScanExclude []string // files the scanner never reads (spec §4.1)
-	TestFiles   []string // a node in a matching file may be a test (spec §6)
-	TestExclude []string // a file matching these is never a test file, whatever TestFiles says
+	// DefinitionExclude are files read for their file node and the paths they name, but
+	// never for definitions: prose, whose code samples must not become nodes (#504).
+	DefinitionExclude []string
+	TestFiles         []string // a node in a matching file may be a test (spec §6)
+	TestExclude       []string // a file matching these is never a test file, whatever TestFiles says
 	// WholeFileTests are test files run only as a whole (shell scripts, .bats): every
 	// function in one is a helper and the file path is the only runnable id (#505).
 	WholeFileTests []string
@@ -29,8 +33,8 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		ScanExclude: []string{"vendor/**", "node_modules/**", "third_party/**", "**/*.min.js",
-			"dist/**", "build/**", ".rtdd/**", "graphify-out/**",
-			"**/*.md", "**/*.mdc", "**/*.markdown", "**/*.rst", "**/*.txt", "**/*.adoc"},
+			"dist/**", "build/**", ".rtdd/**", "graphify-out/**"},
+		DefinitionExclude: slices.Clone(proseGlobs),
 		TestFiles: []string{"**/test_*", "**/*_test.*", "**/*.test.*", "**/*.spec.*", "**/*Test.*",
 			"**/*Tests.*", "**/tests/**", "**/test/**", "**/spec/**", "**/__tests__/**"},
 		TestExclude:    []string{"**/testdata/**", "**/fixtures/**"},
@@ -40,11 +44,16 @@ func DefaultConfig() Config {
 	}
 }
 
+// proseGlobs are definition_exclude's default. Before #504 they were scan_exclude's, so a
+// config written then lists them there (see LoadConfig).
+var proseGlobs = []string{"**/*.md", "**/*.mdc", "**/*.markdown", "**/*.rst", "**/*.txt", "**/*.adoc"}
+
 // configFile is the on-disk shape. Pointers tell "absent" from "empty": a key that is
 // present REPLACES its default wholesale; an absent key keeps it. Keys rtdd does not
 // read here (stale_commits, adapters, ...) are ignored, not rejected.
 type configFile struct {
 	ScanExclude   *[]string `yaml:"scan_exclude"`
+	DefExclude    *[]string `yaml:"definition_exclude"`
 	TestFiles     *[]string `yaml:"test_files"`
 	TestExclude   *[]string `yaml:"test_exclude"`
 	WholeFile     *[]string `yaml:"whole_file_tests"`
@@ -53,7 +62,9 @@ type configFile struct {
 }
 
 // LoadConfig reads <root>/.rtdd/config.yaml over DefaultConfig. A missing file is the
-// defaults; a malformed file, a malformed glob or a ratio outside (0, 1] is an error.
+// defaults; a malformed file, a malformed glob or a ratio outside (0, 1] is an error. A
+// file that sets no definition_exclude was written before #504, when the prose globs were
+// scan_exclude's: they move out of its scan_exclude, so prose gets file nodes there too.
 func LoadConfig(root string) (Config, error) {
 	cfg := DefaultConfig()
 	p := filepath.Join(root, ".rtdd", "config.yaml")
@@ -72,7 +83,7 @@ func LoadConfig(root string) (Config, error) {
 		key string
 		in  *[]string
 		out *[]string
-	}{{"scan_exclude", f.ScanExclude, &cfg.ScanExclude}, {"test_files", f.TestFiles, &cfg.TestFiles}, {"test_exclude", f.TestExclude, &cfg.TestExclude},
+	}{{"scan_exclude", f.ScanExclude, &cfg.ScanExclude}, {"definition_exclude", f.DefExclude, &cfg.DefinitionExclude}, {"test_files", f.TestFiles, &cfg.TestFiles}, {"test_exclude", f.TestExclude, &cfg.TestExclude},
 		{"whole_file_tests", f.WholeFile, &cfg.WholeFileTests}} {
 		if l.in == nil {
 			continue
@@ -83,6 +94,9 @@ func LoadConfig(root string) (Config, error) {
 			}
 		}
 		*l.out = *l.in
+	}
+	if f.DefExclude == nil {
+		cfg.ScanExclude = slices.DeleteFunc(slices.Clone(cfg.ScanExclude), func(g string) bool { return slices.Contains(proseGlobs, g) })
 	}
 	if f.GraphifyPath != nil {
 		cfg.GraphifyPath = *f.GraphifyPath

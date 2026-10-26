@@ -114,11 +114,11 @@ func TestRescanOfAnUnchangedEditDoesNotRewriteTheCache(t *testing.T) {
 		t.Errorf("the cache was not rewritten after a further edit")
 	}
 	names := map[string]bool{}
-	for _, n := range readCache(cachePath).results["src/calc.py"].Nodes {
+	for _, n := range readCache(cachePath, scannerID(graph.DefaultConfig().DefinitionExclude)).results["src/calc.py"].Nodes {
 		names[n.Name] = true
 	}
-	if !names["mul"] || names["sub"] || len(res.Graph.Nodes) != 4 {
-		t.Errorf("cache holds %v for src/calc.py and the graph %d nodes; want mul, not sub, and 4 nodes", names, len(res.Graph.Nodes))
+	if !names["mul"] || names["sub"] || len(res.Graph.Nodes) != 4+3 {
+		t.Errorf("cache holds %v for src/calc.py and the graph %d nodes; want mul, not sub, and 4 nodes + 3 file nodes", names, len(res.Graph.Nodes))
 	}
 }
 
@@ -178,8 +178,8 @@ func TestCorruptOrForeignCacheIsRebuiltNotAnError(t *testing.T) {
 				t.Fatal(err)
 			}
 			res := build(t, root)
-			if len(res.Scanned) != 3 || len(res.Graph.Nodes) != 3 {
-				t.Errorf("scanned %v into %d nodes, want a full rebuild of 3 files / 3 nodes", res.Scanned, len(res.Graph.Nodes))
+			if len(res.Scanned) != 3 || len(res.Graph.Nodes) != 3+3 {
+				t.Errorf("scanned %v into %d nodes, want a full rebuild of 3 files / 3 nodes + 3 file nodes", res.Scanned, len(res.Graph.Nodes))
 			}
 		})
 	}

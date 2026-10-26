@@ -29,7 +29,7 @@ func TestGraphCommandPrintsSourceCountsAndStaleness(t *testing.T) {
 		t.Fatalf("rtdd graph = %d, stderr %q", code, errOut)
 	}
 	want := "source:          scanner\n" +
-		"nodes:           3\n" +
+		"nodes:           5\n" + // 3 definitions and 2 file nodes (#504)
 		"edges:           2\n" +
 		"tests:           1\n" +
 		"imports:         1\n" +
@@ -58,7 +58,7 @@ func TestGraphCommandJSONShape(t *testing.T) {
 	}
 	g, _ := doc["graph"].(map[string]any)
 	want := map[string]any{"source": "scanner", "built_at_commit": gittest.HeadShort(t, dir),
-		"stale_files": 0.0, "nodes": 3.0, "edges": 2.0, "tests": 1.0,
+		"stale_files": 0.0, "nodes": 5.0, "edges": 2.0, "tests": 1.0,
 		"imports": 1.0, "inherits": 0.0, "implements": 0.0, "ambiguous_calls": 0.0}
 	for k, v := range want {
 		if g[k] != v {
@@ -143,8 +143,8 @@ func TestGraphCommandStaleFilesCountsEveryOverlaidFile(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &doc); err != nil {
 		t.Fatal(err)
 	}
-	if doc.Graph["source"] != "graphify+scanner" || doc.Graph["stale_files"] != 2.0 || doc.Graph["nodes"] != 5.0 {
-		t.Errorf("graph = %v; want graphify+scanner, stale_files 2, nodes 5", doc.Graph)
+	if doc.Graph["source"] != "graphify+scanner" || doc.Graph["stale_files"] != 2.0 || doc.Graph["nodes"] != 5.0+4 {
+		t.Errorf("graph = %v; want graphify+scanner, stale_files 2, nodes 5 and 4 file nodes", doc.Graph)
 	}
 }
 

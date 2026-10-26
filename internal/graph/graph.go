@@ -1,5 +1,5 @@
 // Package graph is the one model rtdd selects from, whatever built it (spec §3): nodes
-// are functions, methods, classes and tests; edges are code relationships.
+// are functions, methods, classes, tests and files; edges are code relationships.
 package graph
 
 import (
@@ -16,6 +16,10 @@ const (
 	KindMethod Kind = "method"
 	KindClass  Kind = "class"
 	KindTest   Kind = "test"
+	// KindFile is a whole file, one per scanned file whether it defines anything or not
+	// (#504): its ID is the path, and a change to a line in no definition of a file with
+	// none maps to it.
+	KindFile Kind = "file"
 )
 
 // Relation is an edge's type. The set is closed: anything else is dropped on load.
@@ -42,7 +46,7 @@ func ParseRelation(s string) (Relation, bool) {
 	return "", false
 }
 
-// Node is one function, method, class or test. File is repo-relative and slash-separated;
+// Node is one function, method, class, test or file. File is repo-relative and slash-separated;
 // Start and End are 1-based and inclusive.
 type Node struct {
 	ID     string
@@ -53,6 +57,16 @@ type Node struct {
 	End    int
 	IsTest bool
 	Helper bool // a func or method in a test file that is not itself a test (#505)
+}
+
+// FileNode is file's node: its ID is the path, its name the base name, and it spans lines
+// 1 to lines (#504).
+func FileNode(file string, lines int) Node {
+	name := file
+	if i := strings.LastIndexByte(file, '/'); i >= 0 {
+		name = file[i+1:]
+	}
+	return Node{ID: file, File: file, Name: name, Kind: KindFile, Start: 1, End: max(lines, 1)}
 }
 
 // Edge points From one node ID To another.

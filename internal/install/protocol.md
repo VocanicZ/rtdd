@@ -63,7 +63,8 @@ runs nothing and answers in about a second, so ask it again after every edit.
 The changed set is everything that differs from `--base` (default `HEAD`): committed since
 it, staged, unstaged and untracked, so a file you just wrote counts before you commit it. A
 changed line outside every function, such as an import, belongs to its file's `<module>`
-node.
+node, and a changed file that defines nothing (a prompt, a config) is one node, its path,
+whose tests are the ones that name it.
 
 `untested` lists the changed nodes no test in Round 1 or Round 2 reaches. Write a test for
 each one you changed before you run the rounds.

@@ -113,7 +113,7 @@ type nameCount struct {
 func overLinked(g graph.Graph, atLeast int) []nameCount {
 	counts := map[string]int{}
 	for _, n := range g.Nodes {
-		if !n.IsTest {
+		if !n.IsTest && n.Kind != graph.KindFile { // a file's name is not a definition's
 			counts[n.Name]++
 		}
 	}

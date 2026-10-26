@@ -25,7 +25,7 @@ const KindModule graph.Kind = "module"
 // Result is spec §7's four sets. Every slice is non-nil and ordered by File, then Start,
 // then ID.
 type Result struct {
-	ChangedNodes []graph.Node // the innermost node of each changed line, or the file's <module>
+	ChangedNodes []graph.Node // the innermost node of each changed line, or the file's <module> or file node
 	Round1       []graph.Node // changed tests, and tests with an edge to a changed node; IDs runnable
 	Round2       []graph.Node // tests with an edge to a neighbour, minus Round1; IDs runnable
 	Untested     []graph.Node // changed non-test nodes no test in Round1 or Round2 reaches
@@ -42,18 +42,27 @@ var traversed = func() map[graph.Relation]bool {
 
 // index is the graph by ID, by file, and as adjacency lists in both directions.
 type index struct {
-	byID   map[string]graph.Node
-	byFile map[string][]graph.Node // ordered by Start, then End descending (outer first)
-	out    map[string][]graph.Edge
-	in     map[string][]graph.Edge
+	byID    map[string]graph.Node
+	byFile  map[string][]graph.Node // ordered by Start, then End descending (outer first); no file node
+	files   map[string]graph.Node   // file -> its file node (#504)
+	testsIn map[string][]graph.Node // file -> its tests
+	out     map[string][]graph.Edge
+	in      map[string][]graph.Edge
 }
 
 func newIndex(g graph.Graph) *index {
-	ix := &index{byID: map[string]graph.Node{}, byFile: map[string][]graph.Node{},
-		out: map[string][]graph.Edge{}, in: map[string][]graph.Edge{}}
+	ix := &index{byID: map[string]graph.Node{}, byFile: map[string][]graph.Node{}, files: map[string]graph.Node{},
+		testsIn: map[string][]graph.Node{}, out: map[string][]graph.Edge{}, in: map[string][]graph.Edge{}}
 	for _, n := range g.Nodes {
 		ix.byID[n.ID] = n
+		if n.Kind == graph.KindFile {
+			ix.files[n.File] = n
+			continue
+		}
 		ix.byFile[n.File] = append(ix.byFile[n.File], n)
+		if n.IsTest {
+			ix.testsIn[n.File] = append(ix.testsIn[n.File], n)
+		}
 	}
 	for _, ns := range ix.byFile {
 		slices.SortFunc(ns, outerFirst)
@@ -81,7 +90,8 @@ func outerFirst(a, b graph.Node) int {
 }
 
 // owners maps each line of file up to maxLine to the innermost node containing it.
-// Nodes are painted outer first, so a nested node overwrites its parent's lines.
+// Nodes are painted outer first, so a nested node overwrites its parent's lines. The
+// file node is not painted: a line in no definition is the <module>'s.
 func (ix *index) owners(file string, maxLine int) []string {
 	own := make([]string, maxLine+1)
 	for _, n := range ix.byFile[file] {
@@ -108,7 +118,10 @@ func Owner(g graph.Graph, file string, line int) (graph.Node, bool) {
 	return best, found
 }
 
-// Rounds computes spec §7 for the changed line ranges of each repo-relative file.
+// Rounds computes spec §7 for the changed line ranges of each repo-relative file. A
+// changed line of a file that defines nothing maps to its file node (#504). A test that
+// names a changed node's file — its file node's tests — is that node's test too: it
+// loads the file, whichever of its lines changed.
 func Rounds(g graph.Graph, changed map[string][]LineRange) Result {
 	ix := newIndex(g)
 	changedSet := map[string]graph.Node{}
@@ -117,8 +130,14 @@ func Rounds(g graph.Graph, changed map[string][]LineRange) Result {
 
 	for file, ranges := range changed {
 		nodes := ix.byFile[file]
-		if len(nodes) == 0 || len(ranges) == 0 {
-			continue // a file with no node holds nothing a test can call
+		if len(ranges) == 0 {
+			continue
+		}
+		if len(nodes) == 0 {
+			if f, ok := ix.files[file]; ok {
+				changedSet[f.ID] = f // a file that defines nothing changes as a whole
+			}
+			continue // a file the scanner does not read holds nothing a test can reach
 		}
 		maxLine := 0
 		for _, r := range ranges {
@@ -161,22 +180,31 @@ func Rounds(g graph.Graph, changed map[string][]LineRange) Result {
 		}
 		return ix.in[id]
 	}
-	// testsOf is memoized: a widely called neighbour is reached from many changed nodes,
+	// walk is memoized: a widely called neighbour is reached from many changed nodes,
 	// and re-walking its callers for each one made a large diff quadratic (#454).
 	// A helper is transparent: its callers' tests are the tests of what it calls, and a
-	// helper no test reaches is run by running its whole file (#505).
-	tests := map[string][]graph.Node{}
-	walking := map[string]bool{} // a helper cycle ends at the helper already being walked
-	var testsOf func(id string) []graph.Node
-	testsOf = func(id string) []graph.Node {
-		if out, ok := tests[id]; ok {
+	// helper no test reaches is run by running its whole file (#505). A test file's lines
+	// in no test stand for all its tests. Over one references edge into a file node (hop),
+	// the tests of a node that names the file are the file's tests: they run what loads
+	// it (#504).
+	type walkKey struct {
+		id  string
+		hop bool
+	}
+	tests := map[walkKey][]graph.Node{}
+	walking := map[walkKey]bool{} // a helper cycle ends at the helper already being walked
+	var walk func(id string, hop bool) []graph.Node
+	walk = func(id string, hop bool) []graph.Node {
+		k := walkKey{id, hop}
+		if out, ok := tests[k]; ok {
 			return out
 		}
-		if walking[id] {
+		if walking[k] {
 			return nil
 		}
-		walking[id] = true
+		walking[k] = true
 		var out []graph.Node
+		hop = hop && ix.byID[id].Kind == graph.KindFile
 		for _, e := range in(id) {
 			t, ok := ix.byID[e.From]
 			switch {
@@ -184,14 +212,27 @@ func Rounds(g graph.Graph, changed map[string][]LineRange) Result {
 			case t.IsTest:
 				out = append(out, t)
 			case t.Helper:
-				out = append(out, testsOf(t.ID)...)
+				out = append(out, walk(t.ID, hop)...)
+			case t.Kind == graph.KindFile && len(ix.testsIn[t.File]) > 0:
+				out = append(out, ix.testsIn[t.File]...)
+			case hop && e.Relation == graph.RelReferences:
+				out = append(out, walk(t.ID, false)...)
 			}
 		}
 		if n := ix.byID[id]; n.Helper && len(out) == 0 {
 			out = []graph.Node{graph.WholeFileNode(n.File)}
 		}
-		delete(walking, id)
-		tests[id] = out
+		delete(walking, k)
+		tests[k] = out
+		return out
+	}
+	testsOf := func(id string) []graph.Node { return walk(id, true) }
+	// testsOfChanged is a changed node's tests: its own, and its file node's.
+	testsOfChanged := func(c graph.Node) []graph.Node {
+		out := testsOf(c.ID)
+		if f, ok := ix.files[c.File]; ok && f.ID != c.ID {
+			out = append(slices.Clip(out), testsOf(f.ID)...)
+		}
 		return out
 	}
 
@@ -200,7 +241,7 @@ func Rounds(g graph.Graph, changed map[string][]LineRange) Result {
 		if c.IsTest && c.Kind != KindModule {
 			round1[id] = c
 		}
-		for _, t := range testsOf(id) {
+		for _, t := range testsOfChanged(c) {
 			round1[t.ID] = t
 		}
 		for _, e := range ix.out[id] {
@@ -233,7 +274,7 @@ func Rounds(g graph.Graph, changed map[string][]LineRange) Result {
 
 	untested := map[string]graph.Node{}
 	for id, c := range changedSet {
-		if c.IsTest || len(testsOf(id)) > 0 {
+		if c.IsTest || len(testsOfChanged(c)) > 0 {
 			continue
 		}
 		reached := false

@@ -58,7 +58,7 @@ func isV02Config(b []byte) bool {
 	v02 := false
 	for k := range keys {
 		switch k {
-		case "scan_exclude", "test_files", "test_exclude", "whole_file_tests", "graphify_path", "max_stale_ratio":
+		case "scan_exclude", "definition_exclude", "test_files", "test_exclude", "whole_file_tests", "graphify_path", "max_stale_ratio":
 			return false
 		case "stale_commits", "drift_guard", "hub_threshold", "adapters":
 			v02 = true

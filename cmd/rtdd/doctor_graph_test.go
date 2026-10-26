@@ -34,7 +34,7 @@ func TestDoctorReportsTheGraphTestFilesAndOverLinkedNames(t *testing.T) {
 	want := "graph source:  scanner\n" +
 		"built at:      " + gittest.HeadShort(t, dir) + "\n" +
 		"graphify:      not present (graphify-out/graph.json)\n" +
-		"nodes:         16\n" +
+		"nodes:         26\n" + // 16 definitions and 10 file nodes (#504)
 		"edges:         0\n" +
 		"test files:    2 matched by test_files, 1 with a test node\n" +
 		"test nodes:    1\n" +
