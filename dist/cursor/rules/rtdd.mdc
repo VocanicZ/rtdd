@@ -33,7 +33,7 @@ would use without rtdd. Nothing rtdd prints is a pass or a fail.
 ## rtdd which
 
 ```
-rtdd which [--base <ref>] [--json]
+rtdd which [--base <ref>] [--json] [--swarm-job <dir> --run '<cmd with {tests}>']
 ```
 
 Prints the changed nodes — the innermost function, method or class around each changed
@@ -47,6 +47,13 @@ node.
 
 `untested` lists the changed nodes no test in Round 1 or Round 2 reaches. Write a test for
 each one you changed before you run the rounds.
+
+You run the rounds, on this machine or elsewhere. One way to spread them over spare
+machines is [swarm](https://github.com/VocanicZ/swarm):
+`rtdd which --swarm-job .rtdd/swarm --run '<test command> {tests}'` writes a swarm job with one
+shard per test file of Round 1, then Round 2, and prints the job's name; `{tests}` becomes
+that file's path, so leave it unquoted. rtdd still runs nothing — `swarm submit .rtdd/swarm`
+does. The job dir must be inside the repository, which ships as the job's workdir.
 
 ## Empty rounds are not a pass
 

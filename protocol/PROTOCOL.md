@@ -51,7 +51,7 @@ run each round with the project's own test command.
 
 <!-- rtdd:section id=which title="rtdd which" targets=skill,agents,mdc,global,global-agents order=30 -->
 ```
-rtdd which [--base <ref>] [--json]
+rtdd which [--base <ref>] [--json] [--swarm-job <dir> --run '<cmd with {tests}>']
 ```
 
 Prints the changed nodes — the innermost function, method or class around each changed
@@ -65,9 +65,18 @@ node.
 
 `untested` lists the changed nodes no test in Round 1 or Round 2 reaches. Write a test for
 each one you changed before you run the rounds.
+
+You run the rounds, on this machine or elsewhere. One way to spread them over spare
+machines is [swarm](https://github.com/VocanicZ/swarm):
+`rtdd which --swarm-job .rtdd/swarm --run '<test command> {tests}'` writes a swarm job with one
+shard per test file of Round 1, then Round 2, and prints the job's name; `{tests}` becomes
+that file's path, so leave it unquoted. rtdd still runs nothing — `swarm submit .rtdd/swarm`
+does. The job dir must be inside the repository, which ships as the job's workdir.
 <!-- rtdd:variant target=agents -->
 `rtdd which` prints the changed nodes, Rounds 1–3 and `untested`, and runs nothing.
 Untracked files count. `rtdd which --json` is the machine-readable form.
+`rtdd which --swarm-job <dir> --run '<cmd with {tests}>'` writes the rounds as a
+[swarm](https://github.com/VocanicZ/swarm) job, one shard per test file, for spare machines.
 <!-- rtdd:endvariant -->
 <!-- rtdd:endsection -->
 
