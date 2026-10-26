@@ -269,7 +269,7 @@ Within a round, tests are ordered by file then line. Round 3 is always "the full
 | `rtdd doctor` | graph source, graphify staleness, test-file detection counts, names defined ≥ **8** times (over-link hubs). |
 | `rtdd init`, `update`, `uninstall`, `version`, `skill` | as today, minus adapter detection. `init` no longer refuses: every repository is supported. |
 
-**Removed:** `seed`, `run`, `verify`, `status`, `map compact`; `internal/{adapter,covfmt,runner,mapstore,selector,uncovered}`; `adapters/`; `.rtdd/map.jsonl`, `.rtdd/meta.json`, `.rtdd/adapters/`; the merge driver line in `.gitattributes`. `rtdd init` on a v0.2 repository deletes `map.jsonl`, `meta.json` and the gitattributes line, and says it did.
+**Removed:** `seed`, `run`, `verify`, `status`, `map compact`; `internal/{adapter,covfmt,runner,mapstore,selector,uncovered}`; `adapters/`; `.rtdd/map.jsonl`, `.rtdd/meta.json`, `.rtdd/adapters/`; the merge driver line in `.gitattributes`. `rtdd init` on a v0.2 repository deletes `map.jsonl`, `meta.json` and the gitattributes line — and v0.2's `.rtdd/adapter.yaml` override and v0.1's `.rtdd/junit.xml` report where they exist — and says it did.
 
 Exit codes: **0** success (including empty rounds), **2** usage, **3** environment (not a git
 repository, unreadable graph). No exit code reports a test result — rtdd runs none.

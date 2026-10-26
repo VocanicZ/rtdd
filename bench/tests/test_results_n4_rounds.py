@@ -93,3 +93,28 @@ def test_the_preregistration_is_left_unsigned():
         m = re.search(rf"^{field}:(.*)$", text, re.MULTILINE)
         assert m is not None, f"PREREGISTRATION.md lost its {field} field"
         assert m.group(1).strip() == "", f"{field} was written; it is a human decision"
+
+
+#: The root README and the outcome file it is copied from (`outcomes_test.go`).
+README_DOCS = ("README.md", "docs/outcomes/README.positive.md")
+
+
+def _verdicts(repo_id: str) -> list[str]:
+    text = (N4 / repo_id / "summary.md").read_text(encoding="utf-8")
+    return [line for line in text.splitlines() if line.startswith("verdict")]
+
+
+@pytest.mark.parametrize("rel", README_DOCS)
+@pytest.mark.parametrize("repo_id", corpus_ids())
+def test_the_readme_states_each_verdict_as_published(rel, repo_id):
+    """#506: the v0.3.0 release states the 2026-10-22 verdicts on its front page, verbatim.
+
+    A verdict that says "this must be stated in the README" is stated there in the words
+    the run wrote, so a softened or paraphrased verdict fails here.
+    """
+    readme = (ROOT / rel).read_text(encoding="utf-8")
+    verdicts = _verdicts(repo_id)
+    assert verdicts, f"bench/results/n4/{repo_id}/summary.md has no verdict line"
+    assert "docs/results/n4-bench-rounds.md" in readme, f"{rel} does not link the 2026-10-22 page"
+    for verdict in verdicts:
+        assert verdict in readme, f"{rel} does not state `{repo_id}`'s verdict as published: {verdict!r}"

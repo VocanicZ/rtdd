@@ -8,16 +8,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// v02Files are the state files a v0.2 repository holds and v0.3.0 reads none of (spec §8,
-// "Removed"), with the note `rtdd init` prints as it deletes each one.
+// v02Files are the state files a v0.1 or v0.2 repository holds and v0.3.0 reads none of
+// (spec §8, "Removed"), with the note `rtdd init` prints as it deletes each one.
 var v02Files = []struct{ path, note string }{
 	{".rtdd/map.jsonl", "the v0.2 coverage map; v0.3.0 builds a node graph instead"},
 	{".rtdd/meta.json", "the v0.2 map's metadata"},
 	{".rtdd/adapters/", "v0.2 adapter definitions; v0.3.0 has no adapters"},
+	{".rtdd/adapter.yaml", "the v0.2 adapter override; v0.3.0 has no adapters"},
+	{".rtdd/junit.xml", "the v0.1 per-run JUnit report"},
 }
 
-// PlanMigration computes what `rtdd init` removes from a repository a v0.2 init set up:
-// the three state files above, and the merge-driver line in .gitattributes — the file
+// PlanMigration computes what `rtdd init` removes from a repository a v0.1 or v0.2 init set
+// up: the state files above, and the merge-driver line in .gitattributes — the file
 // itself only when that line was all it held, as uninstall does. A repository v0.2 never
 // touched plans no step at all, so its init output carries no removal line.
 func PlanMigration(root string) ([]Step, error) {

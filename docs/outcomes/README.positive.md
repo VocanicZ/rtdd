@@ -71,8 +71,8 @@ marker-delimited block into a shared file you name, such as `AGENTS.md`, touchin
 outside the markers.
 
 On a repository set up by v0.2, `rtdd init` also deletes the state that release kept — its
-map, its metadata, its host language definitions and its `.gitattributes` merge line — and
-prints one line for each file it removes. A config v0.2 wrote is replaced by v0.3.0's
+map, its metadata, its host language definitions and its `.gitattributes` merge line, plus
+v0.1's JUnit report — and prints one line for each file it removes. A config v0.2 wrote is replaced by v0.3.0's
 defaults.
 
 An older `rtdd init` also wrote outside `.rtdd/` unasked, and an older `rtdd skill install`
@@ -216,6 +216,32 @@ Stated plainly, because a tool that hides its blind spots is worse than none:
 More in [Limitations](docs/LIMITATIONS.md).
 
 ## Does it work?
+
+v0.3.0's rounds were measured on 2026-10-22 against running the full suite every cycle
+(`/tdd`), by replaying real commits of both rows of the frozen corpus — `httpie` (17 commits)
+and `flask` (25). The run, its method and every figure are in
+[docs/results/n4-bench-rounds.md](docs/results/n4-bench-rounds.md). Round 1 cut the time
+spent in tests to 0.022 of `/tdd`'s on `httpie` and 0.178 on `flask`; Rounds 1+2 to 0.024
+and 0.328. On `httpie` both missed every cycle where the full suite failed (0 of 2); on
+`flask` no replayed cycle failed, so recall there is not measured.
+
+The pre-registered verdicts, as the run published them:
+
+`httpie`:
+
+> verdict: change-level recall rtdd=0.000 vs path heuristic=0.000; selected-duration fraction rtdd=0.022 vs path=0.023 — rtdd does NOT clearly beat the naive path heuristic — per the pre-registered criterion in docs/plans/04-m3-replay-benchmark.md the map is not justified and this must be stated in the README
+
+> verdict (probe, upper bound — map seeded at the child commit, never pooled with `natural`): change-level recall rtdd=0.000 vs path heuristic=0.000; selected-duration fraction rtdd=0.000 vs path=0.000 — rtdd does NOT clearly beat the naive path heuristic — per the pre-registered criterion in docs/plans/04-m3-replay-benchmark.md the map is not justified and this must be stated in the README
+
+`flask`:
+
+> verdict: not computable (no detecting commits)
+
+> verdict (probe, upper bound — map seeded at the child commit, never pooled with `natural`): change-level recall rtdd=0.667 vs path heuristic=0.333; selected-duration fraction rtdd=0.036 vs path=0.009 — rtdd does NOT clearly beat the naive path heuristic — per the pre-registered criterion in docs/plans/04-m3-replay-benchmark.md the map is not justified and this must be stated in the README
+
+So, stated plainly: on this corpus rtdd does not clearly beat the naive path heuristic, and
+by the pre-registered criterion the graph is not justified. Two rows, one run each, nothing
+re-run. Round 3 — the full suite once, at the end — is what catches what the rounds miss.
 
 <!-- rtdd:v0.2-record -->
 

@@ -46,6 +46,32 @@ func TestPlanMigrationRemovesEveryV02Artefact(t *testing.T) {
 	}
 }
 
+// #506: a repository a v0.1 binary ran in also holds that release's JUnit report — the
+// report_path of v0.1's go, jest, phpunit, rspec and vitest adapters — and v0.1 and v0.2
+// both read a single-adapter override from .rtdd/adapter.yaml. v0.3.0 reads neither.
+func TestPlanMigrationRemovesTheV01ReportAndTheAdapterOverride(t *testing.T) {
+	root := v02Layout(t, "")
+	writeAt(t, root, ".rtdd/junit.xml", "<testsuites/>\n")
+	writeAt(t, root, ".rtdd/adapter.yaml", "name: go\n")
+	steps, err := PlanMigration(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{".rtdd/junit.xml", ".rtdd/adapter.yaml"} {
+		if s := stepFor(t, steps, rel); s.Action != Delete || s.Note == "" {
+			t.Errorf("%s: step = %v %q, want Delete with a note saying what it was", rel, s.Action, s.Note)
+		}
+	}
+	if err := Apply(root, steps); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{".rtdd/junit.xml", ".rtdd/adapter.yaml"} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); !os.IsNotExist(err) {
+			t.Errorf("%s survived Apply: %v", rel, err)
+		}
+	}
+}
+
 // PRD #411 AC6: a .gitattributes that held nothing but the v0.2 line goes with it, as
 // uninstall already does.
 func TestPlanMigrationDeletesAGitattributesHoldingOnlyTheV02Line(t *testing.T) {
