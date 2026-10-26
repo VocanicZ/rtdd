@@ -81,6 +81,7 @@ type cacheLink struct {
 
 // cache is a read cache: per file, the blob it was scanned from and the scan.
 type cache struct {
+	hit     bool // the cache file was read: right version, right scanner
 	builtAt string
 	blob    map[string]string
 	results map[string]scan.FileResult
@@ -105,6 +106,7 @@ func readCache(p, id string) *cache {
 	if err != nil || f.Cache != cacheVersion || f.Scanner != id {
 		return c
 	}
+	c.hit = true
 	c.builtAt = f.BuiltAtCommit
 	for _, n := range f.Nodes {
 		r := c.results[n.SourceFile]

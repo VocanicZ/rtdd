@@ -32,8 +32,17 @@ exit codes:
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
 // run is main's whole body, parameterised on its writers so every command is testable
-// with in-memory buffers and an asserted exit code.
+// with in-memory buffers and an asserted exit code. With RTDD_EVENT_LOG set it also
+// appends the invocation's event line (event.go) when the command returns.
 func run(args []string, stdout, stderr io.Writer) int {
+	ev := startEvent(args)
+	code := dispatch(args, stdout, stderr)
+	ev.finish(code)
+	return code
+}
+
+// dispatch runs the command args names.
+func dispatch(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
 		return 2

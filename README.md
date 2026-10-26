@@ -184,6 +184,39 @@ Exit codes: 0 success, empty rounds included; 2 usage; 3 environment (not a git 
 a graph that cannot be built). No exit code is a test result, because rtdd runs none.
 It is a context provider, not a gate.
 
+## Recording every invocation
+
+Set `RTDD_EVENT_LOG=<path>` and every `rtdd` command appends one JSON line to that file
+as it exits, so a caller can count what rtdd did without parsing its output. rtdd creates
+the file if it is missing. Each line is a single `O_APPEND` write of less than 4 KiB, so
+concurrent rtdd processes never mix their lines. When the variable is unset, rtdd writes
+nothing. A failed write is ignored and never changes rtdd's output or exit code.
+
+```json
+{"v":1,"ts":"2026-10-26T09:14:03.120Z","cmd":"which","argv":["which","--base","origin/main"],
+ "cwd":"/src/app","repo":"/src/app","version":"0.3.0","base":"origin/main","head":"8f1e72b",
+ "exit":0,"duration_ms":412,
+ "graph":{"source":"scanner","built_at":"8f1e72b","stale_files":0,"nodes":1234,"edges":5678,"cache":"warm"},
+ "changed_nodes":6,"round1":31,"round2":12,"untested":1,"deleted_warnings":0,
+ "ctx":{"HARNESS_ISSUE":"503"}}
+```
+
+Each line is schema `v: 1`. A field that does not apply to the command is omitted:
+
+- `graph` appears on every command that builds the graph. `cache` is `warm` when
+  `.rtdd/graph.json` was usable, so rtdd only rescanned changed files.
+- `which` adds the counts that `rtdd which --json` reports: `changed_nodes`, `round1`
+  and `round2` (tests), `untested` and `deleted_warnings`.
+- `doctor` adds `findings`: the names defined 8+ times plus the legacy files it lists.
+- `init` adds `init.steps`, a count of each action in its plan (`create`, `delete`,
+  `legacy`, …), plus `init.dry_run` when `--dry-run` was given.
+- `ctx` copies every `HARNESS_*` environment variable, so a caller can tag events
+  without rtdd knowing anything about it.
+- If a line would reach 4 KiB, rtdd drops `argv` first, then `ctx` and `cwd`, and sets
+  `"truncated":true`.
+
+rtdd runs no tests, so it never records a test result.
+
 ## graphify is optional
 
 rtdd's own scanner builds the graph from the text of the source, and needs nothing

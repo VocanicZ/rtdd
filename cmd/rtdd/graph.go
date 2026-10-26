@@ -67,6 +67,7 @@ func cmdGraph(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "rtdd graph: %v\n", err)
 		return 3
 	}
+	current.recordGraph(res)
 
 	obj := graphObjectOf(res)
 	if *asJSON {

@@ -58,6 +58,7 @@ type Result struct {
 	Scanned         []string    // files the scanner read on this call, sorted
 	Imports         int         // file -> file imports edges the scanner resolved (spec §4.3)
 	AmbiguousCalls  int         // calls linked to no definition because too many matched (spec §4.3)
+	CacheWarm       bool        // .rtdd/graph.json was read and usable, so only changed files were scanned
 }
 
 // Build builds the graph for the repository at root.
@@ -106,6 +107,7 @@ func Build(root string, cfg graph.Config, opt Options) (*Result, error) {
 	prose := func(f string) bool { return matchAny(cfg.DefinitionExclude, f) }
 	results, scanned := scanCached(root, toScan, blobs, changed, c, prose)
 	res.Scanned = scanned
+	res.CacheWarm = c.hit
 	var whole *graph.Graph // results assembled, when they are the whole scanner graph
 	var st scan.Stats
 	if stale != nil {
