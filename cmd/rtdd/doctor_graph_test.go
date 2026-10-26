@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
+	"github.com/VocanicZ/rtdd/internal/protocol"
 )
 
 // PRD #410 AC4: doctor prints graph source, graphify staleness, test-file counts and the
@@ -37,7 +38,9 @@ func TestDoctorReportsTheGraphTestFilesAndOverLinkedNames(t *testing.T) {
 		"test files:    2 matched by test_files, 1 with a test node\n" +
 		"test nodes:    1\n" +
 		"names defined 8 or more times (a call to one links to every definition):\n" +
-		"  run  8\n"
+		"  run  8\n" +
+		"legacy files (an older rtdd wrote them outside .rtdd/):\n" +
+		"  none\n"
 	if out != want {
 		t.Errorf("stdout:\n%s\nwant:\n%s", out, want)
 	}
@@ -90,5 +93,21 @@ func TestDoctorImportsNoCoveragePipelinePackage(t *testing.T) {
 				t.Errorf("doctor.go imports %s", imp.Path.Value)
 			}
 		}
+	}
+}
+
+// #509: doctor lists what an older rtdd wrote outside .rtdd/, each with its remover.
+func TestDoctorReportsLegacyFiles(t *testing.T) {
+	dir := graphRepo(t)
+	gittest.Write(t, dir, ".cursor/rules/rtdd.mdc", protocol.Generated+"\n\nold rule\n")
+	gittest.Commit(t, dir, "old init")
+	code, out, errOut := rtdd(t, dir, "doctor")
+	if code != 0 {
+		t.Fatalf("rtdd doctor = %d, stderr %q", code, errOut)
+	}
+	want := "legacy files (an older rtdd wrote them outside .rtdd/):\n" +
+		"  .cursor/rules/rtdd.mdc  — the Cursor rule an older `rtdd init` wrote; `rtdd uninstall --legacy-files` removes it\n"
+	if !strings.HasSuffix(out, want) {
+		t.Errorf("stdout:\n%s\nwant it to end:\n%s", out, want)
 	}
 }

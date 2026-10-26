@@ -77,7 +77,7 @@ func TestPlanMigrationOnAFreshRepositoryPlansNothing(t *testing.T) {
 // config that sets any v0.3.0 key is the user's and is kept.
 func TestPlanReplacesAV02OnlyConfigAndKeepsAV030One(t *testing.T) {
 	root := v02Layout(t, "")
-	steps, err := Plan(root, fakeFiles())
+	steps, err := Plan(root, fakeFiles(), PlanOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestPlanReplacesAV02OnlyConfigAndKeepsAV030One(t *testing.T) {
 	}
 	root = t.TempDir()
 	writeAt(t, root, ".rtdd/config.yaml", "max_stale_ratio: 0.3\nstale_commits: 50\n")
-	steps, err = Plan(root, fakeFiles())
+	steps, err = Plan(root, fakeFiles(), PlanOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -87,7 +87,7 @@ func cmdSkillInstall(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "rtdd skill install: %v\n", err)
 		return 2
 	}
-	fmt.Fprint(stdout, RenderInit(steps))
+	fmt.Fprint(stdout, RenderInit(append(steps, globalLegacy()...)))
 
 	if *dryRun {
 		fmt.Fprintln(stdout, "\ndry run — nothing was changed")

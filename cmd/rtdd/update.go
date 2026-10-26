@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/VocanicZ/rtdd/internal/install"
 	"github.com/VocanicZ/rtdd/internal/selfupdate"
 )
 
@@ -76,6 +77,15 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	// an already-current install has nothing to refresh.
 	if res.Updated {
 		refreshGlobalSkill(stdout, stderr)
+	}
+	// What an older rtdd wrote outside its own files is reported on every outcome: it is a
+	// read, and an upgrade is when a user meets the new, self-contained footprint (#509).
+	var legacy []install.Step
+	if root, err := findRepoRoot("."); err == nil {
+		legacy = repoLegacy(root)
+	}
+	if legacy = append(legacy, globalLegacy()...); len(legacy) > 0 {
+		fmt.Fprint(stdout, RenderInit(legacy))
 	}
 	return 0
 }

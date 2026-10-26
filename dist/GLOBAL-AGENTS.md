@@ -1,8 +1,8 @@
 <!-- BEGIN rtdd (generated from protocol/PROTOCOL.md; do not edit here) -->
 ## rtdd
 
-If `.rtdd/config.yaml` is missing, run `rtdd init` once — it sets up any git repository —
-and commit what it writes. Then follow the steps below.
+If `.rtdd/config.yaml` is missing, run `rtdd init` once — it sets up any git repository and
+writes only inside `.rtdd/` — and commit `.rtdd/`. Then follow the steps below.
 
 rtdd names the tests a change needs, in rounds: Round 1 tests the code you changed, Round 2
 its direct neighbours, Round 3 is the full suite once at the end. rtdd runs no tests: you

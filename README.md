@@ -29,11 +29,10 @@ go build ./cmd/rtdd
 
 The installer also installs a **machine-wide agent skill**, so your coding agent knows rtdd
 exists in every repository — including ones where rtdd has not been set up yet, where the
-skill tells it to run `rtdd init` first. It is written only for agents you already have: it
-lands in `~/.claude/skills/rtdd/`, and as a marker-delimited block in `~/.codex/AGENTS.md`
-and `~/.gemini/GEMINI.md`, and any of those directories that does not exist is skipped
-rather than created. Pass `--no-skill`, or set `RTDD_NO_SKILL=1`, to install the binary
-alone.
+skill tells it to run `rtdd init` first. It is written only for agents you already have, and
+only into directories rtdd owns — never into your `~/.codex/AGENTS.md` or
+`~/.gemini/GEMINI.md`; [What rtdd writes](#what-rtdd-writes) lists every path. Pass
+`--no-skill`, or set `RTDD_NO_SKILL=1`, to install the binary alone.
 
 For any other agent — Cursor, whose user rules live in its settings rather than in a file,
 or anything else — `rtdd skill prompt` prints a self-contained document to hand it.
@@ -48,31 +47,65 @@ rtdd skill uninstall   # remove them
 refreshes the machine-wide skill to match; `rtdd update --check` asks without installing.
 `rtdd uninstall` removes what `rtdd init` wrote into a repository, leaving `.rtdd/` unless
 you add `--state`, and the machine-wide front-ends unless you add `--global`.
+`rtdd uninstall --legacy-files` removes what an older rtdd wrote outside its own files.
 
 ## Usage
 
 ```
 cd your-repo
-rtdd init      # front-ends, .rtdd/config.yaml, .gitignore line for the graph cache
+rtdd init      # .rtdd/config.yaml and .rtdd/.gitignore — nothing outside .rtdd/
 rtdd which     # the tests your current changes need, in rounds
 ```
 
-`rtdd init` sets up any git repository, whatever it is written in. It writes the agent
-instructions — a Claude Code skill at `.claude/skills/rtdd/SKILL.md`, a Cursor rule at
-`.cursor/rules/rtdd.mdc`, and a marker-delimited block in `AGENTS.md`, and in `CLAUDE.md`
-when the repository has one — a `.rtdd/config.yaml` of defaults, and a `.gitignore` line
-for `.rtdd/graph.json`, rtdd's rebuildable graph cache. It never edits outside its own
-markers and never overwrites a config you have set. There is no other setup step: the graph
-is built the first time a command needs it. Commit what `init` wrote.
+`rtdd init` sets up any git repository, whatever it is written in, and writes only inside
+`.rtdd/`: a `.rtdd/config.yaml` of defaults and a `.rtdd/.gitignore` that keeps
+`.rtdd/graph.json`, rtdd's rebuildable graph cache, out of git. Your `AGENTS.md`,
+`CLAUDE.md`, `.gitignore`, `.claude/` and `.cursor/` stay yours. It never overwrites a
+config you have set. There is no other setup step: the graph is built the first time a
+command needs it. Commit `.rtdd/`.
+
+The agent instructions come from the machine-wide skill. A team that wants them committed
+for every contributor opts in: `rtdd init --project-skill` also writes rtdd's own Claude
+Code skill and Cursor rule into the repository, and `--append-to <file>` merges rtdd's
+marker-delimited block into a shared file you name, such as `AGENTS.md`, touching nothing
+outside the markers.
 
 On a repository set up by v0.2, `rtdd init` also deletes the state that release kept — its
 map, its metadata, its host language definitions and its `.gitattributes` merge line — and
 prints one line for each file it removes. A config v0.2 wrote is replaced by v0.3.0's
 defaults.
 
+An older `rtdd init` also wrote outside `.rtdd/` unasked, and an older `rtdd skill install`
+merged a block into `~/.codex/AGENTS.md` and `~/.gemini/GEMINI.md`. `rtdd init`, `rtdd
+doctor` and `rtdd update` report each piece of that footprint and leave it alone; `rtdd
+uninstall --legacy-files` removes exactly it — blocks by their markers, so your own text is
+left byte-identical — and prints each change.
+
+## What rtdd writes
+
+Everything rtdd writes is a file or directory rtdd owns, except where you name a shared file
+with `--append-to`.
+
+| Path | Written by | When |
+| --- | --- | --- |
+| `.rtdd/config.yaml` | `rtdd init` | always; never overwritten once there |
+| `.rtdd/.gitignore` | `rtdd init` | always; holds `graph.json` |
+| `.rtdd/graph.json` | any command that builds the graph | the rebuildable cache; ignored |
+| `.claude/skills/rtdd/SKILL.md` | `rtdd init --project-skill` | opt-in |
+| `.cursor/rules/rtdd.mdc` | `rtdd init --project-skill` | opt-in |
+| rtdd's block in a file you name | `rtdd init --append-to <file>` | opt-in |
+| `~/.claude/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.claude/` exists |
+| `~/.codex/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.codex/skills/` exists — a Codex that reads skills |
+| `~/.gemini/extensions/rtdd/gemini-extension.json`, `~/.gemini/extensions/rtdd/GEMINI.md` | `rtdd skill install`, the installer | when `~/.gemini/` exists |
+| the `rtdd` binary | the installer, `rtdd update` | on your PATH, or `--install-dir` |
+
+An agent directory that does not exist is skipped rather than created. `rtdd skill
+uninstall` removes the three `~/` directories rtdd owns; `rtdd uninstall --state` removes
+`.rtdd/`.
+
 ## The process
 
-The skill `rtdd init` writes tells the agent to work in five steps:
+The rtdd skill tells the agent to work in five steps:
 
 1. Edit code (test first, per TDD).
 2. Run `rtdd which`. If `untested` names a node you changed, write its test first.
@@ -139,6 +172,7 @@ rtdd graph [--json]                the graph's source, node, edge and test count
 rtdd explain <file[:line]|name>    a node's tests, callers and callees
 rtdd doctor                        graph source, graphify staleness, test files found, names defined 8+ times
 rtdd uninstall [--state]           remove what init wrote
+rtdd uninstall --legacy-files      remove what an older rtdd wrote outside .rtdd/
 rtdd update                        replace the binary with the latest release
 rtdd --version                     print the version
 ```

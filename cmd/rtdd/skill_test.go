@@ -75,24 +75,60 @@ func TestSkillInstallSucceedsAndCreatesNothingWhenNoAgentIsInstalled(t *testing.
 	}
 }
 
-// A global AGENTS.md belongs to the user. rtdd merges its block and touches nothing else.
-func TestSkillInstallMergesIntoAnExistingGlobalAgentsFile(t *testing.T) {
-	home := fakeHome(t, ".codex")
-	if err := os.WriteFile(filepath.Join(home, ".codex", "AGENTS.md"), []byte("# Mine\n\nkeep me\n"), 0o644); err != nil {
-		t.Fatal(err)
+// #509 acceptance: with a fake HOME, `rtdd skill install` creates only rtdd-owned
+// directories, and ~/.codex/AGENTS.md and ~/.gemini/GEMINI.md are untouched.
+func TestSkillInstallCreatesOnlyRtddOwnedDirectories(t *testing.T) {
+	home := fakeHome(t, ".claude", ".codex/skills/.system", ".gemini")
+	shared := map[string]string{".codex/AGENTS.md": "# Mine\n\nkeep me\n", ".gemini/GEMINI.md": "# Gemini, mine\n"}
+	for rel, body := range shared {
+		writeFile(t, home, rel, body)
+	}
+	before := map[string]bool{}
+	for _, f := range worktreeFiles(t, home) {
+		before[f] = true
 	}
 	dir := newTestRepo(t)
 
-	if code, _, stderr := rtdd(t, dir, "skill", "install"); code != 0 {
+	code, stdout, stderr := rtdd(t, dir, "skill", "install")
+	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
-
-	got := homeFile(t, home, ".codex/AGENTS.md")
-	if !strings.Contains(got, "keep me") {
-		t.Error("merge dropped the user's own global instructions")
+	for rel, body := range shared {
+		if got := homeFile(t, home, rel); got != body {
+			t.Errorf("~/%s = %q after install, want it untouched %q", rel, got, body)
+		}
 	}
-	if !strings.Contains(got, protocol.BeginMarker) {
-		t.Error("merge did not add the rtdd block")
+	var created []string
+	for _, f := range worktreeFiles(t, home) {
+		if !before[f] {
+			created = append(created, f)
+		}
+	}
+	want := ".claude/skills/rtdd/SKILL.md,.codex/skills/rtdd/SKILL.md,.gemini/extensions/rtdd/GEMINI.md,.gemini/extensions/rtdd/gemini-extension.json"
+	if strings.Join(created, ",") != want {
+		t.Errorf("install created %v, want %s", created, want)
+	}
+	if strings.Contains(stdout, "legacy") {
+		t.Errorf("install reported legacy files in a home with none:\n%s", stdout)
+	}
+}
+
+// A block an older `rtdd skill install` merged into a shared file is reported, not edited.
+func TestSkillInstallReportsAnOlderInstallsBlock(t *testing.T) {
+	home := fakeHome(t, ".codex")
+	old := "# Mine\n\n" + protocol.BeginMarker + "\nold\n" + protocol.EndMarker + "\n"
+	writeFile(t, home, ".codex/AGENTS.md", old)
+	dir := newTestRepo(t)
+
+	code, stdout, stderr := rtdd(t, dir, "skill", "install")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	if !strings.Contains(stdout, "legacy         ~/.codex/AGENTS.md") || !strings.Contains(stdout, "rtdd uninstall --legacy-files") {
+		t.Errorf("install did not report the old block:\n%s", stdout)
+	}
+	if got := homeFile(t, home, ".codex/AGENTS.md"); got != old {
+		t.Errorf("install edited ~/.codex/AGENTS.md:\n%s", got)
 	}
 }
 
@@ -227,8 +263,8 @@ func TestUninstallGlobalDryRunPrintsThePlanAndChangesNothing(t *testing.T) {
 	// Codex, not Claude Code: the repo-scoped plan already lists
 	// ".claude/skills/rtdd/SKILL.md" as a path relative to the REPOSITORY, so asserting on
 	// that string cannot tell the machine-wide half of the plan from the repo half.
-	// ".codex/AGENTS.md" appears only in the machine-wide plan.
-	home := fakeHome(t, ".codex")
+	// ".codex/skills/rtdd/" appears only in the machine-wide plan.
+	home := fakeHome(t, ".codex/skills")
 	dir := newTestRepo(t)
 	if code, _, stderr := rtdd(t, dir, "skill", "install"); code != 0 {
 		t.Fatalf("skill install: code = %d, stderr = %s", code, stderr)
@@ -238,10 +274,10 @@ func TestUninstallGlobalDryRunPrintsThePlanAndChangesNothing(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
-	if !strings.Contains(stdout, ".codex/AGENTS.md") {
+	if !strings.Contains(stdout, ".codex/skills/rtdd/") {
 		t.Errorf("--dry-run --global did not print the machine-wide plan:\n%s", stdout)
 	}
-	if _, err := os.Stat(filepath.Join(home, filepath.FromSlash(".codex/AGENTS.md"))); err != nil {
+	if _, err := os.Stat(filepath.Join(home, filepath.FromSlash(".codex/skills/rtdd/SKILL.md"))); err != nil {
 		t.Errorf("--dry-run removed the global front-end: %v", err)
 	}
 }

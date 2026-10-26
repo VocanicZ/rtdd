@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 
@@ -51,6 +52,12 @@ func headShort(t *testing.T, dir string) string {
 func rtdd(t *testing.T, dir string, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
 	t.Chdir(dir)
+	// init, doctor and update read the home directory for an older install's footprint. A
+	// test that does not point RTDD_HOME somewhere itself gets an empty one, so its output
+	// never depends on the machine running it.
+	if os.Getenv("RTDD_HOME") == "" {
+		t.Setenv("RTDD_HOME", t.TempDir())
+	}
 	var out, errBuf bytes.Buffer
 	code = run(args, &out, &errBuf)
 	return code, out.String(), errBuf.String()

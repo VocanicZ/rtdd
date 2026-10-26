@@ -37,37 +37,72 @@ func TestRenderInit(t *testing.T) {
 	}
 }
 
-// `rtdd init` is dispatched from main, installs into the working directory, and exits 0.
+// worktreeFiles lists every file under dir outside .git/, slash-separated and relative.
+func worktreeFiles(t *testing.T, dir string) []string {
+	t.Helper()
+	var out []string
+	err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, err := filepath.Rel(dir, p)
+		out = append(out, filepath.ToSlash(rel))
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// #509 acceptance: `rtdd init` in a repository with the user's own AGENTS.md and .gitignore
+// leaves both byte-identical, and creates nothing outside .rtdd/.
 func TestInitInstallsIntoTheWorkingDirectory(t *testing.T) {
 	dir := newTestRepo(t)
 	markDetectable(t, dir)
-	writeFile(t, dir, "AGENTS.md", "# AGENTS\n\nHouse rules.\n")
+	host := map[string]string{
+		"AGENTS.md":  "# AGENTS\n\nHouse rules.\n",
+		".gitignore": "node_modules/\n*.log\n",
+	}
+	for rel, body := range host {
+		writeFile(t, dir, rel, body)
+	}
+	before := map[string]bool{}
+	for _, f := range worktreeFiles(t, dir) {
+		before[f] = true
+	}
 
 	code, stdout, stderr := rtdd(t, dir, "init")
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
-	for _, want := range []string{".rtdd/config.yaml", "AGENTS.md", ".cursor/rules/rtdd.mdc", ".claude/skills/rtdd/SKILL.md"} {
+	for _, want := range []string{".rtdd/config.yaml", ".rtdd/.gitignore"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("init output is missing %q:\n%s", want, stdout)
 		}
 	}
-
-	agents := readRepoFileForTest(t, dir, "AGENTS.md")
-	if !strings.HasPrefix(agents, "# AGENTS\n\nHouse rules.\n") {
-		t.Errorf("the host repo's AGENTS.md was clobbered:\n%s", agents)
+	for rel, body := range host {
+		if got := readRepoFileForTest(t, dir, rel); got != body {
+			t.Errorf("%s = %q after init, want it byte-identical %q", rel, got, body)
+		}
 	}
-	if !strings.Contains(agents, protocol.BeginMarker) {
-		t.Errorf("AGENTS.md did not gain the managed block:\n%s", agents)
+	var created []string
+	for _, f := range worktreeFiles(t, dir) {
+		if !before[f] {
+			created = append(created, f)
+		}
 	}
-	// PRD #410 AC5 / #452: no merge driver for a coverage map nothing writes.
-	if _, err := os.Stat(filepath.Join(dir, ".gitattributes")); err == nil {
-		t.Errorf("init wrote a .gitattributes:\n%s", readRepoFileForTest(t, dir, ".gitattributes"))
+	if strings.Join(created, ",") != ".rtdd/.gitignore,.rtdd/config.yaml" {
+		t.Errorf("init created %v, want only .rtdd/.gitignore and .rtdd/config.yaml", created)
 	}
-	// The host repo never had a CLAUDE.md, so init must not introduce one — the
-	// generated Claude Code skill under .claude/skills/rtdd/ is the right surface.
-	if _, err := os.Stat(filepath.Join(dir, "CLAUDE.md")); err == nil {
-		t.Error("init must not create CLAUDE.md when the host repo has none")
+	if got := readRepoFileForTest(t, dir, ".rtdd/.gitignore"); got != "graph.json\n" {
+		t.Errorf(".rtdd/.gitignore = %q, want %q", got, "graph.json\n")
 	}
 
 	// Re-running reports skip for every step.
@@ -75,19 +110,39 @@ func TestInitInstallsIntoTheWorkingDirectory(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("second init exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
-	if strings.Contains(stdout, "create") || strings.Contains(stdout, "replace-block") || strings.Contains(stdout, "append-block") {
+	if strings.Contains(stdout, "create") || strings.Contains(stdout, "append") {
 		t.Errorf("re-running init must report skip for every file:\n%s", stdout)
 	}
 }
 
-// A host repo that already has a CLAUDE.md gets the block merged into it, same as
-// AGENTS.md.
-func TestInitMergesClaudeMdWhenTheHostRepoAlreadyHasOne(t *testing.T) {
+// --project-skill opts in to the committed front-ends: rtdd's own whole files, never a
+// block in AGENTS.md.
+func TestInitProjectSkillWritesTheWholeFileFrontEndsOnly(t *testing.T) {
+	dir := newTestRepo(t)
+	writeFile(t, dir, "AGENTS.md", "# AGENTS\n\nHouse rules.\n")
+
+	code, _, stderr := rtdd(t, dir, "init", "--project-skill")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	for _, rel := range []string{".claude/skills/rtdd/SKILL.md", ".cursor/rules/rtdd.mdc"} {
+		if got := readRepoFileForTest(t, dir, rel); !strings.Contains(got, install.OptInMarker) {
+			t.Errorf("%s carries no opt-in marker:\n%s", rel, got)
+		}
+	}
+	if got := readRepoFileForTest(t, dir, "AGENTS.md"); got != "# AGENTS\n\nHouse rules.\n" {
+		t.Errorf("--project-skill touched AGENTS.md:\n%s", got)
+	}
+}
+
+// --append-to is the explicit way into a shared file: the block is merged into the file
+// named, and every byte of the host's own text stays.
+func TestInitAppendToMergesTheNamedSharedFile(t *testing.T) {
 	dir := newTestRepo(t)
 	markDetectable(t, dir)
 	writeFile(t, dir, "CLAUDE.md", "# Our Claude notes\n\nDo not touch prod.\n")
 
-	code, _, stderr := rtdd(t, dir, "init")
+	code, _, stderr := rtdd(t, dir, "init", "--append-to", "CLAUDE.md")
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
@@ -97,6 +152,46 @@ func TestInitMergesClaudeMdWhenTheHostRepoAlreadyHasOne(t *testing.T) {
 	}
 	if !strings.Contains(claude, protocol.BeginMarker) {
 		t.Errorf("CLAUDE.md did not gain the managed block:\n%s", claude)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "AGENTS.md")); err == nil {
+		t.Error("init created AGENTS.md though only CLAUDE.md was named")
+	}
+}
+
+// What an older init wrote outside .rtdd/ — in the repository and in the home directory —
+// is reported, each line naming the command that removes it, and nothing is changed.
+func TestInitReportsAnOlderInitsFootprintAndLeavesItAlone(t *testing.T) {
+	dir := newTestRepo(t)
+	home := t.TempDir()
+	t.Setenv("RTDD_HOME", home)
+	agents := "# AGENTS\n\n" + protocol.BeginMarker + "\nold\n" + protocol.EndMarker + "\n"
+	writeFile(t, dir, "AGENTS.md", agents)
+	writeFile(t, dir, ".gitignore", ".rtdd/graph.json\n")
+	writeFile(t, home, ".codex/AGENTS.md", agents)
+
+	code, stdout, stderr := rtdd(t, dir, "init")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	for _, path := range []string{"AGENTS.md", ".gitignore", "~/.codex/AGENTS.md"} {
+		found := false
+		for _, line := range strings.Split(stdout, "\n") {
+			if strings.HasPrefix(line, "legacy ") && strings.Contains(line, " "+path+"  — ") && strings.Contains(line, "rtdd uninstall --legacy-files") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("init did not report %s as legacy:\n%s", path, stdout)
+		}
+	}
+	if got := readRepoFileForTest(t, dir, "AGENTS.md"); got != agents {
+		t.Errorf("init changed AGENTS.md:\n%s", got)
+	}
+	if got := readRepoFileForTest(t, dir, ".gitignore"); got != ".rtdd/graph.json\n" {
+		t.Errorf("init changed .gitignore: %q", got)
+	}
+	if got := readRepoFileForTest(t, home, ".codex/AGENTS.md"); got != agents {
+		t.Errorf("init changed ~/.codex/AGENTS.md:\n%s", got)
 	}
 }
 
@@ -108,23 +203,23 @@ func TestInitDryRunPrintsThePlanAndWritesNothing(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
-	if !strings.Contains(stdout, "AGENTS.md") {
+	if !strings.Contains(stdout, ".rtdd/config.yaml") {
 		t.Errorf("dry-run output is missing the plan:\n%s", stdout)
 	}
-	for _, rel := range []string{".rtdd/config.yaml", "AGENTS.md", ".cursor/rules/rtdd.mdc", ".claude/skills/rtdd/SKILL.md"} {
+	for _, rel := range []string{".rtdd/config.yaml", ".rtdd/.gitignore"} {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err == nil {
 			t.Errorf("--dry-run must not write %s", rel)
 		}
 	}
 }
 
-// A whole-file target rtdd did not write is a conflict: init writes nothing and exits 2,
-// and no flag overrides it (PRD #411 AC5 removes --force).
+// With --project-skill, a whole-file target rtdd did not write is a conflict: init writes
+// nothing and exits 2, and no flag overrides it (PRD #411 AC5 removes --force).
 func TestInitConflictsOnASkillFileRtddDidNotWrite(t *testing.T) {
 	dir := newTestRepo(t)
 	writeFile(t, dir, ".claude/skills/rtdd/SKILL.md", "hand written, not ours\n")
 
-	code, _, stderr := rtdd(t, dir, "init")
+	code, _, stderr := rtdd(t, dir, "init", "--project-skill")
 	if code != 2 || !strings.Contains(stderr, "move the named file(s) aside") {
 		t.Fatalf("exit code = %d, stderr %q; want 2 telling the user to move the file aside", code, stderr)
 	}
@@ -181,7 +276,7 @@ func TestInitInstallsAtTheRepoRootFromASubdirectory(t *testing.T) {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
 
-	for _, rel := range []string{".rtdd/config.yaml", "AGENTS.md", ".cursor/rules/rtdd.mdc", ".claude/skills/rtdd/SKILL.md"} {
+	for _, rel := range []string{".rtdd/config.yaml", ".rtdd/.gitignore"} {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
 			t.Errorf("%s was not installed at the repo root: %v", rel, err)
 		}
@@ -204,7 +299,7 @@ func TestInitFallsBackToTheWorkingDirectoryOutsideAGitRepository(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
-	for _, rel := range []string{".rtdd/config.yaml", "AGENTS.md", ".cursor/rules/rtdd.mdc", ".claude/skills/rtdd/SKILL.md"} {
+	for _, rel := range []string{".rtdd/config.yaml", ".rtdd/.gitignore"} {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
 			t.Errorf("%s was not installed into the working directory: %v", rel, err)
 		}
@@ -235,7 +330,7 @@ func TestInitIgnoresAStrayGitAncestorAndInstallsIntoTheWorkingDirectory(t *testi
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
-	for _, rel := range []string{".rtdd/config.yaml", "AGENTS.md", ".cursor/rules/rtdd.mdc", ".claude/skills/rtdd/SKILL.md"} {
+	for _, rel := range []string{".rtdd/config.yaml", ".rtdd/.gitignore"} {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
 			t.Errorf("%s was not installed into the working directory: %v", rel, err)
 		}

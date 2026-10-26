@@ -101,8 +101,9 @@ command that cannot select a single test. `graph.source` is `graphify+scanner` o
 rtdd graph [--json]                the graph's source, node, edge and test counts, staleness
 rtdd explain <file[:line]|name>    a node's tests, callers and callees
 rtdd doctor                        graph source, graphify staleness, test files found, names defined 8+ times
-rtdd init [--dry-run]              set up this repository; any git repository
+rtdd init [--dry-run]              set up this repository; writes only .rtdd/
 rtdd uninstall [--state]           remove what init wrote
+rtdd uninstall --legacy-files      remove what an older rtdd wrote outside .rtdd/
 rtdd update                        replace the binary with the latest release
 rtdd --version                     print the version
 ```

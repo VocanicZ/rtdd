@@ -42,11 +42,12 @@ func cmdUninstall(args []string, stdout, stderr io.Writer) int {
 	state := fs.Bool("state", false, "also remove .rtdd/ — the config and the graph cache")
 	binary := fs.Bool("binary", false, "also delete the installed rtdd binary")
 	global := fs.Bool("global", false, "also remove the machine-wide agent front-ends `rtdd skill install` wrote")
+	legacy := fs.Bool("legacy-files", false, "remove only what an older rtdd wrote outside its own files, by markers")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if fs.NArg() != 0 {
-		fmt.Fprintln(stderr, "usage: rtdd uninstall [--dry-run] [--state] [--binary] [--global]")
+	if fs.NArg() != 0 || (*legacy && (*state || *binary || *global)) {
+		fmt.Fprintln(stderr, "usage: rtdd uninstall [--dry-run] [--state] [--binary] [--global]\n       rtdd uninstall [--dry-run] --legacy-files")
 		return 2
 	}
 
@@ -56,6 +57,10 @@ func cmdUninstall(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "rtdd uninstall: %v\n", err)
 			return 3
 		}
+	}
+
+	if *legacy {
+		return uninstallLegacy(root, *dryRun, stdout, stderr)
 	}
 
 	steps, err := install.PlanUninstall(root, install.UninstallOptions{State: *state})
@@ -112,6 +117,62 @@ func cmdUninstall(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		fmt.Fprintf(stdout, "%-14s %s\n", "delete", path)
+	}
+	return 0
+}
+
+// uninstallLegacy implements `rtdd uninstall --legacy-files` (#509): it removes exactly the
+// footprint an older rtdd left outside its own files — in this repository, the whole-file
+// front-ends and the AGENTS.md / CLAUDE.md block an older init wrote unasked and its root
+// .gitignore line; in the home directory, the block an older `rtdd skill install` merged
+// into ~/.codex/AGENTS.md and ~/.gemini/GEMINI.md. Blocks go by their markers and every
+// other byte of the user's file stays. It prints each change it makes.
+//
+// Both plans are made, and checked for conflicts, before anything is written: a file rtdd
+// cannot read unambiguously stops the whole run with nothing changed.
+func uninstallLegacy(root string, dryRun bool, stdout, stderr io.Writer) int {
+	steps, err := install.PlanLegacyFiles(root, install.PlanOptions{})
+	if err != nil {
+		fmt.Fprintf(stderr, "rtdd uninstall: %v\n", err)
+		return 3
+	}
+	home, err := homeDir()
+	if err != nil {
+		fmt.Fprintf(stderr, "rtdd uninstall: %v\n", err)
+		return 3
+	}
+	globalSteps, err := install.PlanGlobalLegacyFiles(home)
+	if err != nil {
+		fmt.Fprintf(stderr, "rtdd uninstall: %v\n", err)
+		return 3
+	}
+
+	fmt.Fprint(stdout, RenderUninstall(steps))
+	fmt.Fprint(stdout, RenderUninstall(homeShown(globalSteps)))
+	if len(steps)+len(globalSteps) == 0 {
+		fmt.Fprintln(stdout, "no legacy files found")
+	}
+	if dryRun {
+		fmt.Fprintln(stdout, "\ndry run — nothing was changed")
+		return 0
+	}
+	conflicts := 0
+	for _, s := range append(append([]install.Step{}, steps...), globalSteps...) {
+		if s.Action == install.Conflict {
+			conflicts++
+		}
+	}
+	if conflicts > 0 {
+		fmt.Fprintf(stderr, "rtdd uninstall: %d conflict(s); nothing changed; fix the named file(s) by hand and re-run\n", conflicts)
+		return 2
+	}
+	if err := install.ApplyUninstall(root, steps); err != nil {
+		fmt.Fprintf(stderr, "rtdd uninstall: %v\n", err)
+		return 2
+	}
+	if err := install.ApplyUninstall(home, globalSteps); err != nil {
+		fmt.Fprintf(stderr, "rtdd uninstall: %v\n", err)
+		return 2
 	}
 	return 0
 }

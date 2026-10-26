@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/VocanicZ/rtdd/internal/protocol"
 	"github.com/VocanicZ/rtdd/internal/selfupdate"
 )
 
@@ -118,5 +119,32 @@ func TestUpdateFromASourceBuildIsAConfigurationError(t *testing.T) {
 func TestUsageListsUpdate(t *testing.T) {
 	if !strings.Contains(usage, "rtdd update") {
 		t.Error("the usage block does not list `rtdd update`")
+	}
+}
+
+// #509: an upgrade is when a user meets the self-contained footprint, so update reports
+// what an older rtdd wrote outside its own files — here and in the home directory — and
+// edits none of it.
+func TestUpdateReportsLegacyFiles(t *testing.T) {
+	dir := newTestRepo(t)
+	home := t.TempDir()
+	t.Setenv("RTDD_HOME", home)
+	t.Setenv("RTDD_API_URL", fakeLatest(t, "v9999.0.0"))
+	withVersion(t, "0.1.1")
+	old := "# Mine\n\n" + protocol.BeginMarker + "\nold\n" + protocol.EndMarker + "\n"
+	writeFile(t, dir, "AGENTS.md", old)
+	writeFile(t, home, ".gemini/GEMINI.md", old)
+
+	code, stdout, stderr := rtdd(t, dir, "update", "--check")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
+	}
+	for _, line := range []string{"legacy         AGENTS.md", "legacy         ~/.gemini/GEMINI.md"} {
+		if !strings.Contains(stdout, line) {
+			t.Errorf("update does not report %q:\n%s", line, stdout)
+		}
+	}
+	if got := readRepoFileForTest(t, home, ".gemini/GEMINI.md"); got != old {
+		t.Errorf("update edited ~/.gemini/GEMINI.md:\n%s", got)
 	}
 }

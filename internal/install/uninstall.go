@@ -67,9 +67,10 @@ type UninstallOptions struct {
 
 // PlanUninstall computes what `rtdd uninstall` would do, without touching the filesystem.
 //
-// It is Plan's inverse and covers what Plan writes — the two whole-file front-ends and the
-// marker block in AGENTS.md and CLAUDE.md — plus the .gitattributes line a v0.2 init
-// wrote. The binary is not in this list, because a repository is not where the binary
+// It is Plan's inverse for the files rtdd knows by name — the two whole-file front-ends
+// `--project-skill` writes and the marker block in AGENTS.md and CLAUDE.md, whichever init
+// wrote them — plus the .gitattributes line a v0.2 init wrote. .rtdd/ itself, with
+// .rtdd/.gitignore in it, goes only with --state. The binary is not in this list, because a repository is not where the binary
 // lives.
 func PlanUninstall(root string, opts UninstallOptions) ([]Step, error) {
 	steps := []Step{}
@@ -158,7 +159,7 @@ func ApplyUninstall(root string, steps []Step) error {
 	for _, s := range steps {
 		abs := filepath.Join(root, filepath.FromSlash(s.Path))
 		switch s.Action {
-		case Skip:
+		case Skip, Legacy:
 			continue
 		case Conflict:
 			return fmt.Errorf("%s: %s", s.Path, s.Note)
@@ -167,6 +168,15 @@ func ApplyUninstall(root string, steps []Step) error {
 				return err
 			}
 		case StripBlock:
+			if err := os.WriteFile(abs, []byte(s.Content), 0o644); err != nil {
+				return err
+			}
+		case Create, AppendLine:
+			// Only --legacy-files plans these: the .rtdd/.gitignore that takes over from the
+			// root .gitignore line it removes.
+			if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+				return err
+			}
 			if err := os.WriteFile(abs, []byte(s.Content), 0o644); err != nil {
 				return err
 			}

@@ -67,15 +67,28 @@ func TestInitMigratesAV02Repository(t *testing.T) {
 	if raw := readRepoFileForTest(t, dir, ".rtdd/config.yaml"); strings.Contains(raw, "stale_commits") || strings.Contains(raw, "adapters") {
 		t.Errorf("the v0.2 config survived:\n%s", raw)
 	}
-	if !strings.Contains(readRepoFileForTest(t, dir, ".gitignore"), ".rtdd/graph.json\n") {
-		t.Error("the migrated repository does not ignore .rtdd/graph.json")
+	if got := readRepoFileForTest(t, dir, ".rtdd/.gitignore"); got != "graph.json\n" {
+		t.Errorf("the migrated repository does not ignore the graph cache: .rtdd/.gitignore = %q", got)
+	}
+	// #509: the skill v0.2 rendered lies outside .rtdd/. init reports it and leaves it;
+	// `rtdd uninstall --legacy-files` or `rtdd init --project-skill` is the user's call.
+	if !regexp.MustCompile(`(?m)^legacy\s+\.claude/skills/rtdd/\s`).MatchString(out) {
+		t.Errorf("init does not report the v0.2 skill as legacy:\n%s", out)
+	}
+	if got := readRepoFileForTest(t, dir, ".claude/skills/rtdd/SKILL.md"); !strings.Contains(got, "rtdd seed") {
+		t.Errorf("init rewrote the v0.2 skill outside .rtdd/:\n%s", got)
+	}
+	code, _, errOut = rtdd(t, dir, "init", "--project-skill")
+	if code != 0 {
+		t.Fatalf("rtdd init --project-skill = %d, stderr %q", code, errOut)
 	}
 	files, err := install.Files()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := readRepoFileForTest(t, dir, ".claude/skills/rtdd/SKILL.md"); got != files["dist/SKILL.md"] {
-		t.Errorf("the v0.2 skill was not replaced by the v0.3.0 render:\n%s", got)
+	want := strings.Replace(files["dist/SKILL.md"], protocol.Generated, protocol.Generated+"\n"+install.OptInMarker, 1)
+	if got := readRepoFileForTest(t, dir, ".claude/skills/rtdd/SKILL.md"); got != want {
+		t.Errorf("--project-skill did not replace the v0.2 skill with the v0.3.0 render:\n%s", got)
 	}
 }
 

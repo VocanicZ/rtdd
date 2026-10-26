@@ -8,6 +8,7 @@ import (
 
 	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
 	"github.com/VocanicZ/rtdd/internal/install"
+	"github.com/VocanicZ/rtdd/internal/protocol"
 )
 
 // newUnsupportedRepo is a real TypeScript project that no v0.2 adapter matched, so v0.2's
@@ -55,7 +56,7 @@ func TestInitAcceptsAHostOnlyAdapter(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	if code, _, stderr := rtdd(t, dir, "init"); code != 0 {
+	if code, _, stderr := rtdd(t, dir, "init", "--project-skill"); code != 0 {
 		t.Fatalf("rtdd init = %d, want 0 with a host adapter (stderr: %s)", code, stderr)
 	}
 	b, err := os.ReadFile(filepath.Join(dir, ".claude", "skills", "rtdd", "SKILL.md"))
@@ -68,11 +69,11 @@ func TestInitAcceptsAHostOnlyAdapter(t *testing.T) {
 }
 
 // The gate is about detection, not about --force: a repo an adapter serves installs the
-// unmodified front-end, caveat-free, exactly as it did before this change.
+// unmodified front-end, caveat-free — the generated render plus only the opt-in marker.
 func TestInitInADetectableRepoInstallsTheUnmodifiedSkill(t *testing.T) {
 	dir := newDetectableRepo(t)
 
-	if code, _, stderr := rtdd(t, dir, "init"); code != 0 {
+	if code, _, stderr := rtdd(t, dir, "init", "--project-skill"); code != 0 {
 		t.Fatalf("rtdd init = %d, want 0 (stderr: %s)", code, stderr)
 	}
 	b, err := os.ReadFile(filepath.Join(dir, ".claude", "skills", "rtdd", "SKILL.md"))
@@ -83,7 +84,7 @@ func TestInitInADetectableRepoInstallsTheUnmodifiedSkill(t *testing.T) {
 	if err != nil {
 		t.Fatalf("install.Files: %v", err)
 	}
-	if string(b) != files["dist/SKILL.md"] {
+	if string(b) != strings.Replace(files["dist/SKILL.md"], protocol.Generated, protocol.Generated+"\n"+install.OptInMarker, 1) {
 		t.Errorf("the installed SKILL.md is not the generated one")
 	}
 }
