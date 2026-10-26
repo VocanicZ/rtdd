@@ -73,7 +73,9 @@ func cmdInit(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "rtdd init: %v\n", err)
 		return 2
 	}
-	fmt.Fprint(stdout, RenderInit(append(steps, globalLegacy()...)))
+	planned := append(steps, globalLegacy()...)
+	current.recordInit(planned, *dryRun)
+	fmt.Fprint(stdout, RenderInit(planned))
 
 	if *dryRun {
 		return 0

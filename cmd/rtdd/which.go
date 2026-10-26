@@ -80,6 +80,7 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 	}
 	ranges, warnings := changedRanges(changes)
 	r := rounds.Rounds(res.Graph, ranges)
+	current.recordWhich(*base, r, warnings)
 	if jobDir != "" {
 		return emitSwarmJob(root, jobDir, *runCmd, r, warnings, stdout, stderr)
 	}

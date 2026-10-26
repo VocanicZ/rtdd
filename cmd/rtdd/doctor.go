@@ -49,11 +49,13 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		return 3
 	}
 	legacy := append(repoLegacy(root), globalLegacy()...)
-	fmt.Fprint(stdout, renderDoctor(res, cfg, scan.Filter(root, listed, cfg.ScanExclude), legacy))
+	hubs := overLinked(res.Graph, overLinkDefinitions)
+	current.recordFindings(len(hubs) + len(legacy))
+	fmt.Fprint(stdout, renderDoctor(res, cfg, scan.Filter(root, listed, cfg.ScanExclude), hubs, legacy))
 	return 0
 }
 
-func renderDoctor(res *graphbuild.Result, cfg graph.Config, files []string, legacy []install.Step) string {
+func renderDoctor(res *graphbuild.Result, cfg graph.Config, files []string, hubs []nameCount, legacy []install.Step) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "graph source:  %s\n", res.Source)
 	fmt.Fprintf(&b, "built at:      %s\n", res.BuiltAtCommit)
@@ -77,7 +79,6 @@ func renderDoctor(res *graphbuild.Result, cfg graph.Config, files []string, lega
 	fmt.Fprintf(&b, "test nodes:    %d\n", testNodes)
 
 	fmt.Fprintf(&b, "names defined %d or more times (a call to one is linked only when its scope, receiver or imports narrow it):\n", overLinkDefinitions)
-	hubs := overLinked(res.Graph, overLinkDefinitions)
 	if len(hubs) == 0 {
 		b.WriteString("  none\n")
 	}

@@ -36,5 +36,6 @@ func buildGraph(root string, opt graphbuild.Options) (cfg graph.Config, res *gra
 	if res, err = graphbuild.Build(root, cfg, opt); err != nil {
 		return cfg, nil, 3, err
 	}
+	current.recordGraph(res)
 	return cfg, res, 0, nil
 }
