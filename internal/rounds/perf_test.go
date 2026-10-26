@@ -10,6 +10,7 @@ import (
 	"github.com/VocanicZ/rtdd/internal/graph"
 	"github.com/VocanicZ/rtdd/internal/graphbuild"
 	"github.com/VocanicZ/rtdd/internal/rounds"
+	"github.com/VocanicZ/rtdd/internal/testenv"
 )
 
 // thisRepositoryGraph is the scanner graph of this repository, built with its cache in
@@ -59,6 +60,7 @@ func everyLine(g graph.Graph) map[string][]rounds.LineRange {
 // interactive. Rounds walked a neighbour's callers once per changed node that reached
 // it, so this took ~3 s; walking each once, it takes well under a tenth of that.
 func TestRoundsOfEveryLineOfThisRepositoryIsUnder1s(t *testing.T) {
+	testenv.SkipIfSaturated(t)
 	g := thisRepositoryGraph(t)
 	changed := everyLine(g)
 	start := time.Now()

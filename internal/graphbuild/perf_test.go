@@ -10,6 +10,7 @@ import (
 	"github.com/VocanicZ/rtdd/internal/gitctx"
 	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
 	"github.com/VocanicZ/rtdd/internal/graph"
+	"github.com/VocanicZ/rtdd/internal/testenv"
 )
 
 // perfShapes are one small source file per fixture-corpus language. %[1]d makes every
@@ -28,6 +29,7 @@ var perfShapes = []struct{ ext, src string }{
 
 // PRD #409 AC10, first half: a cold scanner build of 10 000 files in under 10 s.
 func TestColdBuildOf10000FilesIsUnder10s(t *testing.T) {
+	testenv.SkipIfSaturated(t)
 	root := gittest.Init(t)
 	for i := 0; i < 10000; i++ {
 		s := perfShapes[i%len(perfShapes)]
@@ -62,6 +64,7 @@ func TestColdBuildOf10000FilesIsUnder10s(t *testing.T) {
 // Build still re-reads the edited files (they are in the changed set); that it need not
 // rewrite the cache for them is part of what is measured.
 func TestWarmBuildOfThisRepositoryIsUnder1s(t *testing.T) {
+	testenv.SkipIfSaturated(t)
 	wd, _ := os.Getwd()
 	root, err := gitctx.RepoRoot(wd)
 	if err != nil {

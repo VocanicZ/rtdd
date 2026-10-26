@@ -41,7 +41,7 @@ jobs:
           fi
 
       - name: test
-        run: go test ./... -count=1
+        run: go test ./... -count=1 -timeout 30m
 
       # The installer is the one part of the product that is not Go. Its unit tests use
       # Node's built-in runner, so there is nothing to npm install first.

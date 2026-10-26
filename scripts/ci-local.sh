@@ -21,8 +21,10 @@ if [ -n "$unformatted" ]; then
   exit 1
 fi
 
+# -timeout 30m: on a saturated host internal/installtest overruns go test's default 10 min
+# timeout (#514). Its tests are correctness gates, so they get time, never a skip.
 echo "==> go test ./... -count=1"
-go test ./... -count=1
+go test ./... -count=1 -timeout 30m
 
 echo "==> node --test installer/"
 node --test installer/
@@ -65,24 +67,48 @@ file /tmp/rtdd | grep -q 'statically linked'
 # released artifacts, so cross-build the whole .goreleaser.yaml matrix and inspect
 # each one by executable format (ELF, Mach-O, PE).
 echo "==> every release artifact is statically linked"
-go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' ./internal/installtest/
+go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' ./internal/installtest/ -timeout 30m
+
+# budget_step runs one wall-clock budget test as its own named step. The `-list` guard
+# keeps a renamed or deleted test from passing as zero executed tests. A budget test skips
+# itself with an INCONCLUSIVE: message when the host is saturated (internal/testenv, #514):
+# a timing taken on an oversubscribed box is not a measurement, so it neither passes nor
+# fails the budget, and the step says so and carries on. A real --- FAIL still fails the
+# gate: the output is captured, not piped, so go test's own exit status decides the step.
+budget_step() {
+  local name="$1" pkg="$2" listed out reason
+  listed="$(go test -list "^$name\$" "$pkg")"
+  case "$listed" in
+    *"$name"*) ;;
+    *) echo "the budget test $name is gone from $pkg"; exit 1 ;;
+  esac
+  if ! out="$(go test -count=1 -v -run "^$name\$" "$pkg" 2>&1)"; then
+    echo "$out"
+    exit 1
+  fi
+  echo "$out"
+  case "$out" in
+    *"--- SKIP: $name"*INCONCLUSIVE:*|*INCONCLUSIVE:*"--- SKIP: $name"*)
+      reason="$(grep -m 1 -o 'INCONCLUSIVE: .*' <<<"$out")"
+      echo "==> INCONCLUSIVE: $name (${reason#INCONCLUSIVE: })"
+      ;;
+  esac
+}
 
 # PRD #410 AC8 (#454): `rtdd which` on this repository with a warm graph cache is under
-# 1 s. `go test ./...` above runs both tests already; this step names the budget and its
-# `-list` guard keeps a renamed or deleted test from passing as zero executed tests.
+# 1 s, and Rounds of every line of it is too. `go test ./...` above runs these already;
+# each step names its budget so a red build points straight at it.
 echo "==> rtdd which stays interactive on this repository (#454)"
-listed="$(go test -list '^TestWhichOnThisRepositoryWithAWarmCacheIsUnder1s$' ./cmd/rtdd/)"
-case "$listed" in
-  *TestWhichOnThisRepositoryWithAWarmCacheIsUnder1s*) ;;
-  *) echo "the warm rtdd which budget test is gone from ./cmd/rtdd/"; exit 1 ;;
-esac
-go test -count=1 -run '^TestWhichOnThisRepositoryWithAWarmCacheIsUnder1s$' ./cmd/rtdd/
-listed="$(go test -list '^TestRoundsOfEveryLineOfThisRepositoryIsUnder1s$' ./internal/rounds/)"
-case "$listed" in
-  *TestRoundsOfEveryLineOfThisRepositoryIsUnder1s*) ;;
-  *) echo "the Rounds budget test is gone from ./internal/rounds/"; exit 1 ;;
-esac
-go test -count=1 -run '^TestRoundsOfEveryLineOfThisRepositoryIsUnder1s$' ./internal/rounds/
+budget_step TestWhichOnThisRepositoryWithAWarmCacheIsUnder1s ./cmd/rtdd/
+echo "==> Rounds of every line of this repository stays under 1 s (#454)"
+budget_step TestRoundsOfEveryLineOfThisRepositoryIsUnder1s ./internal/rounds/
+
+# PRD #409 AC10: a cold scanner build of 10 000 files under 10 s, and a warm build of this
+# repository under 1 s.
+echo "==> cold scanner build of 10 000 files stays under 10 s (PRD #409 AC10)"
+budget_step TestColdBuildOf10000FilesIsUnder10s ./internal/graphbuild/
+echo "==> warm build of this repository stays under 1 s (PRD #409 AC10)"
+budget_step TestWarmBuildOfThisRepositoryIsUnder1s ./internal/graphbuild/
 
 # PRD #368 AC11 (#380): the archives a release would publish, and install.sh driven
 # against them. Both tests below read build/dist, which .gitignore ignores — on a clean
@@ -105,7 +131,7 @@ case "$listed" in
   *TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippedPath*) ;;
   *) echo "the release-archive contents gate is gone from internal/installtest"; exit 1 ;;
 esac
-go test -count=1 -run '^TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippedPath$' ./internal/installtest/
+go test -count=1 -run '^TestGoreleaserSnapshotShipsEveryArchiveWithEveryShippedPath$' ./internal/installtest/ -timeout 30m
 
 echo "==> installer end to end against the real snapshot archives (#368 AC8)"
 listed="$(go test -list '^TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion$' ./internal/installtest/)"
@@ -113,6 +139,6 @@ case "$listed" in
   *TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion*) ;;
   *) echo "the end-to-end install gate is gone from internal/installtest"; exit 1 ;;
 esac
-go test -count=1 -run '^TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion$' ./internal/installtest/
+go test -count=1 -run '^TestInstallFromRealSnapshotArchivesPinnedToTheBuildsOwnVersion$' ./internal/installtest/ -timeout 30m
 
 echo "==> ci-local: PASS"
