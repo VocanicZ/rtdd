@@ -50,14 +50,17 @@ var patterns = []pattern{
 	// class: class / struct / interface / trait / impl / module / object / enum
 	{shapeClass, regexp.MustCompile(`^\s*` + modifiers + `(?:class|struct|interface|trait|module|object|enum)\s+(` + path + `)`)},
 	{shapeClass, regexp.MustCompile(`^\s*` + modifiers + `impl(?:<[^>]*>)?\s+(?:` + path + `(?:<[^>]*>)?\s+for\s+)?(` + path + `)`)},
+	// record: Java `record Name(<components>)`, C# `record (class|struct)? Name(` / `{` / `<`
+	{shapeClass, regexp.MustCompile(`^\s*` + modifiers + `record\s+(?:class\s+|struct\s+)?(` + path + `)\s*[<({]`)},
 	// JS/TS assigned function: const Name = (async) function / (...) => / x =>
 	{shapeCallable, regexp.MustCompile(`^\s*(?:export\s+)?(?:const|let|var)\s+(` + ident + `)\s*=\s*(?:async\s+)?(?:function\b|\([^)]*\)\s*=>|` + ident + `\s*=>)`)},
 	// shell: Name() {
 	{shapeCallable, regexp.MustCompile(`^\s*(` + ident + `)\s*\(\)\s*\{`)},
 	// JS/TS class member: indented `Name(<params>)(: Type)? {` with no type tokens before it
 	{shapeCallable, regexp.MustCompile(`^\s+(?:(?:static|async|get|set|public|private|protected|readonly|override)\s+)*(` + ident + `)\s*\([^)]*\)\s*(?::\s*[^={;]+)?\{\s*$`)},
-	// method: <type tokens> Name(<params>) <modifiers> {? — no trailing ';'
-	{shapeCallable, regexp.MustCompile(`^\s*((?:[\w$<>\[\],.?*&:]+\s+)+)[*&]*(` + ident + `)\s*\([^;]*$`)},
+	// method: @Annotation(…) <type tokens> Scope::Name(<params>) <modifiers> {? — no ';'
+	// after the '(', unless the line is a whole one-line definition (see methodHead)
+	{shapeCallable, regexp.MustCompile(`^\s*(?:@` + path + `(?:\([^()]*\))?\s+)*((?:[\w$<>\[\],.?*&:]+\s+)+)[*&]*(?:` + ident + `::)*(` + ident + `)\s*\(`)},
 }
 
 // controlKeywords never name a definition and never open a method-pattern line: they
@@ -86,6 +89,36 @@ var definitionKeywords = map[string]bool{}
 // methodTail is what may follow a method's parameter list on its definition line.
 var methodTail = regexp.MustCompile(`\)\s*(?:[\w$<>\[\],.?&:]+\s*)*\{?\s*$`)
 
+// methodHead reports whether line, a method row match whose parameter list opens just
+// before at, is a definition: no ';' from there on and the line ends as methodTail says,
+// or a one-line definition — a head that does, closing the parameter list, then a body
+// { … } closing on the line or an expression body `=> …`.
+func methodHead(line string, at int) bool {
+	if !strings.Contains(line[at:], ";") && methodTail.MatchString(line) {
+		return true
+	}
+	head := func(end int) bool {
+		params := line[at:end]
+		return !strings.Contains(params, ";") && strings.Count(params, ")")-strings.Count(params, "(") == 1 &&
+			methodTail.MatchString(strings.TrimRight(line[:end], " \t")+"{")
+	}
+	if a := strings.Index(line[at:], "=>"); a >= 0 && head(at+a) {
+		return true
+	}
+	b := strings.IndexByte(line[at:], '{') + at
+	if b < at || !head(b) {
+		return false
+	}
+	var t tokenizer
+	t.line(line[b:])
+	return t.brace == 0 && t.paren == 0 && strings.HasSuffix(strings.TrimSpace(line), "}")
+}
+
+// bodyOpener is a line after a definition's header that opens its body: `{` alone
+// (Allman style) or after a trailing modifier, as in `throws IOException {` (Java) or
+// `const override {` (C++).
+var bodyOpener = regexp.MustCompile(`^\s*(?:(?:throws|const|noexcept|override|final)\b[^{};=]*)?\{\s*$`)
+
 // matchDefinition reports whether line defines a node, and its shape and name. inBody is
 // whether line lies inside a callable's or test's body, where a `<type> Name(` line is a
 // statement (`x, len(y), z(w),`), so the method row does not apply; a nested definition
@@ -108,7 +141,7 @@ func matchDefinition(line string, inBody bool) (string, shape, bool) {
 					return "", 0, false
 				}
 			}
-			if controlKeywords[m[2]] || definitionKeywords[m[2]] || !methodTail.MatchString(line) {
+			if controlKeywords[m[2]] || definitionKeywords[m[2]] || !methodHead(line, len(m[0])) {
 				return "", 0, false
 			}
 			return m[2], p.shape, true
@@ -136,7 +169,7 @@ func lastSegment(s string) string {
 
 // spanRules versions the language-agnostic rules in scan.go. Bump it with any change to
 // how spans, ownership or edges are computed, so every cached graph is rebuilt.
-const spanRules = "4"
+const spanRules = "5"
 
 // Fingerprint identifies this scanner: the pattern table, the keyword set, the call-site
 // expressions and the span rules. The graph cache is valid only for the fingerprint that
@@ -146,7 +179,7 @@ func Fingerprint() string {
 	for _, p := range patterns {
 		fmt.Fprintf(h, "%d %s\n", p.shape, p.re)
 	}
-	fmt.Fprintf(h, "%s\n%s\n%s\n%s\n%s\n%s\n%s\n", methodTail, callSite, commandSite, declared, sortedKeys(controlKeywords), sortedKeys(definitionKeywords), spanRules)
+	fmt.Fprintf(h, "%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n", methodTail, bodyOpener, callSite, commandSite, declared, sortedKeys(controlKeywords), sortedKeys(definitionKeywords), spanRules)
 	for _, r := range declarationRows {
 		fmt.Fprintf(h, "decl %d %d %s\n", r.name, r.typ, r.re)
 	}

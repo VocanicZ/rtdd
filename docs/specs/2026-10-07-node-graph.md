@@ -78,9 +78,10 @@ name `load`/`Load`):
 |---|---|---|
 | func | `(async )?(def\|fn\|func\|function\|fun\|sub\|proc) [receiver] Name` | Python, Rust, Go, JS, Kotlin, Perl, Nim, Lua (`local function`) |
 | class | `(export )?(abstract )?(class\|struct\|interface\|trait\|impl\|module\|object\|enum) Name` | most OO languages |
+| class | `record (class\|struct )?Name` then `(`, `<` or `{` | Java, C# records |
 | func | `(const\|let\|var) Name = (async )?(function\|(...) =>)` | JS/TS assigned functions |
 | func | `Name() {` / `function Name` | shell |
-| method | `<type tokens> Name(<params>) <modifiers> {?` with no trailing `;`, Name not a control keyword, line not inside a func's or test's body | Java, C#, C, C++, Swift, PHP, Dart |
+| method | `(@Annotation )*<type tokens> (Scope::)*Name(<params>) <modifiers> {?` with no `;` after the `(` — or a whole one-line definition, that head then a body `{ … }` or `=> …` closing on the line — line not inside a func's or test's body | Java, C#, C, C++, Swift, PHP, Dart |
 | test | `(it\|test\|describe\|context)(\s*)\((\s*)['"\`]Label` | JS/TS, Ruby-style block tests |
 
 A captured name that is itself a definition keyword (`def fn func function fun sub proc
@@ -91,17 +92,27 @@ statement such as `if n := len(x); n > 0 {` or a call's continuation line
 `a, len(b), f(c),` is never read as a definition; nested definitions are still found by
 the other rows.
 
+A definition is read only from code: each line is matched with its comments (`//`, `#`,
+`/* */`, Javadoc) and any string literal spanning lines (`"""…"""`, `'''…'''`, a
+backtick string) blanked, so `* one capture step (see X)` in a Javadoc or `def f(` in a
+docstring is no node. Outside a func's or test's body, a line that leaves a `(` open is
+joined to the lines that close it (at most 50 on), so a signature whose parameters wrap
+is matched as one line (issue #507).
+
 The full regex set lives in one Go file and is the only place language shapes appear.
 
 ### 4.3 Spans and edges
 
-- **End line.** If the definition line opens a `{`, the node ends where braces balance
+- **End line.** If the definition's header — its line plus any lines its open `(` carries
+  on to, or the line after that when it is only modifiers and a `{` (Allman style,
+  `throws X {`) — opens a `{`, the node ends where braces balance
   (braces inside string and comment literals are skipped best-effort). Otherwise it ends at the
   line before the next non-blank line indented at or below the definition, or at EOF. Nested
   definitions are their own nodes; a line belongs to the **innermost** node containing it.
 - **`method` edge** from a class node to every node nested directly inside it.
 - **`calls` edge** from node A to the node(s) named `X` when `X(` appears as a whole word in
-  A's body (excluding A's own definition line). The candidates are the nodes named `X` of
+  A's body (excluding A's own definition line, and comments and strings spanning lines, as
+  in §4.2). The candidates are the nodes named `X` of
   A's **own file type**: if A's file has extension `.e` and any node named `X` lives in a
   file with extension `.e`, only those — a Go call never reaches a Python definition.
   Otherwise every node named `X` whose file's extension **shares a directory** with `.e`
