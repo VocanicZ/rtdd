@@ -12,7 +12,7 @@ const usage = `rtdd - relational test-driven development
 
 usage:
   rtdd init   [--dry-run]
-  rtdd which  [--base <ref>] [--json]
+  rtdd which  [--base <ref>] [--json] [--swarm-job <dir> --run '<cmd with {tests}>']
   rtdd explain <file[:line]|name>
   rtdd graph  [--json]
   rtdd doctor

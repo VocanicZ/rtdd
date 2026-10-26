@@ -124,6 +124,14 @@ still runs the full suite once at the end.
 
 `rtdd which --json` is the same answer as one object, schema 3, for tools that read it.
 
+The rounds can also run across spare machines with
+[swarm](https://github.com/VocanicZ/swarm). `rtdd which --swarm-job .rtdd/swarm --run
+'pytest {tests}'` writes a swarm job — one shard per test file of Round 1, then Round 2,
+with `{tests}` replaced by that file's path — and prints its name; `swarm submit
+.rtdd/swarm` runs it, and its merge exits non-zero when any shard's command failed. rtdd
+still runs nothing: it only writes the job. The job dir must be inside the repository,
+which is the job's workdir.
+
 ## The other commands
 
 ```

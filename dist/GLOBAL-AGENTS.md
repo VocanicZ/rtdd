@@ -16,6 +16,8 @@ run each round with the project's own test command.
 
 `rtdd which` prints the changed nodes, Rounds 1–3 and `untested`, and runs nothing.
 Untracked files count. `rtdd which --json` is the machine-readable form.
+`rtdd which --swarm-job <dir> --run '<cmd with {tests}>'` writes the rounds as a
+[swarm](https://github.com/VocanicZ/swarm) job, one shard per test file, for spare machines.
 
 Empty Rounds 1 and 2 print `no linked test`: no linked test, never a pass.
 

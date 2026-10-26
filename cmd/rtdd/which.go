@@ -18,27 +18,52 @@ import (
 // nothing, and an empty round means only that no test links to the change (spec §10).
 const noLinkedTest = "no linked test"
 
+const whichUsage = "usage: rtdd which [--base <ref>] [--json] [--swarm-job <dir> --run '<cmd with {tests}>']"
+
 // roundThree is Round 3, always (spec §7).
 const roundThree = "Round 3 — the full suite, once, at the end"
 
 // cmdWhich answers "which tests does this change need, in what order" from the node
 // graph (spec §7, §8). It runs nothing: no test, no toolchain. Every answer exits 0.
+// With --swarm-job it writes the selection as a swarm job instead of printing it, and
+// still runs nothing: the job is files for `swarm submit`.
 func cmdWhich(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("which", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	base := fs.String("base", "HEAD", "the ref changes are measured from")
 	asJSON := fs.Bool("json", false, "emit machine-readable JSON (schema 3)")
+	swarmJob := fs.String("swarm-job", "", "write the selected test files as a swarm job into this dir")
+	runCmd := fs.String("run", "", "the swarm job's test command; {tests} is one selected test file")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if fs.NArg() != 0 {
-		fmt.Fprintln(stderr, "usage: rtdd which [--base <ref>] [--json]")
+		fmt.Fprintln(stderr, whichUsage)
+		return 2
+	}
+	if (*swarmJob == "") != (*runCmd == "") {
+		fmt.Fprintf(stderr, "rtdd which: --swarm-job and --run go together\n%s\n", whichUsage)
+		return 2
+	}
+	if *swarmJob != "" && !strings.Contains(*runCmd, swarmTestsPlaceholder) {
+		fmt.Fprintf(stderr, "rtdd which: --run must contain %s, the shard's test file\n", swarmTestsPlaceholder)
+		return 2
+	}
+	if *swarmJob != "" && *asJSON {
+		fmt.Fprintln(stderr, "rtdd which: --json and --swarm-job do not mix: the job's stdout is its name")
 		return 2
 	}
 	root, err := graphRoot()
 	if err != nil {
 		fmt.Fprintf(stderr, "rtdd which: %v\n", err)
 		return 3
+	}
+	jobDir := ""
+	if *swarmJob != "" {
+		if jobDir, err = swarmJobDir(root, *swarmJob); err != nil {
+			fmt.Fprintf(stderr, "rtdd which: %v\n", err)
+			return 2
+		}
 	}
 	changes, err := changedSet(root, *base)
 	if err != nil {
@@ -55,6 +80,9 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 	}
 	ranges, warnings := changedRanges(changes)
 	r := rounds.Rounds(res.Graph, ranges)
+	if jobDir != "" {
+		return emitSwarmJob(root, jobDir, *runCmd, r, warnings, stdout, stderr)
+	}
 	if *asJSON {
 		enc := json.NewEncoder(stdout)
 		enc.SetEscapeHTML(false) // "<module>" stays readable
@@ -69,6 +97,26 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "rtdd which: warning: %s\n", w)
 	}
 	fmt.Fprint(stdout, renderWhich(res, cfg, r))
+	return 0
+}
+
+// emitSwarmJob writes the rounds' test files as a swarm job and prints its name. Empty
+// rounds write nothing: there is nothing to shard, and an empty job would read as a pass.
+func emitSwarmJob(root, jobDir, runCmd string, r rounds.Result, warnings []string, stdout, stderr io.Writer) int {
+	for _, w := range warnings {
+		fmt.Fprintf(stderr, "rtdd which: warning: %s\n", w)
+	}
+	files := swarmFiles(r.Round1, r.Round2)
+	if len(files) == 0 {
+		fmt.Fprintf(stderr, "rtdd which: %s in Round 1 or Round 2, so no swarm job was written; %s\n", noLinkedTest, roundThree)
+		return 0
+	}
+	name, err := writeSwarmJob(root, jobDir, runCmd, files)
+	if err != nil {
+		fmt.Fprintf(stderr, "rtdd which: %v\n", err)
+		return 3
+	}
+	fmt.Fprintln(stdout, name)
 	return 0
 }
 
