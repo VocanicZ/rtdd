@@ -1,0 +1,44 @@
+# .rtdd/config.yaml — written by `rtdd init`. Every list is globs over
+# repo-relative paths; a key you set replaces its default wholesale.
+# See docs/specs/2026-10-07-node-graph.md §4.1, §5 and §6.
+
+# Files the scanner never reads.
+scan_exclude:
+  - "vendor/**"
+  - "node_modules/**"
+  - "third_party/**"
+  - "**/*.min.js"
+  - "dist/**"
+  - "build/**"
+  - ".rtdd/**"
+  - "graphify-out/**"
+  - "**/*.md"
+  - "**/*.mdc"
+  - "**/*.markdown"
+  - "**/*.rst"
+  - "**/*.txt"
+  - "**/*.adoc"
+
+# A function, method or test in a matching file is a test.
+test_files:
+  - "**/test_*"
+  - "**/*_test.*"
+  - "**/*.test.*"
+  - "**/*.spec.*"
+  - "**/*Test.*"
+  - "**/*Tests.*"
+  - "**/tests/**"
+  - "**/test/**"
+  - "**/spec/**"
+  - "**/__tests__/**"
+
+# A matching file is never a test file, whatever test_files says.
+test_exclude:
+  - "**/testdata/**"
+  - "**/fixtures/**"
+
+# graphify's graph, used when this file exists. rtdd never runs graphify.
+graphify_path: "graphify-out/graph.json"
+
+# graphify is ignored when more than this share of its code files is stale.
+max_stale_ratio: 0.5
