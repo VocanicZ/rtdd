@@ -5,10 +5,14 @@ methods and classes. Every limit below is a way that graph can be missing an edg
 one too many. Round 3 — the full suite, once, at the end of the task — is the safety net for
 all of them.
 
-- **Links are by name, so a common name over-links.** A call to `load(` links to every
-  definition named `load` in files of the same kind. Round 2 can then hold tests the change
-  does not need. `rtdd doctor` lists the names defined eight or more times, which are where
-  this happens.
+- **Links are by name, narrowed without a parser.** A call to `load(` links first to the
+  `load` of its own class (or a supertype), or of its receiver's declared type
+  (`Store s; s.load(`), then to the ones in its own file, in the files it imports, and in
+  its package. The narrowing reads text, so it can pick wrong: an interface call whose
+  implementation is elsewhere, a local whose type the line does not state. A name that
+  still matches more than five definitions links to **none** — `rtdd graph` counts those
+  as `ambiguous_calls` — so its tests are in neither round. `rtdd doctor` lists the names
+  defined eight or more times, which are where this happens.
 - **A call the text does not show has no edge.** A call through reflection, a string, a
   registry, dependency injection or a framework hook links nothing, so its tests are in
   neither Round 1 nor Round 2.

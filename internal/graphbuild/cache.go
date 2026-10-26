@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/VocanicZ/rtdd/internal/graph"
 	"github.com/VocanicZ/rtdd/internal/scan"
@@ -17,22 +18,24 @@ import (
 
 // cacheVersion is the rtdd_cache value this build reads and writes. Any other value —
 // and any other scanner fingerprint — is a cache miss, never an error. 2: a method's
-// class is rtdd_parent on its node, so a read never decodes links.
-const cacheVersion = 2
+// class is rtdd_parent on its node, so a read never decodes links. 3: a file's import
+// specs are rtdd_imports, a class's supertypes rtdd_supers on its node.
+const cacheVersion = 3
 
 // cacheFile is .rtdd/graph.json: graphify's graph.json node-link shape (so a graphify
 // reader can open it), plus rtdd's own keys, all prefixed rtdd_ (spec §4.5). Links are
 // written last, and the order is load-bearing: readCache stops before them (cacheRead).
 type cacheFile struct {
-	Directed      bool              `json:"directed"`
-	Multigraph    bool              `json:"multigraph"`
-	Graph         struct{}          `json:"graph"`
-	BuiltAtCommit string            `json:"built_at_commit"`
-	Cache         int               `json:"rtdd_cache"`
-	Scanner       string            `json:"rtdd_scanner"`
-	Files         map[string]string `json:"rtdd_files"` // path -> blob id it was scanned from; "" = working-tree content
-	Nodes         []cacheNode       `json:"nodes"`
-	Links         []cacheLink       `json:"links"`
+	Directed      bool                `json:"directed"`
+	Multigraph    bool                `json:"multigraph"`
+	Graph         struct{}            `json:"graph"`
+	BuiltAtCommit string              `json:"built_at_commit"`
+	Cache         int                 `json:"rtdd_cache"`
+	Scanner       string              `json:"rtdd_scanner"`
+	Files         map[string]string   `json:"rtdd_files"`   // path -> blob id it was scanned from; "" = working-tree content
+	Imports       map[string][]string `json:"rtdd_imports"` // path -> its import specs, when it has any
+	Nodes         []cacheNode         `json:"nodes"`
+	Links         []cacheLink         `json:"links"`
 }
 
 type cacheNode struct {
@@ -47,6 +50,7 @@ type cacheNode struct {
 	End            int        `json:"rtdd_end"`
 	Calls          []string   `json:"rtdd_calls,omitempty"`
 	Parent         string     `json:"rtdd_parent,omitempty"` // the class of a method: its method edge
+	Supers         []string   `json:"rtdd_supers,omitempty"` // a class's supertypes, "<relation>:<name>"
 }
 
 // cacheRead is cacheFile without links. They are written for a graphify reader; rtdd
@@ -54,11 +58,12 @@ type cacheNode struct {
 // skipping tens of thousands of links it would drop is most of a warm build — so
 // decodeCache stops reading once it has every key below, which cacheFile writes first.
 type cacheRead struct {
-	Nodes         []cacheNode       `json:"nodes"`
-	BuiltAtCommit string            `json:"built_at_commit"`
-	Cache         int               `json:"rtdd_cache"`
-	Scanner       string            `json:"rtdd_scanner"`
-	Files         map[string]string `json:"rtdd_files"`
+	Nodes         []cacheNode         `json:"nodes"`
+	BuiltAtCommit string              `json:"built_at_commit"`
+	Cache         int                 `json:"rtdd_cache"`
+	Scanner       string              `json:"rtdd_scanner"`
+	Files         map[string]string   `json:"rtdd_files"`
+	Imports       map[string][]string `json:"rtdd_imports"`
 }
 
 type cacheLink struct {
@@ -101,12 +106,25 @@ func readCache(p string) *cache {
 		if n.Parent != "" {
 			r.Edges = append(r.Edges, graph.Edge{From: n.Parent, To: n.ID, Relation: graph.RelMethod})
 		}
+		for _, s := range n.Supers {
+			rel, name, _ := strings.Cut(s, ":")
+			if r.Supers == nil {
+				r.Supers = map[string][]scan.Super{}
+			}
+			r.Supers[n.ID] = append(r.Supers[n.ID], scan.Super{Name: name, Relation: graph.Relation(rel)})
+		}
 		c.results[n.SourceFile] = r
 	}
 	for p, blob := range f.Files {
 		c.blob[p] = blob
 		if _, ok := c.results[p]; !ok {
 			c.results[p] = scan.FileResult{Path: p, Calls: map[string][]string{}} // a file with no nodes
+		}
+	}
+	for p, specs := range f.Imports {
+		if r, ok := c.results[p]; ok {
+			r.Imports = specs
+			c.results[p] = r
 		}
 	}
 	return c
@@ -121,7 +139,7 @@ func decodeCache(r io.Reader) (cacheRead, error) {
 		return f, errors.New("cache is not a JSON object")
 	}
 	seen := map[string]bool{}
-	for len(seen) < 5 && dec.More() {
+	for len(seen) < 6 && dec.More() {
 		t, err := dec.Token()
 		if err != nil {
 			return f, err
@@ -139,6 +157,8 @@ func decodeCache(r io.Reader) (cacheRead, error) {
 			v = &f.Scanner
 		case "rtdd_files":
 			v = &f.Files
+		case "rtdd_imports":
+			v = &f.Imports
 		default:
 			v = &json.RawMessage{}
 		}
@@ -189,7 +209,7 @@ func writeCache(p, head string, files []string, blobs map[string]string, changed
 	for _, r := range results {
 		keep[r.Path] = r
 	}
-	f := cacheFile{BuiltAtCommit: head, Cache: cacheVersion, Scanner: scan.Fingerprint(), Files: map[string]string{}}
+	f := cacheFile{BuiltAtCommit: head, Cache: cacheVersion, Scanner: scan.Fingerprint(), Files: map[string]string{}, Imports: map[string][]string{}}
 	all := make([]scan.FileResult, 0, len(keep))
 	for path, r := range keep {
 		blob := blobs[path]
@@ -197,6 +217,9 @@ func writeCache(p, head string, files []string, blobs map[string]string, changed
 			blob = ""
 		}
 		f.Files[path] = blob
+		if len(r.Imports) > 0 {
+			f.Imports[path] = r.Imports
+		}
 		all = append(all, r)
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].Path < all[j].Path })
@@ -206,10 +229,11 @@ func writeCache(p, head string, files []string, blobs map[string]string, changed
 	} else {
 		g = scan.Assemble(all)
 	}
-	calls := map[string][]string{}
-	for _, r := range all {
-		for id, names := range r.Calls {
-			calls[id] = names
+	refs := scan.RefsOf(all)
+	supers := map[string][]string{}
+	for id, sups := range refs.Supers {
+		for _, s := range sups {
+			supers[id] = append(supers[id], string(s.Relation)+":"+s.Name)
 		}
 	}
 	parent := map[string]string{}
@@ -222,7 +246,7 @@ func writeCache(p, head string, files []string, blobs map[string]string, changed
 	for _, n := range g.Nodes {
 		f.Nodes = append(f.Nodes, cacheNode{ID: n.ID, Label: label(n), FileType: "code", SourceFile: n.File,
 			SourceLocation: "L" + strconv.Itoa(n.Start), Name: n.Name, Kind: n.Kind, Start: n.Start, End: n.End,
-			Calls: calls[n.ID], Parent: parent[n.ID]})
+			Calls: refs.Calls[n.ID], Parent: parent[n.ID], Supers: supers[n.ID]})
 	}
 	f.Links = []cacheLink{}
 	for _, e := range g.Edges {
@@ -322,7 +346,15 @@ func sameScan(a, b scan.FileResult) bool {
 func canonical(r scan.FileResult) scan.FileResult {
 	g := graph.Graph{Nodes: slices.Clone(r.Nodes), Edges: slices.Clone(r.Edges)}
 	graph.Sort(&g)
-	out := scan.FileResult{Path: r.Path, Calls: map[string][]string{}}
+	out := scan.FileResult{Path: r.Path, Calls: map[string][]string{}, Supers: map[string][]scan.Super{}}
+	if len(r.Imports) > 0 {
+		out.Imports = r.Imports
+	}
+	for id, sups := range r.Supers {
+		if len(sups) > 0 {
+			out.Supers[id] = sups
+		}
+	}
 	if len(g.Nodes) > 0 {
 		out.Nodes = g.Nodes
 	}

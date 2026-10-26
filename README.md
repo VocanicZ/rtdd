@@ -195,9 +195,11 @@ runs graphify: if you want its graph, run or update graphify yourself.
 
 Stated plainly, because a tool that hides its blind spots is worse than none:
 
-- Links are by name. A call to `load(` links to every definition named `load` in files of
-  the same kind, so a common name over-links and Round 2 can hold tests the change does not
-  need. `rtdd doctor` lists the names defined eight or more times.
+- Links are by name, narrowed without a parser: a call links to its own class's
+  definition, its receiver's declared type's, then the ones in its own file, the files it
+  imports, or its package. A name still matching more than five definitions links to none
+  (`rtdd graph` counts these as `ambiguous_calls`), and a call the narrowing misjudges
+  links to the wrong one; `rtdd doctor` lists the names defined eight or more times.
 - A call the text does not show — through reflection, a string, a registry or a framework
   hook — has no edge, and its tests are in neither round.
 - Depth is one. A caller's caller is in no round; Round 3 is the safety net.

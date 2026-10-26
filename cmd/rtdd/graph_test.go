@@ -21,6 +21,7 @@ func graphRepo(t *testing.T) string {
 }
 
 // PRD #409 AC9: `rtdd graph` prints source, counts, built_at_commit and stale_files.
+// Issue #508: the counts include imports, inherits, implements and ambiguous_calls.
 func TestGraphCommandPrintsSourceCountsAndStaleness(t *testing.T) {
 	dir := graphRepo(t)
 	code, out, errOut := rtdd(t, dir, "graph")
@@ -31,6 +32,10 @@ func TestGraphCommandPrintsSourceCountsAndStaleness(t *testing.T) {
 		"nodes:           3\n" +
 		"edges:           2\n" +
 		"tests:           1\n" +
+		"imports:         1\n" +
+		"inherits:        0\n" +
+		"implements:      0\n" +
+		"ambiguous_calls: 0\n" +
 		"built_at_commit: " + gittest.HeadShort(t, dir) + "\n" +
 		"stale_files:     0\n"
 	if out != want {
@@ -53,7 +58,8 @@ func TestGraphCommandJSONShape(t *testing.T) {
 	}
 	g, _ := doc["graph"].(map[string]any)
 	want := map[string]any{"source": "scanner", "built_at_commit": gittest.HeadShort(t, dir),
-		"stale_files": 0.0, "nodes": 3.0, "edges": 2.0, "tests": 1.0}
+		"stale_files": 0.0, "nodes": 3.0, "edges": 2.0, "tests": 1.0,
+		"imports": 1.0, "inherits": 0.0, "implements": 0.0, "ambiguous_calls": 0.0}
 	for k, v := range want {
 		if g[k] != v {
 			t.Errorf("graph.%s = %v, want %v", k, g[k], v)

@@ -223,3 +223,31 @@ func TestCacheServesGraphifysCommittedStaleFiles(t *testing.T) {
 		t.Errorf("warm graph differs from cold:\n warm %+v\n cold %+v", warm.Graph, cold.Graph)
 	}
 }
+
+// Issue #508: a file's imports and a class's supertypes survive the cache, so a warm
+// build that re-reads nothing resolves calls through them exactly as a cold build did.
+func TestWarmBuildKeepsImportsAndSupertypes(t *testing.T) {
+	root := repo(t, map[string]string{
+		"pkg/a.py":    "def load():\n    return 1\n",
+		"pkg/b.py":    "def load():\n    return 2\n\n\nclass Base:\n    def size(self):\n        return 0\n",
+		"app/main.py": "from pkg.b import load, Base\n\n\nclass Calc(Base):\n    def run(self):\n        return load() + self.size()\n",
+	})
+	cold := build(t, root)
+	warm := build(t, root)
+	if len(warm.Scanned) != 0 {
+		t.Fatalf("warm build scanned %v, want nothing", warm.Scanned)
+	}
+	if !reflect.DeepEqual(warm.Graph, cold.Graph) || warm.Imports != cold.Imports {
+		t.Errorf("warm differs from cold:\n warm %d imports %+v\n cold %d imports %+v", warm.Imports, warm.Graph.Edges, cold.Imports, cold.Graph.Edges)
+	}
+	want := []graph.Edge{
+		{From: "app/main.py::Calc", To: "app/main.py::Calc::run", Relation: graph.RelMethod},
+		{From: "app/main.py::Calc", To: "pkg/b.py::Base", Relation: graph.RelInherits},
+		{From: "app/main.py::Calc::run", To: "pkg/b.py::Base::size", Relation: graph.RelCalls},
+		{From: "app/main.py::Calc::run", To: "pkg/b.py::load", Relation: graph.RelCalls},
+		{From: "pkg/b.py::Base", To: "pkg/b.py::Base::size", Relation: graph.RelMethod},
+	}
+	if !reflect.DeepEqual(warm.Graph.Edges, want) || warm.Imports != 1 {
+		t.Errorf("warm edges = %+v, %d imports\nwant %+v, 1 import", warm.Graph.Edges, warm.Imports, want)
+	}
+}

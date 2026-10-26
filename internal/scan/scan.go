@@ -4,6 +4,7 @@ package scan
 
 import (
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -17,13 +18,16 @@ import (
 )
 
 // FileResult is one file's scan: its nodes (IsTest unset), the method edges inside it,
-// and the names each node calls. Calls edges are made by Link, over every file at once,
-// because a call names a definition that may live anywhere.
+// the calls each node makes, the modules the file imports and what each class extends.
+// Calls, inherits and implements edges are made by Link, over every file at once,
+// because each names a definition that may live anywhere.
 type FileResult struct {
-	Path  string
-	Nodes []graph.Node
-	Edges []graph.Edge
-	Calls map[string][]string // node ID -> sorted, de-duplicated called names
+	Path    string
+	Nodes   []graph.Node
+	Edges   []graph.Edge
+	Calls   map[string][]string // node ID -> sorted, de-duplicated call tokens (see Link)
+	Imports []string            // import specs in line order; a relative one rooted at "/"
+	Supers  map[string][]Super  // class node ID -> what its definition line extends or implements
 }
 
 // callSite is `X(` with X a whole word.
@@ -87,7 +91,18 @@ func ScanFile(rel string, src []byte) FileResult {
 		stack = append(stack, i)
 	}
 
-	res := FileResult{Path: rel, Calls: map[string][]string{}}
+	res := FileResult{Path: rel, Calls: map[string][]string{}, Supers: map[string][]Super{}}
+	dir := pathpkg.Dir(rel)
+	for _, spec := range imports(lines) {
+		if strings.HasPrefix(spec, "./") || strings.HasPrefix(spec, "../") {
+			spec = pathpkg.Join(dir, spec)
+			if spec == ".." || strings.HasPrefix(spec, "../") {
+				continue // above the repository root
+			}
+			spec = "/" + spec
+		}
+		res.Imports = append(res.Imports, spec)
+	}
 	ids := make([]string, len(defs))
 	seen := map[string]bool{}
 	for i, d := range defs {
@@ -112,6 +127,11 @@ func ScanFile(rel string, src []byte) FileResult {
 			kind = graph.KindMethod
 		}
 		res.Nodes = append(res.Nodes, graph.Node{ID: id, File: rel, Name: d.name, Kind: kind, Start: d.start + 1, End: d.end + 1})
+		if kind == graph.KindClass {
+			if sups := supertypes(lines[d.start]); len(sups) > 0 {
+				res.Supers[id] = sups
+			}
+		}
 		if d.parent >= 0 && defs[d.parent].shape == shapeClass {
 			res.Edges = append(res.Edges, graph.Edge{From: ids[d.parent], To: id, Relation: graph.RelMethod})
 		}
@@ -127,6 +147,55 @@ func ScanFile(rel string, src []byte) FileResult {
 		for l := d.start; l <= d.end; l++ {
 			owner[l] = i
 		}
+	}
+	// Each node's declared locals, for a call's receiver type (spec §4.3): its own lines,
+	// definition line included, so parameters count. Read only for a node a receiver is
+	// looked up in.
+	lineOf := make([][]int, len(defs))
+	for l := range lines {
+		if o := owner[l]; o >= 0 {
+			lineOf[o] = append(lineOf[o], l)
+		}
+	}
+	decls := make([]map[string]string, len(defs)) // node -> receiver -> its type, "" for none
+	declOf := func(d int, recv string) string {
+		if decls[d] == nil {
+			decls[d] = map[string]string{}
+		}
+		if t, ok := decls[d][recv]; ok {
+			return t
+		}
+		t := ""
+		for _, l := range lineOf[d] {
+			if !strings.Contains(lines[l], recv) {
+				continue
+			}
+			found := map[string]string{}
+			declarations(lines[l], found)
+			if x, ok := found[recv]; ok {
+				t = x
+				break
+			}
+		}
+		decls[d][recv] = t
+		return t
+	}
+	// token is the call token of name called on recv from node o: `X` bare or on self,
+	// `T#X` with T recv's declared type, `recv.X` when recv has none, `.X` on no named
+	// receiver.
+	token := func(o int, recv string, member bool, name string) string {
+		switch {
+		case !member || selfReceivers[recv]:
+			return name
+		case recv == "":
+			return "." + name
+		}
+		for d := o; d >= 0; d = defs[d].parent {
+			if t := declOf(d, recv); t != "" {
+				return t + "#" + name
+			}
+		}
+		return recv + "." + name
 	}
 	called := map[int]map[string]bool{}
 	for l, line := range lines {
@@ -147,7 +216,8 @@ func ScanFile(rel string, src []byte) FileResult {
 			if called[o] == nil {
 				called[o] = map[string]bool{}
 			}
-			called[o][name] = true
+			recv, member := receiverOf(line, loc[0])
+			called[o][token(o, recv, member, name)] = true
 		}
 		for _, m := range commandSite.FindAllStringSubmatchIndex(line, -1) {
 			name := line[m[2]:m[3]]
@@ -171,71 +241,35 @@ func ScanFile(rel string, src []byte) FileResult {
 	return res
 }
 
-// Link makes the calls edges: from each caller to every node bearing a name it calls
-// (spec §4.3 — over-linking is accepted; a direct call is never missed). When nodes of
-// that name exist in files of the caller's own extension only those are linked, since a
-// call cannot cross into another language. Otherwise the call links to every node of
-// that name whose extension shares a directory with the caller's somewhere in the graph
-// (`.ts` -> `.js`, `.c` -> `.h`): files that call each other across extensions live
-// together, while a name no file of the caller's type defines is most often a builtin
-// (`len(` in Python) that a stray definition elsewhere must not capture.
-// nodes is the whole graph's node set, whichever source produced each node. No self edges.
-func Link(nodes []graph.Node, calls map[string][]string) []graph.Edge {
-	g := graph.Graph{Edges: link(nodes, calls)}
-	graph.Sort(&g)
-	return g.Edges
-}
-
-// link is Link unsorted, for a caller that sorts the whole graph once afterwards.
-func link(nodes []graph.Node, calls map[string][]string) []graph.Edge {
-	type extName struct{ ext, name string }
-	byName := map[string][]string{}
-	byExtName := map[extName][]string{}
-	extOf := map[string]string{}
-	dirs := map[string]map[string]bool{} // extension -> directories holding a node of it
-	for _, n := range nodes {
-		ext := filepath.Ext(n.File)
-		extOf[n.ID] = ext
-		byName[n.Name] = append(byName[n.Name], n.ID)
-		byExtName[extName{ext, n.Name}] = append(byExtName[extName{ext, n.Name}], n.ID)
-		if dirs[ext] == nil {
-			dirs[ext] = map[string]bool{}
+// receiverOf reports what the call at line[at:] is made on: after `.`, `?.`, `::`, `:` or
+// `->`, the word before it ("" when that is no word, as in `f().x(`; "super" for
+// `super().x(`), and member true; otherwise member false.
+func receiverOf(line string, at int) (string, bool) {
+	j := at
+	switch {
+	case j > 0 && line[j-1] == '.':
+		j--
+		if j > 0 && line[j-1] == '?' {
+			j--
 		}
-		dirs[ext][filepath.Dir(n.File)] = true
+	case j > 1 && line[j-1] == '>' && line[j-2] == '-':
+		j -= 2
+	case j > 0 && line[j-1] == ':':
+		j--
+		if j > 0 && line[j-1] == ':' {
+			j--
+		}
+	default:
+		return "", false
 	}
-	together := map[[2]string]bool{}
-	sharesDir := func(a, b string) bool {
-		k := [2]string{a, b}
-		if v, ok := together[k]; ok {
-			return v
-		}
-		v := false
-		for d := range dirs[a] {
-			if dirs[b][d] {
-				v = true
-				break
-			}
-		}
-		together[k] = v
-		return v
+	if strings.HasSuffix(line[:j], superReceiver+"()") {
+		return superReceiver, true
 	}
-	var out []graph.Edge
-	for from, names := range calls {
-		ext := extOf[from]
-		for _, name := range names {
-			targets := byExtName[extName{ext, name}]
-			fallback := len(targets) == 0
-			if fallback {
-				targets = byName[name]
-			}
-			for _, to := range targets {
-				if to != from && (!fallback || sharesDir(ext, extOf[to])) {
-					out = append(out, graph.Edge{From: from, To: to, Relation: graph.RelCalls})
-				}
-			}
-		}
+	k := j
+	for k > 0 && isWord(line[k-1]) {
+		k--
 	}
-	return out
+	return strings.Trim(line[k:j], "$"), true
 }
 
 func isWord(c byte) bool {
@@ -374,18 +408,21 @@ func ScanFiles(root string, files []string) []FileResult {
 }
 
 // Assemble is the scanner's whole graph: every file's nodes and method edges, plus the
-// calls edges Link makes across all of them.
+// edges Link makes across all of them.
 func Assemble(results []FileResult) graph.Graph {
+	g, _ := AssembleStats(results)
+	return g
+}
+
+// AssembleStats is Assemble and what its Link resolved.
+func AssembleStats(results []FileResult) (graph.Graph, Stats) {
 	var g graph.Graph
-	calls := map[string][]string{}
 	for _, r := range results {
 		g.Nodes = append(g.Nodes, r.Nodes...)
 		g.Edges = append(g.Edges, r.Edges...)
-		for id, names := range r.Calls {
-			calls[id] = names
-		}
 	}
-	g.Edges = append(g.Edges, link(g.Nodes, calls)...)
+	edges, st := link(g.Nodes, RefsOf(results))
+	g.Edges = append(g.Edges, edges...)
 	graph.Sort(&g)
-	return g
+	return g, st
 }

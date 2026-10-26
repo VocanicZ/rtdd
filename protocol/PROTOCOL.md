@@ -149,9 +149,11 @@ a graph that cannot be built). No exit code is a test result, because rtdd runs 
 <!-- rtdd:section id=limits title="What it cannot see" targets=skill,mdc,global order=80 -->
 Stated plainly, because a tool that hides its blind spots is worse than none:
 
-- Links are by name. A call to `load(` links to every definition named `load` in files of
-  the same kind, so a common name over-links and Round 2 can hold tests the change does not
-  need. `rtdd doctor` lists the names defined eight or more times.
+- Links are by name, narrowed without a parser: a call links to its own class's
+  definition, its receiver's declared type's, then the ones in its own file, the files it
+  imports, or its package. A name still matching more than five definitions links to none
+  (`rtdd graph` counts these as `ambiguous_calls`), and a call the narrowing misjudges
+  links to the wrong one; `rtdd doctor` lists the names defined eight or more times.
 - A call the text does not show — through reflection, a string, a registry or a framework
   hook — has no edge, and its tests are in neither round.
 - Depth is one. A caller's caller is in no round; Round 3 is the safety net.
@@ -159,7 +161,8 @@ Stated plainly, because a tool that hides its blind spots is worse than none:
   round. `rtdd which` warns, and Round 3 runs them.
 - The scanner reads text, not syntax: an unusual layout can give a node the wrong span.
 <!-- rtdd:variant target=mdc -->
-Links are by name, so a common name over-links; a call through reflection, a string or a
-framework hook has no edge; depth is one, and Round 3 is the safety net.
+Links are by name, narrowed by scope, receiver type and imports, so a common name can link
+wrong or not at all; a call through reflection, a string or a framework hook has no edge;
+depth is one, and Round 3 is the safety net.
 <!-- rtdd:endvariant -->
 <!-- rtdd:endsection -->

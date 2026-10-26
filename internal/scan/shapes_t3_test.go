@@ -29,7 +29,7 @@ func TestRubyBlockTestsAndCommandCalls(t *testing.T) {
 	})
 	r := ScanFile("spec/acc_spec.rb", []byte(src))
 	want := []graph.Edge{{From: "spec/acc_spec.rb::Acc::push", To: "spec/acc_spec.rb::Acc::log", Relation: graph.RelCalls}}
-	if got := Link(r.Nodes, r.Calls); !reflect.DeepEqual(got, want) {
+	if got, _ := Link(r.Nodes, Refs{Calls: r.Calls}); !reflect.DeepEqual(got, want) {
 		t.Errorf("calls = %+v, want %+v", got, want)
 	}
 }
@@ -44,7 +44,7 @@ func TestShellCommandFormCalls(t *testing.T) {
 	})
 	r := ScanFile("bin/calc.sh", []byte(src))
 	want := []graph.Edge{{From: "bin/calc.sh::total", To: "bin/calc.sh::add", Relation: graph.RelCalls}}
-	if got := Link(r.Nodes, r.Calls); !reflect.DeepEqual(got, want) {
+	if got, _ := Link(r.Nodes, Refs{Calls: r.Calls}); !reflect.DeepEqual(got, want) {
 		t.Errorf("calls = %+v, want %+v", got, want)
 	}
 }

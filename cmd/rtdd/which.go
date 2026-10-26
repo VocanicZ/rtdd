@@ -271,10 +271,19 @@ func buildWhichJSON(base string, res *graphbuild.Result, changes []gitctx.Change
 // graphObjectOf is the `graph` object `rtdd graph --json` and `rtdd which --json` share.
 func graphObjectOf(res *graphbuild.Result) graphObject {
 	obj := graphObject{Source: res.Source, BuiltAtCommit: res.BuiltAtCommit, StaleFiles: len(res.StaleFiles),
-		GraphifyIgnored: res.GraphifyIgnored, Nodes: len(res.Graph.Nodes), Edges: len(res.Graph.Edges)}
+		GraphifyIgnored: res.GraphifyIgnored, Nodes: len(res.Graph.Nodes), Edges: len(res.Graph.Edges),
+		Imports: res.Imports, AmbiguousCalls: res.AmbiguousCalls}
 	for _, n := range res.Graph.Nodes {
 		if n.IsTest {
 			obj.Tests++
+		}
+	}
+	for _, e := range res.Graph.Edges {
+		switch e.Relation {
+		case graph.RelInherits:
+			obj.Inherits++
+		case graph.RelImplements:
+			obj.Implements++
 		}
 	}
 	return obj

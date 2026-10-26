@@ -76,7 +76,7 @@ func renderDoctor(res *graphbuild.Result, cfg graph.Config, files []string, lega
 	fmt.Fprintf(&b, "test files:    %d matched by test_files, %d with a test node\n", testFiles, len(withTests))
 	fmt.Fprintf(&b, "test nodes:    %d\n", testNodes)
 
-	fmt.Fprintf(&b, "names defined %d or more times (a call to one links to every definition):\n", overLinkDefinitions)
+	fmt.Fprintf(&b, "names defined %d or more times (a call to one is linked only when its scope, receiver or imports narrow it):\n", overLinkDefinitions)
 	hubs := overLinked(res.Graph, overLinkDefinitions)
 	if len(hubs) == 0 {
 		b.WriteString("  none\n")
