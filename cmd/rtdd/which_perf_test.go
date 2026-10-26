@@ -9,6 +9,7 @@ import (
 
 	"github.com/VocanicZ/rtdd/internal/gitctx"
 	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
+	"github.com/VocanicZ/rtdd/internal/testenv"
 )
 
 // PRD #410 AC8 (#454): on this repository, with a warm .rtdd/graph.json and a small
@@ -17,6 +18,7 @@ import (
 // cache and makes its edit there, never in the checkout; the clone is HEAD's tree, which
 // is this repository less any uncommitted edit.
 func TestWhichOnThisRepositoryWithAWarmCacheIsUnder1s(t *testing.T) {
+	testenv.SkipIfSaturated(t)
 	wd, _ := os.Getwd()
 	root, err := gitctx.RepoRoot(wd)
 	if err != nil {
