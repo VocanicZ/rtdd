@@ -149,7 +149,10 @@ but it calls `total`, which does — so it is Round 2. A path heuristic would st
 The changed set is everything that differs from `--base` (default `HEAD`): committed since
 it, staged, unstaged and untracked, so a file you just wrote counts before you commit it. A
 changed line outside every function, such as an import, belongs to its file's `<module>`
-node. `untested` lists the changed nodes no test in Round 1 or Round 2 reaches.
+node. A file that defines nothing — a prompt, a config, data, a template, any extension —
+is one node, its path: a test that names it (`"prompts/impl.md"`, `config.yaml`) is Round
+1 when it changes, and so is the test of a function that names it. `untested` lists the
+changed nodes and files no test in Round 1 or Round 2 reaches.
 
 When Rounds 1 and 2 are both empty, `rtdd which` prints `no linked test`. That is exactly
 what it means — nothing links a test to the code you changed — and never a pass. Round 3
@@ -202,6 +205,9 @@ Stated plainly, because a tool that hides its blind spots is worse than none:
   links to the wrong one; `rtdd doctor` lists the names defined eight or more times.
 - A call the text does not show — through reflection, a string, a registry or a framework
   hook — has no edge, and its tests are in neither round.
+- A file is linked to the code that names its path, or its base name with its extension.
+  A path built from pieces (`dir + "/" + name`) names nothing; a base name two files share
+  links to both. With graphify, only the files rtdd re-scans name files.
 - Depth is one. A caller's caller is in no round; Round 3 is the safety net.
 - A deleted file has no lines left to own a node, so the tests that called it are in no
   round. `rtdd which` warns, and Round 3 runs them.

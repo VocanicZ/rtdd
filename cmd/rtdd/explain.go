@@ -64,12 +64,14 @@ func cmdExplain(args []string, stdout, stderr io.Writer) int {
 }
 
 // explainTargets resolves the argument, in order: a node ID; file:line (the innermost
-// node owning that line); a file (all its nodes); a name (every node so named — all
-// same-named definitions, spec §12). A path is relative to the caller's directory.
+// node owning that line, the file node for a line in no definition); a file (all its
+// nodes — its file node too when it defines nothing or has an edge, #504); a name (every
+// node so named — all same-named definitions, spec §12). A path is relative to the
+// caller's directory.
 func explainTargets(root string, g graph.Graph, arg string) []graph.Node {
 	var out []graph.Node
 	for _, n := range g.Nodes {
-		if n.ID == arg {
+		if n.ID == arg && n.Kind != graph.KindFile { // a file node's ID is its path: a file
 			return []graph.Node{n}
 		}
 	}
@@ -81,10 +83,18 @@ func explainTargets(root string, g graph.Graph, arg string) []graph.Node {
 		return nil
 	}
 	file := repoRel(root, arg)
+	var fileNode *graph.Node
 	for _, n := range g.Nodes {
-		if n.File == file {
+		switch {
+		case n.File != file:
+		case n.Kind == graph.KindFile:
+			fileNode = &n
+		default:
 			out = append(out, n)
 		}
+	}
+	if fileNode != nil && (len(out) == 0 || hasEdge(g, fileNode.ID)) {
+		out = append(out, *fileNode)
 	}
 	if len(out) == 0 {
 		for _, n := range g.Nodes {
@@ -97,6 +107,16 @@ func explainTargets(root string, g graph.Graph, arg string) []graph.Node {
 		return cmp.Or(strings.Compare(a.File, b.File), cmp.Compare(a.Start, b.Start), strings.Compare(a.ID, b.ID))
 	})
 	return out
+}
+
+// hasEdge reports whether any edge of g starts or ends at id.
+func hasEdge(g graph.Graph, id string) bool {
+	for _, e := range g.Edges {
+		if e.From == id || e.To == id {
+			return true
+		}
+	}
+	return false
 }
 
 // repoRel is p, a path relative to the caller's directory, relative to root.

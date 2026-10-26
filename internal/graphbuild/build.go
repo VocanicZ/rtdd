@@ -5,12 +5,15 @@
 package graphbuild
 
 import (
+	"bytes"
 	"errors"
+	"os"
 	"path/filepath"
 
 	"github.com/VocanicZ/rtdd/internal/gitctx"
 	"github.com/VocanicZ/rtdd/internal/graph"
 	"github.com/VocanicZ/rtdd/internal/graphify"
+	"github.com/VocanicZ/rtdd/internal/paths"
 	"github.com/VocanicZ/rtdd/internal/scan"
 )
 
@@ -98,8 +101,10 @@ func Build(root string, cfg graph.Config, opt Options) (*Result, error) {
 
 	// A file is re-scanned only when it is in the working-tree changed set (untracked
 	// included) or HEAD holds it at a blob other than the one cached (spec §4.5).
-	c := readCache(cachePath)
-	results, scanned := scanCached(root, toScan, blobs, changed, c)
+	id := scannerID(cfg.DefinitionExclude)
+	c := readCache(cachePath, id)
+	prose := func(f string) bool { return matchAny(cfg.DefinitionExclude, f) }
+	results, scanned := scanCached(root, toScan, blobs, changed, c, prose)
 	res.Scanned = scanned
 	var whole *graph.Graph // results assembled, when they are the whole scanner graph
 	var st scan.Stats
@@ -111,10 +116,11 @@ func Build(root string, cfg graph.Config, opt Options) (*Result, error) {
 	}
 	res.Imports, res.AmbiguousCalls = st.Imports, st.AmbiguousCalls
 	if !c.current(head, files, changed, results, scanned) {
-		if err := writeCache(cachePath, head, files, blobs, changed, c, results, whole); err != nil {
+		if err := writeCache(cachePath, id, head, files, blobs, changed, c, results, whole); err != nil {
 			return nil, err
 		}
 	}
+	addFiles(&res.Graph, root, files, results)
 	graph.Classify(res.Graph.Nodes, cfg)
 	graph.SplitTests(&res.Graph, files, cfg)
 	return res, nil
@@ -189,4 +195,45 @@ func currentChangedSet(root, base string, rescan []string, againstHEAD map[strin
 		current[f] = true
 	}
 	return current, nil
+}
+
+// addFiles gives every file the scanner may read its file node, defining anything or not,
+// and makes the references edges from the scanned files to them (#504). A file graphify
+// vouches for was not scanned: its node's end is its line count, read here.
+func addFiles(g *graph.Graph, root string, files []string, results []scan.FileResult) {
+	lines := make(map[string]int, len(results))
+	for _, r := range results {
+		lines[r.Path] = r.Lines
+	}
+	for _, f := range files {
+		n, ok := lines[f]
+		if !ok {
+			n = countLines(filepath.Join(root, filepath.FromSlash(f)))
+		}
+		g.Nodes = append(g.Nodes, graph.FileNode(f, n))
+	}
+	g.Edges = append(g.Edges, scan.References(files, results)...)
+	graph.Sort(g)
+}
+
+// countLines is how many lines the file at p holds, 0 when it cannot be read.
+func countLines(p string) int {
+	b, err := os.ReadFile(p)
+	if err != nil || len(b) == 0 {
+		return 0
+	}
+	n := bytes.Count(b, []byte{'\n'})
+	if b[len(b)-1] != '\n' {
+		n++
+	}
+	return n
+}
+
+func matchAny(globs []string, rel string) bool {
+	for _, g := range globs {
+		if paths.MatchGlob(g, rel) {
+			return true
+		}
+	}
+	return false
 }

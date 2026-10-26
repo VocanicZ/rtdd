@@ -96,7 +96,7 @@ func TestExplainExitCodes(t *testing.T) {
 		msg  string
 	}{
 		{dir, []string{"explain", "no_such_name"}, 2, `no node matches "no_such_name"`},
-		{dir, []string{"explain", "src/calc.py:3"}, 2, `no node matches "src/calc.py:3"`},
+		{dir, []string{"explain", "src/calc.py:99"}, 2, `no node matches "src/calc.py:99"`}, // past the end: not even the file node's
 		{dir, []string{"explain"}, 2, "usage: rtdd explain <file[:line]|name>"},
 		{t.TempDir(), []string{"explain", "total"}, 3, "not inside a git work tree"},
 	} {

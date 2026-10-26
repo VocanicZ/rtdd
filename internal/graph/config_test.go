@@ -26,8 +26,8 @@ func TestLoadConfigWithoutAFileIsTheSpecDefaults(t *testing.T) {
 	}
 	want := Config{
 		ScanExclude: []string{"vendor/**", "node_modules/**", "third_party/**", "**/*.min.js",
-			"dist/**", "build/**", ".rtdd/**", "graphify-out/**",
-			"**/*.md", "**/*.mdc", "**/*.markdown", "**/*.rst", "**/*.txt", "**/*.adoc"},
+			"dist/**", "build/**", ".rtdd/**", "graphify-out/**"},
+		DefinitionExclude: []string{"**/*.md", "**/*.mdc", "**/*.markdown", "**/*.rst", "**/*.txt", "**/*.adoc"},
 		TestFiles: []string{"**/test_*", "**/*_test.*", "**/*.test.*", "**/*.spec.*", "**/*Test.*",
 			"**/*Tests.*", "**/tests/**", "**/test/**", "**/spec/**", "**/__tests__/**"},
 		TestExclude:    []string{"**/testdata/**", "**/fixtures/**"},
@@ -52,6 +52,34 @@ func TestLoadConfigKeyReplacesItsDefaultAndOtherKeysAreIgnored(t *testing.T) {
 	}
 	if got.GraphifyPath != "graphify-out/graph.json" {
 		t.Errorf("an absent key lost its default: GraphifyPath = %q", got.GraphifyPath)
+	}
+}
+
+// #504: prose is read for its file node, never for definitions. A config written before
+// definition_exclude existed lists the prose globs in scan_exclude; they move out of it.
+func TestLoadConfigMovesProseOutOfAnOlderScanExclude(t *testing.T) {
+	root := writeConfig(t, "scan_exclude: [\"vendor/**\", \"**/*.md\", \"**/*.txt\"]\n")
+	got, err := LoadConfig(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"vendor/**"}; !reflect.DeepEqual(got.ScanExclude, want) {
+		t.Errorf("ScanExclude = %v, want %v", got.ScanExclude, want)
+	}
+	if want := DefaultConfig().DefinitionExclude; !reflect.DeepEqual(got.DefinitionExclude, want) {
+		t.Errorf("DefinitionExclude = %v, want the default %v", got.DefinitionExclude, want)
+	}
+
+	// Once the file sets definition_exclude, scan_exclude is exactly what it says.
+	root = writeConfig(t, "scan_exclude: [\"**/*.md\"]\ndefinition_exclude: [\"docs/**\"]\n")
+	if got, err = LoadConfig(root); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"**/*.md"}; !reflect.DeepEqual(got.ScanExclude, want) {
+		t.Errorf("ScanExclude = %v, want %v", got.ScanExclude, want)
+	}
+	if want := []string{"docs/**"}; !reflect.DeepEqual(got.DefinitionExclude, want) {
+		t.Errorf("DefinitionExclude = %v, want %v", got.DefinitionExclude, want)
 	}
 }
 

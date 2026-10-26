@@ -24,7 +24,7 @@ func IsTestFile(rel string, cfg Config) bool {
 }
 
 // Classify sets IsTest on every node, whichever source produced it: a func, method or
-// test node in a test file is a test; a class never is (spec §6).
+// test node in a test file is a test; a class or a file never is (spec §6).
 func Classify(nodes []Node, cfg Config) {
 	memo := map[string]bool{}
 	for i := range nodes {
@@ -34,7 +34,7 @@ func Classify(nodes []Node, cfg Config) {
 			is = IsTestFile(n.File, cfg)
 			memo[n.File] = is
 		}
-		n.IsTest = is && n.Kind != KindClass
+		n.IsTest = is && n.Kind != KindClass && n.Kind != KindFile
 	}
 }
 

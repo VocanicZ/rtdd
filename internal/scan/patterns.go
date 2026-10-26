@@ -190,6 +190,7 @@ func Fingerprint() string {
 		fmt.Fprintf(h, "import %s %s\n", r.sep, r.re)
 	}
 	fmt.Fprintf(h, "%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n", strings.Join(importWords, " "), goImportBlock, goImportLine, generics, sortedKeys(supertypeWords), sortedKeys(selfReceivers), sortedKeys(bindingKeywords), superReceiver)
+	fmt.Fprintf(h, "%s\n", refRule)
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 

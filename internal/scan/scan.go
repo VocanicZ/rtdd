@@ -18,9 +18,10 @@ import (
 )
 
 // FileResult is one file's scan: its nodes (IsTest unset), the method edges inside it,
-// the calls each node makes, the modules the file imports and what each class extends.
-// Calls, inherits and implements edges are made by Link, over every file at once,
-// because each names a definition that may live anywhere.
+// the calls each node makes, the modules the file imports, what each class extends, its
+// line count and the paths it names. Calls, inherits, implements and references edges are
+// made over every file at once (Link, References), because each names a definition or a
+// file that may live anywhere.
 type FileResult struct {
 	Path    string
 	Nodes   []graph.Node
@@ -28,6 +29,10 @@ type FileResult struct {
 	Calls   map[string][]string // node ID -> sorted, de-duplicated call tokens (see Link)
 	Imports []string            // import specs in line order; a relative one rooted at "/"
 	Supers  map[string][]Super  // class node ID -> what its definition line extends or implements
+	Lines   int                 // the file's line count: its file node's end (#504)
+	// Refs is node ID — or Path, for the lines in no definition — -> the sorted path
+	// tokens in its code (not its comments), see References.
+	Refs map[string][]string
 }
 
 // callSite is `X(` with X a whole word.
@@ -53,11 +58,7 @@ type def struct {
 
 // ScanFile scans one file's source. rel is its repo-relative, slash-separated path.
 func ScanFile(rel string, src []byte) FileResult {
-	text := strings.ReplaceAll(string(src), "\r\n", "\n")
-	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
-	if text == "" {
-		lines = nil
-	}
+	lines := splitLines(src)
 
 	var defs []def
 	var open []int // defs whose span holds the current line, outermost first
@@ -97,7 +98,7 @@ func ScanFile(rel string, src []byte) FileResult {
 		stack = append(stack, i)
 	}
 
-	res := FileResult{Path: rel, Calls: map[string][]string{}, Supers: map[string][]Super{}}
+	res := FileResult{Path: rel, Calls: map[string][]string{}, Supers: map[string][]Super{}, Lines: len(lines)}
 	dir := pathpkg.Dir(rel)
 	for _, spec := range imports(lines) {
 		if strings.HasPrefix(spec, "./") || strings.HasPrefix(spec, "../") {
@@ -203,9 +204,14 @@ func ScanFile(rel string, src []byte) FileResult {
 		}
 		return recv + "." + name
 	}
+	named := map[int]map[string]bool{} // owner (-1: none) -> path tokens
 	called := map[int]map[string]bool{}
 	for l, line := range codeLines {
 		o := owner[l]
+		if named[o] == nil {
+			named[o] = map[string]bool{}
+		}
+		pathTokens(line, named[o])
 		if o < 0 || defs[o].start == l {
 			continue // top-level code, or the node's own definition line
 		}
@@ -244,7 +250,28 @@ func ScanFile(rel string, src []byte) FileResult {
 		sort.Strings(list)
 		res.Calls[ids[o]] = list
 	}
+	for o, set := range named {
+		if toks := sortedSet(set); toks != nil {
+			if res.Refs == nil {
+				res.Refs = map[string][]string{}
+			}
+			if o < 0 {
+				res.Refs[rel] = toks
+			} else {
+				res.Refs[ids[o]] = toks
+			}
+		}
+	}
 	return res
+}
+
+// splitLines is src's lines, CRLF read as LF; none for an empty file.
+func splitLines(src []byte) []string {
+	text := strings.ReplaceAll(string(src), "\r\n", "\n")
+	if text == "" {
+		return nil
+	}
+	return strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 }
 
 // receiverOf reports what the call at line[at:] is made on: after `.`, `?.`, `::`, `:` or
@@ -505,6 +532,11 @@ func closes(s string, k int) bool {
 // ScanFiles scans each of files (repo-relative, already Filtered) under root, in order,
 // over one worker per CPU. A file that cannot be read is skipped.
 func ScanFiles(root string, files []string) []FileResult {
+	return ScanFilesProse(root, files, nil)
+}
+
+// ScanFilesProse is ScanFiles, reading each file prose reports true for with ScanProse.
+func ScanFilesProse(root string, files []string, prose func(string) bool) []FileResult {
 	scanned := make([]*FileResult, len(files))
 	var next atomic.Int64
 	var wg sync.WaitGroup
@@ -517,7 +549,12 @@ func ScanFiles(root string, files []string) []FileResult {
 				if err != nil {
 					continue
 				}
-				r := ScanFile(files[i], b)
+				var r FileResult
+				if prose != nil && prose(files[i]) {
+					r = ScanProse(files[i], b)
+				} else {
+					r = ScanFile(files[i], b)
+				}
 				scanned[i] = &r
 			}
 		}()

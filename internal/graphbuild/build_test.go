@@ -47,8 +47,11 @@ func TestBuildWithoutGraphifyIsTheScannersGraph(t *testing.T) {
 			res.Source, res.BuiltAtCommit, res.StaleFiles, res.GraphifyIgnored)
 	}
 	wantNodes := []graph.Node{
+		{ID: "config.yaml", File: "config.yaml", Name: "config.yaml", Kind: graph.KindFile, Start: 1, End: 1},
+		{ID: "src/calc.py", File: "src/calc.py", Name: "calc.py", Kind: graph.KindFile, Start: 1, End: 6},
 		{ID: "src/calc.py::add", File: "src/calc.py", Name: "add", Kind: graph.KindFunc, Start: 1, End: 2},
 		{ID: "src/calc.py::total", File: "src/calc.py", Name: "total", Kind: graph.KindFunc, Start: 5, End: 6},
+		{ID: "tests/test_calc.py", File: "tests/test_calc.py", Name: "test_calc.py", Kind: graph.KindFile, Start: 1, End: 5},
 		{ID: "tests/test_calc.py::test_add", File: "tests/test_calc.py", Name: "test_add", Kind: graph.KindFunc, Start: 4, End: 5, IsTest: true},
 	}
 	if !reflect.DeepEqual(res.Graph.Nodes, wantNodes) {

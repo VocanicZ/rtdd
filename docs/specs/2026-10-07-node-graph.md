@@ -41,11 +41,14 @@ depends on a per-language coverage adapter does not survive contact with real re
 One internal model, whatever built it:
 
 ```
-Node { id, file, name, kind (func|method|class|test), start, end, is_test, helper }
+Node { id, file, name, kind (func|method|class|test|file), start, end, is_test, helper }
 Edge { from, to, relation (calls|method|inherits|implements|references) }
 ```
 
 `file` is repo-relative, slash-separated. `start`/`end` are 1-based inclusive line numbers.
+Every file of §4.1 also has a **file node** (#504): `{kind: file, id: <path>, name: <base
+name>, start: 1, end: <eof>}`, whether it defines anything or not — so a prompt, a config,
+data, a template or shell top-level code is never invisible. A file node is never a test.
 A test node's runnable id is `file::name` — its id without the `@line` suffix that tells
 same-named definitions apart — and a whole-file test's is `file` (§6).
 
@@ -64,10 +67,14 @@ Pure text, no parser, no dependency.
 Tracked plus untracked-not-ignored files (`gitctx.ListFiles`), excluding: binary files (a NUL
 byte in the first 8 KiB), files over **1 MiB**, and paths matching `scan_exclude`
 (default `vendor/**`, `node_modules/**`, `third_party/**`, `**/*.min.js`, `dist/**`, `build/**`,
-`.rtdd/**`, `graphify-out/**`, and the prose files `**/*.md`, `**/*.mdc`, `**/*.markdown`,
-`**/*.rst`, `**/*.txt`, `**/*.adoc`). Prose is never code (§3): a code sample in a plan document must not
-become a node that "calls" the real code. Like every default, `scan_exclude` in
-`.rtdd/config.yaml` replaces the list wholesale.
+`.rtdd/**`, `graphify-out/**`). Files matching `definition_exclude` (default the prose files
+`**/*.md`, `**/*.mdc`, `**/*.markdown`, `**/*.rst`, `**/*.txt`, `**/*.adoc`) are read for their
+file node and the paths they name, never for definitions: a code sample in a plan document
+must not become a node that "calls" the real code (#465, #504). Like every default, each list
+in `.rtdd/config.yaml` replaces its default wholesale — except that a config with no
+`definition_exclude` key, written before it existed, has those prose globs moved out of its
+`scan_exclude`. rtdd's own front-ends (`.rtdd/`, and the files `rtdd init --project-skill`
+writes) are never in the changed set.
 
 ### 4.2 Definitions
 
@@ -163,6 +170,13 @@ The full regex set lives in one Go file and is the only place language shapes ap
   line names: `class A extends B implements C`, `interface A extends B`, `class A(B):`,
   `class A : public B` / `struct A : B` / `class A(x: T) : B()`, `class A < B`, and
   `impl Trait for A` (implements). A supertype name resolves to class nodes by rules 3-4.
+- **`references` edges** to file nodes (#504): from a node — or a file, for its lines in no
+  definition — whose code (comments excluded; all of a prose file) holds a path token naming
+  another file. A path token is a maximal run of `[A-Za-z0-9_.\-/]`, not followed by `(`,
+  that holds a `/` or ends in a lower-case extension. It names the file at its path, or at
+  the path of a trailing run of its segments (`$ROOT/scripts/cfg.json`); failing that, every
+  file whose base name, holding a dot, is its last segment (`"impl.md"`) — same-named files
+  over-link, as same-named calls do. With graphify, only scanned (stale) files name files.
 
 ### 4.4 Fixture corpus
 
@@ -230,13 +244,18 @@ Pure function `Rounds(graph, changedRanges) → {changed_nodes, round1, round2, 
 
 - **changed_nodes** — the innermost node containing each changed line; a changed line in no
   node (top-level code) maps to a synthetic `file::<module>` node whose callers are the nodes
-  of other files that call any node in that file.
+  of other files that call any node in that file; a changed line of a file that defines
+  nothing maps to its file node (#504).
 - **round1** — changed test nodes, plus every test node with an edge **to** a changed node,
-  directly or through helpers (§6).
+  directly or through helpers (§6). For a file node (#504) that includes the tests of a node
+  with a `references` edge to it — one edge, never two — and a test file's lines in no test
+  stand for all its tests. A changed node's file node's tests are its tests too: a test that
+  names a file loads it, whichever of its lines changed.
 - **neighbours** — nodes one edge from a changed node, **both directions**, over
   `calls|method|inherits|implements|references`, excluding test nodes.
 - **round2** — test nodes with an edge to a neighbour, minus round1.
-- **untested** — changed non-test nodes with no test in round1 or round2.
+- **untested** — changed non-test nodes, file nodes included, with no test in round1 or
+  round2: a changed file nothing names is listed, never reported as `none`.
 
 Within a round, tests are ordered by file then line. Round 3 is always "the full suite".
 
