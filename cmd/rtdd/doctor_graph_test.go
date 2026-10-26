@@ -38,14 +38,10 @@ func TestDoctorReportsTheGraphTestFilesAndOverLinkedNames(t *testing.T) {
 		"edges:         0\n" +
 		"test files:    2 matched by test_files, 1 with a test node\n" +
 		"test nodes:    1\n" +
-		"names defined 8 or more times (a call to one is linked only when its scope, receiver or imports narrow it):
-" +
-		"  run  8
-" +
-		"legacy files (an older rtdd wrote them outside .rtdd/):
-" +
-		"  none
-"
+		"names defined 8 or more times (a call to one is linked only when its scope, receiver or imports narrow it):\n" +
+		"  run  8\n" +
+		"legacy files (an older rtdd wrote them outside .rtdd/):\n" +
+		"  none\n"
 	if out != want {
 		t.Errorf("stdout:\n%s\nwant:\n%s", out, want)
 	}
