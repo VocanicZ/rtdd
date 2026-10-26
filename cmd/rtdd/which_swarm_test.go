@@ -394,3 +394,59 @@ func TestWhichSwarmJobKeepsTheDeletedFileWarning(t *testing.T) {
 		t.Errorf("exit %d, stderr %q; want the deleted-file warning", code, errOut)
 	}
 }
+
+// #512: a job dir that cannot be made is an internal error (exit 3), with no job name.
+func TestWhichSwarmJobUnderAFileIsAnError(t *testing.T) {
+	dir := whichRepo(t)
+	editTotalAndUnused(t, dir)
+	code, out, errOut := rtdd(t, dir, "which", "--swarm-job", "src/calc.py/job", "--run", "pytest {tests}")
+	if code != 3 || out != "" || errOut == "" {
+		t.Errorf("exit %d, stdout %q, stderr %q; want 3, no job name, the reason on stderr", code, out, errOut)
+	}
+}
+
+// #512: swarmJobDir needs a repository root that resolves, and a cwd to resolve against.
+func TestSwarmJobDirErrors(t *testing.T) {
+	gone := filepath.Join(t.TempDir(), "gone")
+	if _, err := swarmJobDir(gone, "job"); err == nil {
+		t.Error("a missing repository root resolved")
+	}
+	root := t.TempDir()
+	cwd := filepath.Join(t.TempDir(), "cwd")
+	if err := os.Mkdir(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(cwd)
+	if err := os.Remove(cwd); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PWD", "")
+	if _, err := swarmJobDir(root, "job"); err == nil {
+		t.Error("a relative job dir resolved against a deleted cwd")
+	}
+}
+
+// #512: writeSwarmJob reports each way the job cannot be written instead of half-writing it.
+func TestWriteSwarmJobErrors(t *testing.T) {
+	files := []string{"tests/test_a.py"}
+	if _, err := writeSwarmJob(filepath.Join(t.TempDir(), "gone"), "/job", "cat {tests}", files); err == nil {
+		t.Error("a missing root was written to")
+	}
+	root := t.TempDir()
+	if _, err := writeSwarmJob(root, "job", "cat {tests}", files); err == nil {
+		t.Error("a relative job dir was written to")
+	}
+	if err := os.WriteFile(filepath.Join(root, "file"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeSwarmJob(root, filepath.Join(root, "file", "job"), "cat {tests}", files); err == nil {
+		t.Error("a job dir under a regular file was written to")
+	}
+	job := filepath.Join(root, "job")
+	if err := os.MkdirAll(filepath.Join(job, "shards.tsv"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeSwarmJob(root, job, "cat {tests}", files); err == nil {
+		t.Error("shards.tsv was written over a directory")
+	}
+}
