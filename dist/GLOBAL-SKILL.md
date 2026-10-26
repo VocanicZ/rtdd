@@ -14,11 +14,13 @@ Check for `.rtdd/config.yaml` first. It says whether rtdd is set up in this repo
 **It exists.** rtdd is set up. Follow the process below, and do not re-run `rtdd init`.
 
 **It does not.** Run `rtdd init` once. It sets up every git repository, whatever the code is
-written in: it writes these instructions for the agents the repository uses, a
-`.rtdd/config.yaml` of defaults, and a `.gitignore` line for `.rtdd/graph.json`, rtdd's
-rebuildable graph cache. In a repository an older rtdd set up, it also deletes the files
-that release kept and prints one line for each file it removed. Commit what it wrote. There
-is no other setup step: the graph is built the first time a command needs it.
+written in, and writes only inside `.rtdd/`: a `.rtdd/config.yaml` of defaults and a
+`.rtdd/.gitignore` that keeps `.rtdd/graph.json`, rtdd's rebuildable graph cache, out of git.
+It never edits the repository's own AGENTS.md, CLAUDE.md or .gitignore. In a repository an
+older rtdd set up, it also deletes the files that release kept, prints one line for each file
+it removed, and reports anything an older init wrote outside `.rtdd/` — `rtdd uninstall
+--legacy-files` removes that. Commit `.rtdd/`. There is no other setup step: the graph is
+built the first time a command needs it.
 
 ## What rtdd does
 
@@ -114,8 +116,9 @@ command that cannot select a single test. `graph.source` is `graphify+scanner` o
 rtdd graph [--json]                the graph's source, node, edge and test counts, staleness
 rtdd explain <file[:line]|name>    a node's tests, callers and callees
 rtdd doctor                        graph source, graphify staleness, test files found, names defined 8+ times
-rtdd init [--dry-run]              set up this repository; any git repository
+rtdd init [--dry-run]              set up this repository; writes only .rtdd/
 rtdd uninstall [--state]           remove what init wrote
+rtdd uninstall --legacy-files      remove what an older rtdd wrote outside .rtdd/
 rtdd update                        replace the binary with the latest release
 rtdd --version                     print the version
 ```

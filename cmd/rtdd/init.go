@@ -24,12 +24,15 @@ func RenderInit(steps []install.Step) string {
 	return string(b)
 }
 
-// cmdInit implements `rtdd init`: it installs the generated front-ends and the config
-// into the REPO ROOT. AGENTS.md and CLAUDE.md are merged between rtdd's own markers;
-// nothing outside them is ever touched. A whole-file front-end is replaced only when an
-// earlier rtdd wrote it; one rtdd did not write is a conflict no flag overrides. It detects
-// nothing and refuses no git repository: the node graph serves every language the
-// scanner reads (spec §8).
+// cmdInit implements `rtdd init`: it sets up the REPO ROOT by writing .rtdd/config.yaml and
+// .rtdd/.gitignore, and nothing outside .rtdd/ (#509). The agent instructions live in
+// rtdd-owned directories `rtdd skill install` writes once per machine; a team that wants
+// them committed opts in with --project-skill (rtdd's own whole files) or names a shared
+// file with --append-to (rtdd's block between its markers, nothing outside them touched).
+// A whole-file front-end is replaced only when an earlier rtdd wrote it; one rtdd did not
+// write is a conflict no flag overrides. What an older init wrote outside .rtdd/ is
+// reported, never touched. It detects nothing and refuses no git repository: the node
+// graph serves every language the scanner reads (spec §8).
 //
 // The root is resolved with findRepoRoot, so running init from a subdirectory installs
 // where the other commands will look. The working directory is only a fallback for the
@@ -38,11 +41,17 @@ func cmdInit(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dryRun := fs.Bool("dry-run", false, "print the plan and change nothing")
+	var opts install.PlanOptions
+	fs.BoolVar(&opts.ProjectSkill, "project-skill", false, "also write the Claude Code skill and the Cursor rule into the repository")
+	fs.Func("append-to", "also merge rtdd's marker block into this shared file (repeatable)", func(v string) error {
+		opts.AppendTo = append(opts.AppendTo, v)
+		return nil
+	})
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if fs.NArg() != 0 {
-		fmt.Fprintln(stderr, "usage: rtdd init [--dry-run]")
+		fmt.Fprintln(stderr, "usage: rtdd init [--dry-run] [--project-skill] [--append-to <file>]...")
 		return 2
 	}
 
@@ -59,12 +68,12 @@ func cmdInit(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "rtdd init: %v\n", err)
 		return 2
 	}
-	steps, err := install.Plan(root, files)
+	steps, err := install.Plan(root, files, opts)
 	if err != nil {
 		fmt.Fprintf(stderr, "rtdd init: %v\n", err)
 		return 2
 	}
-	fmt.Fprint(stdout, RenderInit(steps))
+	fmt.Fprint(stdout, RenderInit(append(steps, globalLegacy()...)))
 
 	if *dryRun {
 		return 0

@@ -49,9 +49,15 @@ func TestInitSucceedsOnEveryRepositoryShape(t *testing.T) {
 					t.Errorf("rtdd init output says %q:\n%s%s", bad, out, errOut)
 				}
 			}
-			for _, rel := range []string{".claude/skills/rtdd/SKILL.md", ".cursor/rules/rtdd.mdc", "AGENTS.md", ".rtdd/config.yaml", ".gitignore"} {
+			for _, rel := range []string{".rtdd/config.yaml", ".rtdd/.gitignore"} {
 				if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err != nil {
 					t.Errorf("rtdd init did not write %s: %v", rel, err)
+				}
+			}
+			// #509: nothing outside .rtdd/ unless asked.
+			for _, rel := range []string{".claude", ".cursor", "AGENTS.md", ".gitignore"} {
+				if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err == nil {
+					t.Errorf("rtdd init wrote %s, outside .rtdd/", rel)
 				}
 			}
 			cfg, err := graph.LoadConfig(dir)
@@ -74,8 +80,8 @@ func TestInitSucceedsOnEveryRepositoryShape(t *testing.T) {
 	}
 }
 
-// PRD #411 AC5: two runs leave `.rtdd/graph.json` in .gitignore exactly once, and the
-// second run changes nothing.
+// PRD #411 AC5, as #509 amends it: two runs leave `graph.json` in .rtdd/.gitignore exactly
+// once, the host's .gitignore untouched, and the second run changes nothing.
 func TestInitTwiceIgnoresTheGraphCacheExactlyOnce(t *testing.T) {
 	dir := graphRepo(t)
 	gittest.Write(t, dir, ".gitignore", "node_modules/\n")
@@ -88,8 +94,11 @@ func TestInitTwiceIgnoresTheGraphCacheExactlyOnce(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("second rtdd init = %d, stderr %q", code, errOut)
 	}
-	if n := strings.Count(readRepoFileForTest(t, dir, ".gitignore"), ".rtdd/graph.json\n"); n != 1 {
-		t.Errorf(".gitignore names .rtdd/graph.json %d times, want 1", n)
+	if n := strings.Count(readRepoFileForTest(t, dir, ".rtdd/.gitignore"), "graph.json\n"); n != 1 {
+		t.Errorf(".rtdd/.gitignore names graph.json %d times, want 1", n)
+	}
+	if got := readRepoFileForTest(t, dir, ".gitignore"); got != "node_modules/\n" {
+		t.Errorf(".gitignore = %q, want the host's own %q", got, "node_modules/\n")
 	}
 	if again := gitRun(t, dir, "status", "--porcelain", "-uall"); again != first {
 		t.Errorf("the second init changed the tree:\nafter first:\n%s\nafter second:\n%s", first, again)
@@ -114,19 +123,19 @@ func TestInitHasNoForceFlag(t *testing.T) {
 		t.Errorf("rtdd init --help still offers --force:\n%s", help)
 	}
 	_, usage, _ := rtdd(t, dir, "--help")
-	if !regexp.MustCompile(`(?m)^\s*rtdd init\s+\[--dry-run\]$`).MatchString(usage) {
-		t.Errorf("rtdd --help does not document `rtdd init [--dry-run]`:\n%s", usage)
+	if !regexp.MustCompile(`(?m)^\s*rtdd init\s+\[--dry-run\] \[--project-skill\] \[--append-to <file>\]\.\.\.$`).MatchString(usage) {
+		t.Errorf("rtdd --help does not document `rtdd init [--dry-run] [--project-skill] [--append-to <file>]...`:\n%s", usage)
 	}
 }
 
 // Issue #500: on a fresh repository, before init's own files are committed, `rtdd which`
-// names none of them — init's `.cursor/rules/rtdd.mdc` is prose, and prose is never code
-// (spec §4.1).
+// names none of them — the `.cursor/rules/rtdd.mdc` `init --project-skill` writes is prose,
+// and prose is never code (spec §4.1).
 func TestWhichAfterAFreshInitNamesNothingUnderCursor(t *testing.T) {
 	dir := gittest.Init(t)
 	gittest.Write(t, dir, "pkg/add.go", "package pkg\n\nfunc Add(a, b int) int { return a + b }\n")
 	gittest.Commit(t, dir, "init")
-	if code, out, errOut := rtdd(t, dir, "init"); code != 0 {
+	if code, out, errOut := rtdd(t, dir, "init", "--project-skill"); code != 0 {
 		t.Fatalf("rtdd init = %d, want 0\nstdout:\n%s\nstderr:\n%s", code, out, errOut)
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".cursor", "rules", "rtdd.mdc")); err != nil {

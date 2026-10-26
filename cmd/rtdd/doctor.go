@@ -11,6 +11,7 @@ import (
 	"github.com/VocanicZ/rtdd/internal/gitctx"
 	"github.com/VocanicZ/rtdd/internal/graph"
 	"github.com/VocanicZ/rtdd/internal/graphbuild"
+	"github.com/VocanicZ/rtdd/internal/install"
 	"github.com/VocanicZ/rtdd/internal/scan"
 )
 
@@ -20,7 +21,8 @@ const overLinkDefinitions = 8
 
 // cmdDoctor implements `rtdd doctor` (spec §8): where the graph came from, how stale
 // graphify is, what the test_files globs found, and the names over-linked enough to
-// widen every round that touches them. It runs nothing; it changes only the graph cache.
+// widen every round that touches them, and what an older rtdd wrote outside .rtdd/ (#509).
+// It runs nothing; it changes only the graph cache.
 func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -46,11 +48,12 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "rtdd doctor: %v\n", err)
 		return 3
 	}
-	fmt.Fprint(stdout, renderDoctor(res, cfg, scan.Filter(root, listed, cfg.ScanExclude)))
+	legacy := append(repoLegacy(root), globalLegacy()...)
+	fmt.Fprint(stdout, renderDoctor(res, cfg, scan.Filter(root, listed, cfg.ScanExclude), legacy))
 	return 0
 }
 
-func renderDoctor(res *graphbuild.Result, cfg graph.Config, files []string) string {
+func renderDoctor(res *graphbuild.Result, cfg graph.Config, files []string, legacy []install.Step) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "graph source:  %s\n", res.Source)
 	fmt.Fprintf(&b, "built at:      %s\n", res.BuiltAtCommit)
@@ -81,6 +84,9 @@ func renderDoctor(res *graphbuild.Result, cfg graph.Config, files []string) stri
 	for _, h := range hubs {
 		fmt.Fprintf(&b, "  %s  %d\n", h.name, h.count)
 	}
+
+	b.WriteString("legacy files (an older rtdd wrote them outside .rtdd/):\n")
+	renderLegacyList(&b, legacy)
 	return b.String()
 }
 

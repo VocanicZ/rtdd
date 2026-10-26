@@ -29,6 +29,9 @@ const (
 	// rewrites a host file with one line added. Apply writes both like Create.
 	Replace
 	AppendLine
+	// Legacy reports a piece of an older init's footprint outside .rtdd/ (legacy.go). It is
+	// a report: Apply and ApplyUninstall write nothing for it.
+	Legacy
 )
 
 func (a Action) String() string {
@@ -51,6 +54,8 @@ func (a Action) String() string {
 		return "replace"
 	case AppendLine:
 		return "append-line"
+	case Legacy:
+		return "legacy"
 	}
 	return "unknown"
 }

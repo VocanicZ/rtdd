@@ -15,9 +15,11 @@ The binary builds a graph of functions, methods, classes and tests — from its 
 scanner, plus graphify's `graphify-out/graph.json` when one exists (optional, never trusted
 for changed files, never run by rtdd) — and answers from it. It runs no tests. The commands:
 
-- `rtdd init` sets up any git repository: the front-ends, `.rtdd/config.yaml`, and the
-  `.gitignore` line for `.rtdd/graph.json`; on a v0.2 repository it deletes that release's
-  state and prints each removal.
+- `rtdd init` sets up any git repository and writes only inside `.rtdd/`: `.rtdd/config.yaml`
+  and `.rtdd/.gitignore` for `graph.json` (#509); the committed front-ends are opt-in
+  (`--project-skill`, `--append-to <file>`). On a v0.2 repository it deletes that release's
+  state and prints each removal; what an older init wrote outside `.rtdd/` it only reports,
+  and `rtdd uninstall --legacy-files` removes.
 - `rtdd which` prints the changed nodes, Round 1, Round 2, Round 3 (the full suite) and
   `untested`; `--json` is schema 3.
 - `rtdd graph` reports the graph's source, counts and staleness; `rtdd explain` shows one

@@ -11,7 +11,7 @@ import (
 const usage = `rtdd - relational test-driven development
 
 usage:
-  rtdd init   [--dry-run]
+  rtdd init   [--dry-run] [--project-skill] [--append-to <file>]...
   rtdd which  [--base <ref>] [--json] [--swarm-job <dir> --run '<cmd with {tests}>']
   rtdd explain <file[:line]|name>
   rtdd graph  [--json]
@@ -20,7 +20,7 @@ usage:
   rtdd skill install   [--dry-run] [--force]
   rtdd skill uninstall [--dry-run]
   rtdd skill prompt
-  rtdd uninstall [--dry-run] [--state] [--binary]
+  rtdd uninstall [--dry-run] [--state] [--binary] [--global] [--legacy-files]
   rtdd --version
 
 exit codes:
