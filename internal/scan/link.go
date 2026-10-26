@@ -82,36 +82,33 @@ func Link(nodes []graph.Node, refs Refs) ([]graph.Edge, Stats) {
 	return g.Edges, st
 }
 
-type extName struct{ ext, name string }
-
 type linker struct {
-	byID      map[string]graph.Node
-	byName    map[string][]string
-	byExtName map[extName][]string
-	dirs      map[string]map[string]bool // extension -> directories holding a node of it
-	together  map[[2]string]bool
-	children  map[string]map[string][]string // enclosing node ID -> name -> nested node IDs
-	supers    map[string][]string            // class ID -> resolved supertype class IDs
-	subs      map[string][]string            // class ID -> the class IDs naming it a supertype
-	imported  map[string]map[string]bool     // file -> files it imports
-	external  map[string]map[string]bool     // file -> last segments of its imports no file resolves
-	typeFile  map[string]map[string][]string // file -> last segment of an import -> the files it resolves to
-	pkg       map[string]string              // file -> package key
-	parent    map[string]string              // node ID -> its enclosing node's ID, "" at top level
-	cands     map[extName][]string           // candidates, memoized by caller extension and name
-	classes   map[[2]string][]string         // classesNamed, memoized by caller file and name
-	isClass   map[string]bool                // names some class node bears
-	scoped    map[string][]string            // scopes, memoized by node ID
-	extOf     map[string]string              // file -> its extension
-	dirOf     map[string]string              // file -> its directory
+	byID     map[string]graph.Node
+	byName   map[string][]string
+	byExt    map[string]map[string][]string // extension -> name -> node IDs
+	dirs     map[string]map[string]bool     // extension -> directories holding a node of it
+	together map[[2]string]bool
+	children map[string]map[string][]string // enclosing node ID -> name -> nested node IDs
+	supers   map[string][]string            // class ID -> resolved supertype class IDs
+	subs     map[string][]string            // class ID -> the class IDs naming it a supertype
+	imported map[string]map[string]bool     // file -> files it imports
+	external map[string]map[string]bool     // file -> last segments of its imports no file resolves
+	typeFile map[string]map[string][]string // file -> last segment of an import -> the files it resolves to
+	pkg      map[string]string              // file -> package key
+	parent   map[string]string              // node ID -> its enclosing node's ID, "" at top level
+	cands    map[string]map[string][]string // fallback candidates, memoized by caller extension and name
+	classes  map[[2]string][]string         // classesNamed, memoized by caller file and name
+	isClass  map[string]bool                // names some class node bears
+	extOf    map[string]string              // file -> its extension
+	dirOf    map[string]string              // file -> its directory
 }
 
 // link is Link unsorted, for a caller that sorts the whole graph once afterwards.
 func link(nodes []graph.Node, refs Refs) ([]graph.Edge, Stats) {
-	l := &linker{byID: make(map[string]graph.Node, len(nodes)), byName: make(map[string][]string, len(nodes)), byExtName: make(map[extName][]string, len(nodes)),
+	l := &linker{byID: make(map[string]graph.Node, len(nodes)), byName: make(map[string][]string, len(nodes)), byExt: map[string]map[string][]string{},
 		dirs: map[string]map[string]bool{}, together: map[[2]string]bool{}, children: map[string]map[string][]string{},
 		supers: map[string][]string{}, subs: map[string][]string{}, imported: map[string]map[string]bool{}, external: map[string]map[string]bool{}, typeFile: map[string]map[string][]string{}, pkg: map[string]string{},
-		parent: make(map[string]string, len(nodes)), isClass: map[string]bool{}, extOf: map[string]string{}, dirOf: map[string]string{}, scoped: map[string][]string{}, cands: map[extName][]string{}, classes: map[[2]string][]string{}}
+		parent: make(map[string]string, len(nodes)), isClass: map[string]bool{}, extOf: map[string]string{}, dirOf: map[string]string{}, cands: map[string]map[string][]string{}, classes: map[[2]string][]string{}}
 	for _, n := range nodes {
 		ext, ok := l.extOf[n.File]
 		if !ok {
@@ -120,8 +117,10 @@ func link(nodes []graph.Node, refs Refs) ([]graph.Edge, Stats) {
 		}
 		l.byID[n.ID] = n
 		l.byName[n.Name] = append(l.byName[n.Name], n.ID)
-		k := extName{ext, n.Name}
-		l.byExtName[k] = append(l.byExtName[k], n.ID)
+		if l.byExt[ext] == nil {
+			l.byExt[ext] = map[string][]string{}
+		}
+		l.byExt[ext][n.Name] = append(l.byExt[ext][n.Name], n.ID)
 		if l.dirs[ext] == nil {
 			l.dirs[ext] = map[string]bool{}
 		}
@@ -193,8 +192,9 @@ func link(nodes []graph.Node, refs Refs) ([]graph.Edge, Stats) {
 		if !ok {
 			continue
 		}
+		sc := scopes(n)
 		for _, tok := range toks {
-			targets, ambiguous := l.resolve(n, tok)
+			targets, ambiguous := l.resolve(n, sc, tok)
 			if ambiguous {
 				st.AmbiguousCalls++
 			}
@@ -211,10 +211,13 @@ func link(nodes []graph.Node, refs Refs) ([]graph.Edge, Stats) {
 // resolve is the rule cascade of Link's doc for one call token of node n. n itself is
 // never a target: a scope rule that finds only n (a delegating `load()` inside a method
 // `load`) falls through to the next rule.
-func (l *linker) resolve(n graph.Node, tok string) ([]string, bool) {
+func (l *linker) resolve(n graph.Node, sc []string, tok string) ([]string, bool) {
 	recv, name := "", tok
-	if i := strings.LastIndexAny(tok, ".#"); i >= 0 {
-		recv, name = tok[:i], tok[i+1:]
+	for i := len(tok) - 1; i >= 0; i-- {
+		if tok[i] == '.' || tok[i] == '#' {
+			recv, name = tok[:i], tok[i+1:]
+			break
+		}
 	}
 	bare := recv == "" && !strings.Contains(tok, ".")
 	switch {
@@ -250,7 +253,7 @@ func (l *linker) resolve(n graph.Node, tok string) ([]string, bool) {
 		}
 		// T holds no body for X (a Go struct, whose methods are not nested in it): go on.
 	case recv == superReceiver:
-		for _, scope := range l.scopes(n) {
+		for _, scope := range sc {
 			for _, sup := range l.supers[scope] {
 				if ids := without(l.member(sup, name), n.ID); len(ids) > 0 {
 					return ids, false
@@ -265,7 +268,7 @@ func (l *linker) resolve(n graph.Node, tok string) ([]string, bool) {
 			}
 		}
 	case bare:
-		for _, scope := range l.scopes(n) {
+		for _, scope := range sc {
 			if ids := without(l.member(scope, name), n.ID); len(ids) > 0 {
 				return ids, false
 			}
@@ -276,7 +279,7 @@ func (l *linker) resolve(n graph.Node, tok string) ([]string, bool) {
 		// A call on another object is not to the caller's own class: `this.sock.close()`
 		// inside Conn.close is the socket's close, not Conn's.
 		own := map[string]bool{}
-		for _, scope := range l.scopes(n) {
+		for _, scope := range sc {
 			own[scope] = true
 		}
 		var keep []string
@@ -364,11 +367,15 @@ func (l *linker) classesNamed(n graph.Node, name string) []string {
 // when there are none, in the extensions that share a directory with it.
 func (l *linker) candidates(n graph.Node, name string) []string {
 	ext := l.extOf[n.File]
-	k := extName{ext, name}
-	if ids := l.byExtName[k]; len(ids) > 0 {
+	if ids := l.byExt[ext][name]; len(ids) > 0 {
 		return ids
 	}
-	if out, ok := l.cands[k]; ok {
+	memo := l.cands[ext]
+	if memo == nil {
+		memo = map[string][]string{}
+		l.cands[ext] = memo
+	}
+	if out, ok := memo[name]; ok {
 		return out
 	}
 	var out []string
@@ -377,7 +384,7 @@ func (l *linker) candidates(n graph.Node, name string) []string {
 			out = append(out, id)
 		}
 	}
-	l.cands[k] = out
+	memo[name] = out
 	return out
 }
 
@@ -438,16 +445,6 @@ func enclosing(id, file string) string {
 		return id[:i]
 	}
 	return ""
-}
-
-// scopes is n's enclosing nodes, innermost first, memoized.
-func (l *linker) scopes(n graph.Node) []string {
-	if out, ok := l.scoped[n.ID]; ok {
-		return out
-	}
-	out := scopes(n)
-	l.scoped[n.ID] = out
-	return out
 }
 
 // scopes is n's enclosing nodes, innermost first.
