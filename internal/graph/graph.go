@@ -52,6 +52,7 @@ type Node struct {
 	Start  int
 	End    int
 	IsTest bool
+	Helper bool // a func or method in a test file that is not itself a test (#505)
 }
 
 // Edge points From one node ID To another.

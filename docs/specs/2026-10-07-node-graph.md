@@ -41,12 +41,13 @@ depends on a per-language coverage adapter does not survive contact with real re
 One internal model, whatever built it:
 
 ```
-Node { id, file, name, kind (func|method|class|test), start, end, is_test }
+Node { id, file, name, kind (func|method|class|test), start, end, is_test, helper }
 Edge { from, to, relation (calls|method|inherits|implements|references) }
 ```
 
 `file` is repo-relative, slash-separated. `start`/`end` are 1-based inclusive line numbers.
-A test node's runnable id is `file::name`.
+A test node's runnable id is `file::name` — its id without the `@line` suffix that tells
+same-named definitions apart — and a whole-file test's is `file` (§6).
 
 Two sources produce it (§4, §5). Only **code** nodes are used; graphify's `concept`,
 `rationale` and `document` nodes and its `contains`, `conceptually_related_to`,
@@ -211,6 +212,18 @@ A node is a test when its file matches `test_files` (default: `**/test_*`, `**/*
 under `**/testdata/**` and `**/fixtures/**` are never test files. Both lists live in
 `.rtdd/config.yaml` and are generic, not per language.
 
+Not every func in a test file is runnable (issue #505). A test file is **whole-file** when it
+matches `whole_file_tests` (default: `**/test_*.sh`, `**/*_test.sh`, `**/*.bats`; a match is
+a test file even outside `test_files`) or when it defines no test: no test node and no
+func/method named by the test convention (`test_x`, `testX`, `TestX`, `BenchmarkX`, `FuzzX`,
+`ExampleX`). In a whole-file test every func is a **helper**, and one synthetic test node,
+`file::<file>`, calls each of them; its runnable id is the file path. In any other test file
+the tests are its test nodes and convention-named funcs; every other func is a helper.
+
+A helper is never a test, and is transparent: a test that calls a helper reaches what the
+helper calls, and a helper no test reaches is run by running its whole file. A round lists
+each runnable id once.
+
 ## 7. Rounds
 
 Pure function `Rounds(graph, changedRanges) → {changed_nodes, round1, round2, untested}`:
@@ -218,7 +231,8 @@ Pure function `Rounds(graph, changedRanges) → {changed_nodes, round1, round2, 
 - **changed_nodes** — the innermost node containing each changed line; a changed line in no
   node (top-level code) maps to a synthetic `file::<module>` node whose callers are the nodes
   of other files that call any node in that file.
-- **round1** — changed test nodes, plus every test node with an edge **to** a changed node.
+- **round1** — changed test nodes, plus every test node with an edge **to** a changed node,
+  directly or through helpers (§6).
 - **neighbours** — nodes one edge from a changed node, **both directions**, over
   `calls|method|inherits|implements|references`, excluding test nodes.
 - **round2** — test nodes with an edge to a neighbour, minus round1.

@@ -34,7 +34,7 @@ func TestDefaultConfigLoadsAsTheGraphDefaults(t *testing.T) {
 // key name; no v0.2 key survives.
 func TestDefaultConfigNamesEveryKeyAndNoV02Key(t *testing.T) {
 	cfg := DefaultConfig()
-	for _, key := range []string{"scan_exclude:", "test_files:", "test_exclude:", "graphify_path:", "max_stale_ratio:"} {
+	for _, key := range []string{"scan_exclude:", "test_files:", "test_exclude:", "whole_file_tests:", "graphify_path:", "max_stale_ratio:"} {
 		if !strings.Contains(cfg, "\n"+key) {
 			t.Errorf("DefaultConfig() has no %s line:\n%s", key, cfg)
 		}
