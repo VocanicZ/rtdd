@@ -94,3 +94,16 @@ func TestPlanReplacesAV02OnlyConfigAndKeepsAV030One(t *testing.T) {
 		t.Errorf("a config setting max_stale_ratio: step = %v, want Skip", s.Action)
 	}
 }
+
+// Issue #505: whole_file_tests is a v0.3.0 key, so a config setting it is the user's.
+func TestPlanKeepsAConfigSettingWholeFileTests(t *testing.T) {
+	root := t.TempDir()
+	writeAt(t, root, ".rtdd/config.yaml", "whole_file_tests: [\"e2e/**\"]\nstale_commits: 50\n")
+	steps, err := Plan(root, fakeFiles(), PlanOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := stepFor(t, steps, ".rtdd/config.yaml"); s.Action != Skip {
+		t.Errorf("a config setting whole_file_tests: step = %v, want Skip", s.Action)
+	}
+}

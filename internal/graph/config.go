@@ -15,11 +15,14 @@ import (
 // Config is the node graph's part of .rtdd/config.yaml. Every list is generic — a glob
 // over repo-relative paths — never a per-language setting (spec §4.1, §6).
 type Config struct {
-	ScanExclude   []string // files the scanner never reads (spec §4.1)
-	TestFiles     []string // a node in a matching file may be a test (spec §6)
-	TestExclude   []string // a file matching these is never a test file, whatever TestFiles says
-	GraphifyPath  string   // repo-relative path of graphify's graph.json (spec §5)
-	MaxStaleRatio float64  // graphify is ignored when more than this share of its code files is stale
+	ScanExclude []string // files the scanner never reads (spec §4.1)
+	TestFiles   []string // a node in a matching file may be a test (spec §6)
+	TestExclude []string // a file matching these is never a test file, whatever TestFiles says
+	// WholeFileTests are test files run only as a whole (shell scripts, .bats): every
+	// function in one is a helper and the file path is the only runnable id (#505).
+	WholeFileTests []string
+	GraphifyPath   string  // repo-relative path of graphify's graph.json (spec §5)
+	MaxStaleRatio  float64 // graphify is ignored when more than this share of its code files is stale
 }
 
 // DefaultConfig is spec §4.1, §5 and §6's defaults.
@@ -30,9 +33,10 @@ func DefaultConfig() Config {
 			"**/*.md", "**/*.mdc", "**/*.markdown", "**/*.rst", "**/*.txt", "**/*.adoc"},
 		TestFiles: []string{"**/test_*", "**/*_test.*", "**/*.test.*", "**/*.spec.*", "**/*Test.*",
 			"**/*Tests.*", "**/tests/**", "**/test/**", "**/spec/**", "**/__tests__/**"},
-		TestExclude:   []string{"**/testdata/**", "**/fixtures/**"},
-		GraphifyPath:  "graphify-out/graph.json",
-		MaxStaleRatio: 0.5,
+		TestExclude:    []string{"**/testdata/**", "**/fixtures/**"},
+		WholeFileTests: []string{"**/test_*.sh", "**/*_test.sh", "**/*.bats"},
+		GraphifyPath:   "graphify-out/graph.json",
+		MaxStaleRatio:  0.5,
 	}
 }
 
@@ -43,6 +47,7 @@ type configFile struct {
 	ScanExclude   *[]string `yaml:"scan_exclude"`
 	TestFiles     *[]string `yaml:"test_files"`
 	TestExclude   *[]string `yaml:"test_exclude"`
+	WholeFile     *[]string `yaml:"whole_file_tests"`
 	GraphifyPath  *string   `yaml:"graphify_path"`
 	MaxStaleRatio *float64  `yaml:"max_stale_ratio"`
 }
@@ -67,7 +72,8 @@ func LoadConfig(root string) (Config, error) {
 		key string
 		in  *[]string
 		out *[]string
-	}{{"scan_exclude", f.ScanExclude, &cfg.ScanExclude}, {"test_files", f.TestFiles, &cfg.TestFiles}, {"test_exclude", f.TestExclude, &cfg.TestExclude}} {
+	}{{"scan_exclude", f.ScanExclude, &cfg.ScanExclude}, {"test_files", f.TestFiles, &cfg.TestFiles}, {"test_exclude", f.TestExclude, &cfg.TestExclude},
+		{"whole_file_tests", f.WholeFile, &cfg.WholeFileTests}} {
 		if l.in == nil {
 			continue
 		}

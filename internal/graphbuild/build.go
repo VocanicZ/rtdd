@@ -116,6 +116,7 @@ func Build(root string, cfg graph.Config, opt Options) (*Result, error) {
 		}
 	}
 	graph.Classify(res.Graph.Nodes, cfg)
+	graph.SplitTests(&res.Graph, files, cfg)
 	return res, nil
 }
 

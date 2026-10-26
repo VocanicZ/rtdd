@@ -30,9 +30,10 @@ func TestLoadConfigWithoutAFileIsTheSpecDefaults(t *testing.T) {
 			"**/*.md", "**/*.mdc", "**/*.markdown", "**/*.rst", "**/*.txt", "**/*.adoc"},
 		TestFiles: []string{"**/test_*", "**/*_test.*", "**/*.test.*", "**/*.spec.*", "**/*Test.*",
 			"**/*Tests.*", "**/tests/**", "**/test/**", "**/spec/**", "**/__tests__/**"},
-		TestExclude:   []string{"**/testdata/**", "**/fixtures/**"},
-		GraphifyPath:  "graphify-out/graph.json",
-		MaxStaleRatio: 0.5,
+		TestExclude:    []string{"**/testdata/**", "**/fixtures/**"},
+		WholeFileTests: []string{"**/test_*.sh", "**/*_test.sh", "**/*.bats"},
+		GraphifyPath:   "graphify-out/graph.json",
+		MaxStaleRatio:  0.5,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("LoadConfig = %+v\nwant %+v", got, want)

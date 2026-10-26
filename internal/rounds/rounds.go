@@ -26,8 +26,8 @@ const KindModule graph.Kind = "module"
 // then ID.
 type Result struct {
 	ChangedNodes []graph.Node // the innermost node of each changed line, or the file's <module>
-	Round1       []graph.Node // changed tests, and tests with an edge to a changed node
-	Round2       []graph.Node // tests with an edge to a neighbour, minus Round1
+	Round1       []graph.Node // changed tests, and tests with an edge to a changed node; IDs runnable
+	Round2       []graph.Node // tests with an edge to a neighbour, minus Round1; IDs runnable
 	Untested     []graph.Node // changed non-test nodes no test in Round1 or Round2 reaches
 }
 
@@ -163,17 +163,34 @@ func Rounds(g graph.Graph, changed map[string][]LineRange) Result {
 	}
 	// testsOf is memoized: a widely called neighbour is reached from many changed nodes,
 	// and re-walking its callers for each one made a large diff quadratic (#454).
+	// A helper is transparent: its callers' tests are the tests of what it calls, and a
+	// helper no test reaches is run by running its whole file (#505).
 	tests := map[string][]graph.Node{}
-	testsOf := func(id string) []graph.Node {
+	walking := map[string]bool{} // a helper cycle ends at the helper already being walked
+	var testsOf func(id string) []graph.Node
+	testsOf = func(id string) []graph.Node {
 		if out, ok := tests[id]; ok {
 			return out
 		}
+		if walking[id] {
+			return nil
+		}
+		walking[id] = true
 		var out []graph.Node
 		for _, e := range in(id) {
-			if t, ok := ix.byID[e.From]; ok && t.IsTest {
+			t, ok := ix.byID[e.From]
+			switch {
+			case !ok:
+			case t.IsTest:
 				out = append(out, t)
+			case t.Helper:
+				out = append(out, testsOf(t.ID)...)
 			}
 		}
+		if n := ix.byID[id]; n.Helper && len(out) == 0 {
+			out = []graph.Node{graph.WholeFileNode(n.File)}
+		}
+		delete(walking, id)
 		tests[id] = out
 		return out
 	}
@@ -231,12 +248,32 @@ func Rounds(g graph.Graph, changed map[string][]LineRange) Result {
 		}
 	}
 
+	r1 := runnable(round1, nil)
 	return Result{
 		ChangedNodes: ordered(changedSet),
-		Round1:       ordered(round1),
-		Round2:       ordered(round2),
+		Round1:       r1,
+		Round2:       runnable(round2, r1),
 		Untested:     ordered(untested),
 	}
+}
+
+// runnable is a round's tests in order, each by its runnable ID (graph.RunnableID), one
+// per ID, minus those already in prior: an agent can run only that id, and running it
+// once is enough (#505).
+func runnable(set map[string]graph.Node, prior []graph.Node) []graph.Node {
+	seen := map[string]bool{}
+	for _, n := range prior {
+		seen[n.ID] = true
+	}
+	out := []graph.Node{}
+	for _, n := range ordered(set) {
+		n.ID = graph.RunnableID(n)
+		if !seen[n.ID] {
+			seen[n.ID] = true
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // ordered is a set's nodes by File, then Start, then ID — never nil.

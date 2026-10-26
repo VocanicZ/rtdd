@@ -15,7 +15,7 @@ func TestNodeAndEdgeAreSpecSection3FieldForField(t *testing.T) {
 		}
 		return out
 	}
-	if got, want := fields(Node{}), []string{"ID", "File", "Name", "Kind", "Start", "End", "IsTest"}; !reflect.DeepEqual(got, want) {
+	if got, want := fields(Node{}), []string{"ID", "File", "Name", "Kind", "Start", "End", "IsTest", "Helper"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("Node fields = %v, want %v", got, want)
 	}
 	if got, want := fields(Edge{}), []string{"From", "To", "Relation"}; !reflect.DeepEqual(got, want) {

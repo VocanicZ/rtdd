@@ -26,6 +26,7 @@ func DefaultConfig() string {
 	list("Files the scanner never reads.", "scan_exclude", d.ScanExclude)
 	list("A function, method or test in a matching file is a test.", "test_files", d.TestFiles)
 	list("A matching file is never a test file, whatever test_files says.", "test_exclude", d.TestExclude)
+	list("A matching test file runs only as a whole: its functions are helpers, its path is the test.", "whole_file_tests", d.WholeFileTests)
 	fmt.Fprintf(&b, "\n# graphify's graph, used when this file exists. rtdd never runs graphify.\ngraphify_path: %q\n", d.GraphifyPath)
 	fmt.Fprintf(&b, "\n# graphify is ignored when more than this share of its code files is stale.\nmax_stale_ratio: %v\n", d.MaxStaleRatio)
 	return b.String()

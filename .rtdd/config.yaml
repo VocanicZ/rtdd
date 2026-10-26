@@ -37,6 +37,12 @@ test_exclude:
   - "**/testdata/**"
   - "**/fixtures/**"
 
+# A matching test file runs only as a whole: its functions are helpers, its path is the test.
+whole_file_tests:
+  - "**/test_*.sh"
+  - "**/*_test.sh"
+  - "**/*.bats"
+
 # graphify's graph, used when this file exists. rtdd never runs graphify.
 graphify_path: "graphify-out/graph.json"
 
