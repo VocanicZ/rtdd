@@ -1,0 +1,26 @@
+{
+  "nodes": [
+    {"id": "Capture.java::Capture", "name": "Capture", "kind": "class", "start": 7, "end": 34},
+    {"id": "Capture.java::Capture::place", "name": "place", "kind": "method", "start": 9, "end": 12},
+    {"id": "Capture.java::Capture::cancel", "name": "cancel", "kind": "method", "start": 16, "end": 22},
+    {"id": "Capture.java::Capture::index", "name": "index", "kind": "method", "start": 24, "end": 24},
+    {"id": "Capture.java::Capture::toString", "name": "toString", "kind": "method", "start": 26, "end": 26},
+    {"id": "Capture.java::Capture::clear", "name": "clear", "kind": "method", "start": 28, "end": 28},
+    {"id": "Capture.java::Capture::Cell", "name": "Cell", "kind": "class", "start": 30, "end": 33},
+    {"id": "Capture.java::Capture::Cell::key", "name": "key", "kind": "method", "start": 32, "end": 32},
+    {"id": "Store.cs::Store", "name": "Store", "kind": "class", "start": 6, "end": 18},
+    {"id": "Store.cs::Store::Flush", "name": "Flush", "kind": "method", "start": 8, "end": 12},
+    {"id": "Store.cs::Store::Clear", "name": "Clear", "kind": "method", "start": 17, "end": 17},
+    {"id": "api.ts::Api", "name": "Api", "kind": "class", "start": 2, "end": 9},
+    {"id": "api.ts::Api::load", "name": "load", "kind": "method", "start": 3, "end": 8},
+    {"id": "api.ts::fetchOne", "name": "fetchOne", "kind": "func", "start": 11, "end": 18},
+    {"id": "docs.py::describe_cell", "name": "describe_cell", "kind": "func", "start": 1, "end": 8},
+    {"id": "grid.cpp::cell_index", "name": "cell_index", "kind": "func", "start": 7, "end": 12},
+    {"id": "grid.cpp::step", "name": "step", "kind": "func", "start": 15, "end": 18}
+  ],
+  "calls": [
+    {"from": "Capture.java::Capture::cancel", "to": "Capture.java::Capture::place"},
+    {"from": "api.ts::Api::load", "to": "api.ts::fetchOne"},
+    {"from": "grid.cpp::step", "to": "grid.cpp::cell_index"}
+  ]
+}

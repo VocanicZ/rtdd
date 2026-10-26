@@ -250,8 +250,8 @@ func TestADeclaredReceiverTypeLinksOnlyWithinItsClassHierarchy(t *testing.T) {
 	}
 }
 
-// A receiver typed by an import of a file the graph holds no class of (a Java record the
-// scanner reads as a method) links only to that file's definitions — here, none.
+// A receiver typed by an import of a file links only to that file's definitions — here
+// the Java record's label, never the same-directory Worker's.
 func TestADeclaredReceiverTypeImportedFromAFileLinksOnlyIntoIt(t *testing.T) {
 	g, _ := assembleAll(
 		[2]string{"src/a/mat/Material.java", "package a.mat;\n\npublic record Material(String id) {\n    String label() {\n        return id;\n    }\n}\n"},
@@ -264,10 +264,9 @@ func TestADeclaredReceiverTypeImportedFromAFileLinksOnlyIntoIt(t *testing.T) {
 			got = append(got, e)
 		}
 	}
-	// The record's body is a method's to the scanner, so its label is no node: no edge,
-	// and never the same-directory Worker's label.
-	if len(got) != 0 {
-		t.Errorf("calls = %v, want none", got)
+	want := []graph.Edge{{From: "src/a/sched/Cap.java::Cap::run", To: "src/a/mat/Material.java::Material::label", Relation: graph.RelCalls}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("calls = %v\nwant %v", got, want)
 	}
 }
 

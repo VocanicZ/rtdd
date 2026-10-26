@@ -2,6 +2,7 @@ package scan
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/VocanicZ/rtdd/internal/graph"
@@ -134,5 +135,67 @@ func TestAnUnbalancedQuoteOpensNoStringButLiteralBracesStaySkipped(t *testing.T)
 		if tk.paren != c.paren || tk.brace != c.brace {
 			t.Errorf("%s: paren %d brace %d, want %d %d", c.line, tk.paren, tk.brace, c.paren, c.brace)
 		}
+	}
+}
+
+// Issue #507: a parameter list that never closes within 50 lines is no signature, so the
+// line defines nothing and the class keeps its span.
+func TestAWrappedHeaderThatNeverClosesDefinesNothing(t *testing.T) {
+	src := "class A {\n    static void broken(int a,\n" + strings.Repeat("        int b,\n", 60) + "}\n"
+	r := ScanFile("A.java", []byte(src))
+	want := []graph.Node{{ID: "A.java::A", File: "A.java", Name: "A", Kind: graph.KindClass, Start: 1, End: 63}}
+	if !reflect.DeepEqual(r.Nodes, want) {
+		t.Errorf("nodes = %+v\nwant %+v", r.Nodes, want)
+	}
+}
+
+// Issue #507: comments and strings that span lines are blanked, each line keeping its
+// length; a string that opens and closes on one line is kept, as a test's label is read
+// from it.
+func TestCodeBlanksCommentsAndStringsThatSpanLines(t *testing.T) {
+	lines := []string{
+		`x = 1 # def a(`,
+		`s = """def b(`,
+		`def c(): """ + 'it("d")'`,
+		"q = `e(",
+		"f(`",
+		`/* g( */ h() // i(`,
+	}
+	want := []string{
+		`x = 1         `,
+		`s =          `,
+		`             + 'it("d")'`,
+		`q =    `,
+		`   `,
+		`         h()      `,
+	}
+	if got := code(lines); !reflect.DeepEqual(got, want) {
+		t.Errorf("code =\n%q\nwant\n%q", got, want)
+	}
+}
+
+// Issue #507: a comment or string the file never closes opens none — here a shell glob
+// and a backtick in a Lua comment — so only its opener is blanked and the definitions
+// after it are still read. A shell `== /*` opens none at all.
+func TestAnOpenerTheFileNeverClosesBlanksOnlyItself(t *testing.T) {
+	lines := []string{
+		`[[ "$B" == /* ]] || ls -d /*`,
+		"-- a `tick in a comment",
+		`run() { echo; }`,
+	}
+	want := []string{
+		`[[ "$B" == /* ]] || ls -d   `,
+		"                       ",
+		`run() { echo; }`,
+	}
+	if got := code(lines); !reflect.DeepEqual(got, want) {
+		t.Errorf("code =\n%q\nwant\n%q", got, want)
+	}
+	if got, want := code([]string{`s = '''x(`, `def f(): pass`}), []string{`s =    x(`, `def f(): pass`}; !reflect.DeepEqual(got, want) {
+		t.Errorf("code = %q, want %q", got, want)
+	}
+	r := ScanFile("t.sh", []byte("ls -d /*\nx=`date\nrun() {\n  echo\n}\n"))
+	if len(r.Nodes) != 1 || r.Nodes[0].ID != "t.sh::run" || r.Nodes[0].End != 5 {
+		t.Errorf("nodes = %+v, want t.sh::run at 3-5", r.Nodes)
 	}
 }

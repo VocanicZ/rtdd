@@ -61,16 +61,22 @@ func ScanFile(rel string, src []byte) FileResult {
 
 	var defs []def
 	var open []int // defs whose span holds the current line, outermost first
-	for i, line := range lines {
+	codeLines := code(lines)
+	for i, line := range codeLines {
 		for len(open) > 0 && defs[open[len(open)-1]].end < i {
 			open = open[:len(open)-1]
 		}
 		inBody := len(open) > 0 && defs[open[len(open)-1]].shape != shapeClass
 		name, sh, ok := matchDefinition(line, inBody)
+		if !ok && !inBody {
+			if h, wrapped := header(codeLines, i); wrapped {
+				name, sh, ok = matchDefinition(h, false)
+			}
+		}
 		if !ok {
 			continue
 		}
-		defs = append(defs, def{name: name, shape: sh, start: i, end: endLine(lines, i), indent: indentOf(lines[i]), parent: -1})
+		defs = append(defs, def{name: name, shape: sh, start: i, end: endLine(codeLines, i), indent: indentOf(lines[i]), parent: -1})
 		open = append(open, len(defs)-1)
 	}
 
@@ -198,7 +204,7 @@ func ScanFile(rel string, src []byte) FileResult {
 		return recv + "." + name
 	}
 	called := map[int]map[string]bool{}
-	for l, line := range lines {
+	for l, line := range codeLines {
 		o := owner[l]
 		if o < 0 || defs[o].start == l {
 			continue // top-level code, or the node's own definition line
@@ -282,10 +288,31 @@ func indentOf(line string) int {
 
 func blank(line string) bool { return strings.TrimSpace(line) == "" }
 
+// header joins line i to the lines its open ( or [ carries on to, until they close (at
+// most 50 lines on), so a signature whose parameters wrap reads as one line. wrapped is
+// false when line i leaves none open, or they never close.
+func header(lines []string, i int) (string, bool) {
+	var t tokenizer
+	t.line(lines[i])
+	if t.paren <= 0 {
+		return "", false
+	}
+	parts := []string{lines[i]}
+	for j := i + 1; j < len(lines) && j-i <= 50; j++ {
+		t.line(lines[j])
+		parts = append(parts, strings.TrimSpace(lines[j]))
+		if t.paren <= 0 {
+			return strings.Join(parts, " "), true
+		}
+	}
+	return "", false
+}
+
 // endLine is spec §4.3's end rule for the definition on line i (0-based). The header is
-// the definition line plus any lines its open ( or [ carries on to; when the header
-// leaves a { open the node ends where braces balance, otherwise at the last non-blank
-// line before the next non-blank line indented at or below the definition (or EOF).
+// the definition line plus any lines its open ( or [ carries on to; when the header (or
+// the line after it, when that is a bodyOpener) leaves a { open the node ends where
+// braces balance, otherwise at the last non-blank line before the next non-blank line
+// indented at or below the definition (or EOF).
 func endLine(lines []string, i int) int {
 	var t tokenizer
 	header := i
@@ -295,6 +322,11 @@ func endLine(lines []string, i int) int {
 		if t.paren <= 0 || j-i >= 50 {
 			break
 		}
+	}
+	// The body opens on the line after the header — Allman-style `{`, or `throws X {`.
+	if t.brace == 0 && header+1 < len(lines) && indentOf(lines[header+1]) >= indentOf(lines[i]) && bodyOpener.MatchString(lines[header+1]) {
+		header++
+		t.line(lines[header])
 	}
 	if t.brace > 0 {
 		for j := header + 1; j < len(lines); j++ {
@@ -320,16 +352,61 @@ func endLine(lines []string, i int) int {
 }
 
 // tokenizer counts brackets outside string literals and comments, best-effort (spec
-// §4.3). String state ends at end of line; a /* block */ comment may span lines. A '
-// opens a string only when another ' closes it later on the line, so a lone one (a
-// Rust lifetime such as &'static, an apostrophe) does not swallow the line's brackets.
+// §4.3). A comment is // or # (at the line's start or after a space) or -- (opening the
+// line, before a space, -, [ or the end) to end of line — not a shell `cmd -- path` — or
+// a /* block */ (see blockOpens). A block comment, a `backtick` string and a string
+// opened by three " or three ' may span lines; any other string ends at end of line. A '
+// opens a string only when another ' closes it later on the line, so a lone one (a Rust
+// lifetime such as &'static, an apostrophe) does not swallow the line's brackets.
 type tokenizer struct {
 	paren, brace int
 	block        bool
+	quote        byte // the quote of a string still open at end of line, 0 for none
+	triple       bool // whether that string's quote is tripled
+
+	row   int             // the line being read, for code
+	open  [2]int          // row and column of the comment or string open at end of line
+	stray map[[2]int]bool // row and column of each opener that is none (see code)
 }
 
-func (t *tokenizer) line(s string) {
-	var quote byte
+func (t *tokenizer) line(s string) { t.scan(s, nil) }
+
+// code is lines with every comment, and every string literal that spans lines, blanked
+// to spaces, so no definition is read inside one; each line keeps its length. A comment
+// or string still open at the end of the file opens none — a shell `ls /*`, or a backtick
+// in a comment syntax the tokenizer does not know — so its opener is blanked alone and
+// the lines from it are read again.
+func code(lines []string) []string {
+	t := tokenizer{stray: map[[2]int]bool{}}
+	out := make([]string, len(lines))
+	before := make([]tokenizer, len(lines)) // the state each line is read in
+	for i := 0; i < len(lines); i++ {
+		before[i] = t
+		t.row = i
+		mask := []byte(lines[i])
+		t.scan(lines[i], mask)
+		out[i] = string(mask)
+		if i == len(lines)-1 && (t.block || t.quote != 0) {
+			t.stray[t.open] = true
+			i = t.open[0]
+			t = before[i]
+			i--
+		}
+	}
+	return out
+}
+
+// scan reads line s. When mask is not nil, each byte of s in a comment, or in a string
+// literal open at the start or the end of s, is blanked in mask.
+func (t *tokenizer) scan(s string, mask []byte) {
+	wipe := func(from, to int) {
+		for ; mask != nil && from < to; from++ {
+			mask[from] = ' '
+		}
+	}
+	quote, triple := t.quote, t.triple
+	from := 0 // where the open comment or string began on this line
+	opened := t.open
 	for k := 0; k < len(s); k++ {
 		c := s[k]
 		switch {
@@ -337,21 +414,45 @@ func (t *tokenizer) line(s string) {
 			if c == '*' && k+1 < len(s) && s[k+1] == '/' {
 				t.block = false
 				k++
+				wipe(from, k+1)
 			}
 		case quote != 0:
 			if c == '\\' {
 				k++
-			} else if c == quote {
+			} else if c == quote && (!triple || tripled(s, k)) {
+				if triple {
+					k += 2
+				}
+				if t.quote != 0 { // opened on an earlier line
+					wipe(0, k+1)
+					t.quote = 0
+				}
 				quote = 0
 			}
+		case t.stray[[2]int{t.row, k}]:
+			n := 1
+			if c == '/' {
+				n = 2
+			} else if c != '`' {
+				n = 3
+			}
+			wipe(k, k+n)
+			k += n - 1
+		case (c == '"' || c == '\'') && tripled(s, k):
+			quote, triple, from, opened = c, true, k, [2]int{t.row, k}
+			k += 2
 		case c == '"' || c == '`' || c == '\'' && closes(s, k):
-			quote = c
+			quote, triple, from, opened = c, false, k, [2]int{t.row, k}
 		case c == '/' && k+1 < len(s) && s[k+1] == '/':
+			wipe(k, len(s))
 			return
-		case c == '/' && k+1 < len(s) && s[k+1] == '*':
-			t.block = true
+		case c == '/' && k+1 < len(s) && s[k+1] == '*' && blockOpens(s, k):
+			t.block, from, opened = true, k, [2]int{t.row, k}
 			k++
-		case c == '#' && (k == 0 || s[k-1] == ' ' || s[k-1] == '\t'):
+		case c == '#' && (k == 0 || s[k-1] == ' ' || s[k-1] == '\t'),
+			c == '-' && strings.HasPrefix(s[k:], "--") && blank(s[:k]) &&
+				(k+2 == len(s) || strings.IndexByte(" \t-[", s[k+2]) >= 0):
+			wipe(k, len(s))
 			return
 		case c == '(' || c == '[':
 			t.paren++
@@ -363,6 +464,30 @@ func (t *tokenizer) line(s string) {
 			t.brace--
 		}
 	}
+	switch {
+	case t.block:
+		wipe(from, len(s))
+		t.open = opened
+	case quote == '`' || triple && quote != 0:
+		wipe(from, len(s))
+		t.quote, t.triple, t.open = quote, triple, opened
+	}
+}
+
+// blockOpens reports whether the /* at s[k] opens a comment: after the line's start, a
+// space or punctuation but not after a comparison, and before a space, *, ! or the
+// line's end — so a path glob such as `"$D"/parts/*.pck`, `dir/*` or a shell
+// `[[ $p == /* ]]` opens none.
+func blockOpens(s string, k int) bool {
+	prev := strings.TrimRight(s[:k], " \t")
+	return (k == 0 || strings.IndexByte(" \t(,;=:{", s[k-1]) >= 0) &&
+		!strings.HasSuffix(prev, "==") && !strings.HasSuffix(prev, "!=") &&
+		(k+2 == len(s) || strings.IndexByte(" \t*!", s[k+2]) >= 0)
+}
+
+// tripled reports whether s[k] begins three of itself.
+func tripled(s string, k int) bool {
+	return k+2 < len(s) && s[k+1] == s[k] && s[k+2] == s[k]
 }
 
 // closes reports whether the quote at s[k] has an unescaped match later in s.
