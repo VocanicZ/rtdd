@@ -63,6 +63,12 @@ var matrixAgents = []matrixAgent{
 		legacy:  []string{".gemini/GEMINI.md"},
 	},
 	{
+		id: "copilot", name: "Copilot CLI", present: []string{".copilot/"},
+		user:    []string{".copilot/skills/rtdd/SKILL.md"},
+		project: []string{".agents/skills/rtdd/SKILL.md"},
+		shared:  []string{".copilot/copilot-instructions.md"},
+	},
+	{
 		id: "cursor", name: "Cursor", present: []string{".cursor/"},
 		project: []string{".cursor/rules/rtdd.mdc"},
 		limit:   "user rules live in its settings",
@@ -113,6 +119,7 @@ var verifiedOn = map[string]string{
 	"antigravity": "verified on agy 1.1.27, 2026-10-27",
 	"codex":       "verified on codex-cli 0.154.0, 2026-10-27",
 	"gemini":      "verified on Gemini CLI 0.65.0, 2026-10-27",
+	"copilot":     "verified on @github/copilot 1.0.104, 2026-10-27",
 }
 
 func TestEveryVerifiedColumnSaysSo(t *testing.T) {
@@ -171,6 +178,20 @@ func TestGeminiExtensionManifestNamesItsContextFile(t *testing.T) {
 		t.Errorf("manifest = %+v, want name rtdd, a version, contextFileName GEMINI.md", m)
 	}
 	homeFile(t, home, ".gemini/extensions/rtdd/"+m.ContextFileName)
+}
+
+// Copilot's instruction files are the user's; rtdd's way in is the skills directory.
+func TestSkillInstallNeverWritesCopilotInstructions(t *testing.T) {
+	home := fakeHome(t, ".copilot")
+	if code, _, stderr := rtdd(t, t.TempDir(), "skill", "install"); code != 0 {
+		t.Fatalf("rtdd skill install exited %d: %s", code, stderr)
+	}
+	for _, p := range []string{".copilot/copilot-instructions.md", ".copilot/instructions"} {
+		if _, err := os.Stat(filepath.Join(home, filepath.FromSlash(p))); !os.IsNotExist(err) {
+			t.Errorf("rtdd skill install created %s", p)
+		}
+	}
+	homeFile(t, home, ".copilot/skills/rtdd/SKILL.md")
 }
 
 // v0.3.0 wrote ~/.codex/skills/rtdd/. Installing now moves rtdd's render to
