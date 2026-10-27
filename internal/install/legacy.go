@@ -31,7 +31,8 @@ var legacyGlobalFiles = []string{".codex/AGENTS.md", ".gemini/GEMINI.md"}
 
 // PlanLegacyFiles computes what `rtdd uninstall --legacy-files` removes from a repository.
 // opts excludes what this init run is about to own: with ProjectSkill the two whole-file
-// front-ends are init's to refresh, and a file named by AppendTo is init's to merge.
+// front-ends are init's to refresh, and a file named by AppendTo is init's to merge. When
+// the root is opts.Home, the user-level installs at ProjectSkillFiles paths are excluded too.
 //
 // Removing the root .gitignore line would leave the graph cache unignored, so when
 // .rtdd/.gitignore does not already ignore it the plan writes that first.
@@ -43,7 +44,13 @@ func PlanLegacyFiles(root string, opts PlanOptions) ([]Step, error) {
 			".claude/skills/rtdd/SKILL.md": "the Claude Code skill an older `rtdd init` wrote",
 			".cursor/rules/rtdd.mdc":       "the Cursor rule an older `rtdd init` wrote",
 		}
+		atHome := opts.Home != "" && samePath(root, opts.Home)
 		for _, rel := range sortedKeys(ProjectSkillFiles) {
+			// Run from the home directory, these paths are `rtdd skill install`'s, and they
+			// carry the same marker an older init's front-end does (#554).
+			if atHome && userLevel(rel) {
+				continue
+			}
 			step, err := legacyWholeFile(root, rel, notes[rel])
 			if err != nil {
 				return nil, err

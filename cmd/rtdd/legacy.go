@@ -24,7 +24,9 @@ func globalLegacy() []install.Step {
 // repoLegacy reports what an older `rtdd init` wrote outside .rtdd/ in the repository at
 // root; like globalLegacy, trouble reading it yields no lines.
 func repoLegacy(root string) []install.Step {
-	steps, err := install.PlanLegacyFiles(root, install.PlanOptions{})
+	// A home directory that cannot be found cannot be the root either (#554).
+	home, _ := homeDir()
+	steps, err := install.PlanLegacyFiles(root, install.PlanOptions{Home: home})
 	if err != nil {
 		return nil
 	}
