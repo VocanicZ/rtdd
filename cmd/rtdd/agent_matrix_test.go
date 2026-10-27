@@ -95,6 +95,38 @@ func TestAgentMatrixColumnsAreTheAgentsTable(t *testing.T) {
 	}
 }
 
+// verifiedOn is each agent's README cell, from docs/agent-capabilities.md: an agent's task
+// adds its entry when its column has been checked against that page, and its Agents() row
+// must say the same.
+var verifiedOn = map[string]string{
+	"claude": "verified on Claude Code 2.1.311, 2026-10-27",
+}
+
+func TestEveryVerifiedColumnSaysSo(t *testing.T) {
+	for id, want := range verifiedOn {
+		if got := agentRow(t, id).Verified; got != want {
+			t.Errorf("%s: Verified = %q, want %q", id, got, want)
+		}
+	}
+}
+
+// The project skill is dist/SKILL.md — the repository-scoped description, which assumes a
+// set-up repository — with the opt-in marker, never the machine-wide render.
+func TestClaudeCodeProjectSkillIsTheProjectRender(t *testing.T) {
+	matrixHome(t, matrixAgents[0])
+	dir := newTestRepo(t)
+	if code, _, stderr := rtdd(t, dir, "init", "--project-skill"); code != 0 {
+		t.Fatalf("rtdd init --project-skill exited %d: %s", code, stderr)
+	}
+	got := readRepoFileForTest(t, dir, ".claude/skills/rtdd/SKILL.md")
+	if !strings.Contains(got, "description: "+protocol.SkillDescription+"\n") {
+		t.Errorf("the project skill does not carry protocol.SkillDescription:\n%s", got)
+	}
+	if !strings.Contains(got, install.OptInMarker) {
+		t.Errorf("the project skill carries no opt-in marker:\n%s", got)
+	}
+}
+
 // PRD #511 AC3: every agent present at once, and still only rtdd-owned paths appear.
 func TestSkillInstallWithEveryAgentPresentTouchesNoUserFile(t *testing.T) {
 	home := t.TempDir()

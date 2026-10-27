@@ -62,7 +62,7 @@ markers. An agent is listed here only when every row of the feature × agent mat
 
 | agent | user level | project level (`--project-skill`) | verified | limitations |
 | --- | --- | --- | --- | --- |
-| Claude Code | `~/.claude/skills/rtdd/` | `.claude/skills/rtdd/SKILL.md` | not yet verified | none |
+| Claude Code | `~/.claude/skills/rtdd/` | `.claude/skills/rtdd/SKILL.md` | verified on Claude Code 2.1.311, 2026-10-27 | none |
 | Codex | `~/.codex/skills/rtdd/` | none | not yet verified | written only when `~/.codex/skills/` exists — a Codex without it reads no skills |
 | Gemini CLI | `~/.gemini/extensions/rtdd/` | none | not yet verified | none |
 | Cursor | none | `.cursor/rules/rtdd.mdc` | not yet verified | Cursor's user rules live in its settings, not in a file; `rtdd skill install` says so and `rtdd skill prompt` prints a copy to paste there |

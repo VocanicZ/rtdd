@@ -40,10 +40,11 @@ func Agents() []Agent {
 	return []Agent{
 		{
 			ID: "claude", Name: "Claude Code",
-			Present: []string{".claude/"},
-			Owned:   ".claude/skills/rtdd/",
-			User:    []GlobalFile{{Rel: ".claude/skills/rtdd/SKILL.md", Source: protocol.GlobalSkillPath, Marker: protocol.Generated}},
-			Project: []GlobalFile{{Rel: ".claude/skills/rtdd/SKILL.md", Source: "dist/SKILL.md", Marker: protocol.Generated}},
+			Present:  []string{".claude/"},
+			Owned:    ".claude/skills/rtdd/",
+			User:     []GlobalFile{{Rel: ".claude/skills/rtdd/SKILL.md", Source: protocol.GlobalSkillPath, Marker: protocol.Generated}},
+			Project:  []GlobalFile{{Rel: ".claude/skills/rtdd/SKILL.md", Source: "dist/SKILL.md", Marker: protocol.Generated}},
+			Verified: "verified on Claude Code 2.1.311, 2026-10-27",
 		},
 		{
 			ID: "codex", Name: "Codex",
