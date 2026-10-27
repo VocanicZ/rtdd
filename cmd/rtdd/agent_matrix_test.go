@@ -73,6 +73,12 @@ var matrixAgents = []matrixAgent{
 		user:    []string{".cursor/skills/rtdd/SKILL.md"},
 		project: []string{".cursor/rules/rtdd.mdc"},
 	},
+	{
+		id: "opencode", name: "OpenCode", present: []string{".config/opencode/"},
+		user:    []string{".config/opencode/skills/rtdd/SKILL.md"},
+		project: []string{".agents/skills/rtdd/SKILL.md"},
+		shared:  []string{".config/opencode/AGENTS.md"},
+	},
 }
 
 // matrixRows are PRD #511's "Features every agent must pass", one function each.
@@ -121,6 +127,7 @@ var verifiedOn = map[string]string{
 	"gemini":      "verified on Gemini CLI 0.65.0, 2026-10-27",
 	"copilot":     "verified on @github/copilot 1.0.104, 2026-10-27",
 	"cursor":      "verified on Cursor 2.4, 2026-10-27",
+	"opencode":    "verified on opencode-ai 1.19.4, 2026-10-27",
 }
 
 func TestEveryVerifiedColumnSaysSo(t *testing.T) {
@@ -198,6 +205,17 @@ func TestCursorGetsAUserLevelSkill(t *testing.T) {
 }
 
 // Copilot's instruction files are the user's; rtdd's way in is the skills directory.
+// OpenCode rejects a skill whose frontmatter name differs from its directory.
+func TestOpenCodeSkillNameEqualsItsDirectory(t *testing.T) {
+	home := fakeHome(t, ".config/opencode")
+	rtdd(t, t.TempDir(), "skill", "install")
+	rel := ".config/opencode/skills/rtdd/SKILL.md"
+	dirName := filepath.Base(filepath.Dir(filepath.FromSlash(rel)))
+	if got := homeFile(t, home, rel); !strings.Contains(got, "\nname: "+dirName+"\n") {
+		t.Errorf("%s does not declare name: %s:\n%s", rel, dirName, got)
+	}
+}
+
 func TestSkillInstallNeverWritesCopilotInstructions(t *testing.T) {
 	home := fakeHome(t, ".copilot")
 	if code, _, stderr := rtdd(t, t.TempDir(), "skill", "install"); code != 0 {
