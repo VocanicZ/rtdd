@@ -67,7 +67,7 @@ markers. An agent is listed here only when every row of the feature × agent mat
 | Codex | `~/.agents/skills/rtdd/` | `.agents/skills/rtdd/SKILL.md` | verified on codex-cli 0.154.0, 2026-10-27 | `~/.agents/skills/` is shared with other agents; `rtdd skill uninstall` removes rtdd's copy for all of them |
 | Gemini CLI | `~/.gemini/extensions/rtdd/` | `.agents/skills/rtdd/SKILL.md` | verified on Gemini CLI 0.65.0, 2026-10-27 | the project skill loads only in a folder Gemini CLI trusts |
 | Copilot CLI | `~/.copilot/skills/rtdd/` | `.agents/skills/rtdd/SKILL.md` | verified on @github/copilot 1.0.104, 2026-10-27 | a `COPILOT_HOME` other than `~/.copilot` is not followed; set `RTDD_HOME` to its parent |
-| Cursor | none | `.cursor/rules/rtdd.mdc` | not yet verified | Cursor's user rules live in its settings, not in a file; `rtdd skill install` says so and `rtdd skill prompt` prints a copy to paste there |
+| Cursor | `~/.cursor/skills/rtdd/` | `.cursor/rules/rtdd.mdc` | verified on Cursor 2.4, 2026-10-27 | User Rules live in Cursor's settings and are not written; the `agent` CLI reading `~/.cursor/skills/` is unverified |
 
 ## Usage
 
@@ -120,6 +120,7 @@ with `--append-to`.
 | `~/.agents/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.codex/` exists — Codex |
 | `~/.gemini/extensions/rtdd/gemini-extension.json`, `~/.gemini/extensions/rtdd/GEMINI.md` | `rtdd skill install`, the installer | when `~/.gemini/settings.json` or `~/.gemini/oauth_creds.json` exists — Gemini CLI, not an Antigravity-only `~/.gemini/` |
 | `~/.copilot/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.copilot/` exists — Copilot CLI |
+| `~/.cursor/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.cursor/` exists — Cursor |
 | the `rtdd` binary | the installer, `rtdd update` | on your PATH, or `--install-dir` |
 
 An agent directory that does not exist is skipped rather than created. `rtdd skill

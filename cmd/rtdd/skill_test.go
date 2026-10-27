@@ -165,8 +165,8 @@ func TestSkillUninstallRemovesWhatInstallWrote(t *testing.T) {
 	}
 }
 
-// `rtdd skill prompt` is the answer for every agent rtdd cannot write to itself — Cursor,
-// whose user rules live in app settings, and anything else the user happens to run. It has
+// `rtdd skill prompt` is the answer for every agent rtdd cannot write to itself — Cursor's
+// User Rules in its app settings, and anything else the user happens to run. It has
 // to be self-contained, because it gets pasted into a chat window with no shell behind it,
 // and it must work on a machine where no supported agent is installed at all.
 func TestSkillPromptIsSelfContainedAndNeedsNoInstalledAgent(t *testing.T) {

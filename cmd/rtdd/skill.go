@@ -149,9 +149,9 @@ func cmdSkillUninstall(args []string, stdout, stderr io.Writer) int {
 
 // cmdSkillPrompt prints a paste-anywhere copy of the machine-wide skill.
 //
-// It exists for the agents rtdd cannot write to itself: Cursor, whose user-level rules live
-// inside the application's settings rather than in a file, and whatever the user happens to
-// run that rtdd has never heard of. It is deliberately self-contained — instruction and full
+// It exists for what rtdd cannot write to itself: Cursor's User Rules, which live inside the
+// application's settings rather than in a file, and whatever the user happens to run that
+// rtdd has never heard of. It is deliberately self-contained — instruction and full
 // document in one block — because it is pasted into a chat window that may have no shell
 // behind it to fetch the rest.
 func cmdSkillPrompt(args []string, stdout, stderr io.Writer) int {
