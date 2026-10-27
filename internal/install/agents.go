@@ -79,6 +79,11 @@ func Agents() []Agent {
 				{Rel: ".gemini/extensions/rtdd/gemini-extension.json", Literal: geminiManifest, Marker: `"name": "rtdd"`},
 				{Rel: ".gemini/extensions/rtdd/GEMINI.md", Source: protocol.GlobalAgentsPath, Marker: protocol.BeginMarker},
 			},
+			Project: []GlobalFile{{Rel: ".agents/skills/rtdd/SKILL.md", Source: "dist/SKILL.md", Marker: protocol.Generated}},
+			Limits: []string{
+				"the project skill loads only in a folder Gemini CLI trusts",
+			},
+			Verified: "verified on Gemini CLI 0.65.0, 2026-10-27",
 		},
 		{
 			ID: "cursor", Name: "Cursor",

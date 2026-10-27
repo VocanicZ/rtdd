@@ -53,8 +53,14 @@ extension folder loads without `gemini extensions install` [gemini-pkg]. Gemini 
 reads Agent Skills, including the shared `~/.agents/skills/` [gemini-skills], so on a machine
 with Codex it finds rtdd's skill there as well as its extension. Its config directory
 `~/.gemini/` is shared with Antigravity (above), so `~/.gemini/` existing does not mean Gemini
-CLI is installed; which file Gemini CLI itself creates first is unverified, and the plan's
-Task 5 settles the gate against the 0.65.0 package.
+CLI is installed. The 0.65.0 package settles which of its files say it is: Gemini CLI writes
+`~/.gemini/settings.json` (`saveSettings` at `Storage.getGlobalSettingsPath()`) and
+`~/.gemini/oauth_creds.json` (`cacheCredentials` at `Storage.getOAuthCredsPath()`), and agy
+1.1.27 writes neither — its settings are `~/.gemini/antigravity-cli/settings.json` and its
+binary names no `oauth_creds.json` [gemini-pkg] [agy-local]. Gemini CLI also writes
+`~/.gemini/installation_id` and `~/.gemini/google_accounts.json`, but agy's binary names
+`installation_id` too, and both files sit in the `~/.gemini/` of a machine with both tools,
+so neither gates Gemini CLI.
 
 **GitHub Copilot CLI.** `~/.copilot/copilot-instructions.md` is a shared file and rtdd never
 writes it; the skills directory is rtdd's way in. The npm package is a loader for a native
@@ -96,7 +102,7 @@ that is.
 [codex-local]: local — `codex --version` printed `codex-cli 0.154.0`; its bundled skill-installer reads "Installs into `$CODEX_HOME/skills/<skill-name>` (defaults to `~/.codex/skills`)"
 [gemini-ext]: https://geminicli.com/docs/extensions/reference/
 [gemini-skills]: https://geminicli.com/docs/cli/skills/
-[gemini-pkg]: local — the `@google/gemini-cli` 0.65.0 npm tarball, `bundle/chunk-DKZARV6U.js` (`getUserSkillsDir`, `getUserAgentSkillsDir`, `loadSkillsFromDir`) and `bundle/chunk-34OW3ELT.js` (`loadExtensions`, `_buildExtension`, `isEnabled`), inspected 2026-10-27
+[gemini-pkg]: local — the `@google/gemini-cli` 0.65.0 npm tarball, `bundle/chunk-DKZARV6U.js` (`getUserSkillsDir`, `getUserAgentSkillsDir`, `loadSkillsFromDir`) and `bundle/chunk-34OW3ELT.js` (`loadExtensions`, `_buildExtension`, `isEnabled`), `bundle/chunk-AZOL6UFL.js` (`saveSettings`) and `bundle/chunk-DKZARV6U.js` (`getGlobalSettingsPath`, `getOAuthCredsPath`, `cacheCredentials`), inspected 2026-10-27
 [copilot-skills]: https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-skills
 [copilot-instr]: https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-custom-instructions
 [copilot-npm]: https://www.npmjs.com/package/@github/copilot

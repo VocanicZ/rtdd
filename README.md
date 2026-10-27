@@ -65,7 +65,7 @@ markers. An agent is listed here only when every row of the feature × agent mat
 | Claude Code | `~/.claude/skills/rtdd/` | `.claude/skills/rtdd/SKILL.md` | verified on Claude Code 2.1.311, 2026-10-27 | none |
 | Antigravity | `~/.gemini/config/skills/rtdd/` | `.agents/skills/rtdd/SKILL.md` | verified on agy 1.1.27, 2026-10-27 | also reads `GEMINI.md` and `AGENTS.md` as rules; rtdd writes neither |
 | Codex | `~/.agents/skills/rtdd/` | `.agents/skills/rtdd/SKILL.md` | verified on codex-cli 0.154.0, 2026-10-27 | `~/.agents/skills/` is shared with other agents; `rtdd skill uninstall` removes rtdd's copy for all of them |
-| Gemini CLI | `~/.gemini/extensions/rtdd/` | none | not yet verified | none |
+| Gemini CLI | `~/.gemini/extensions/rtdd/` | `.agents/skills/rtdd/SKILL.md` | verified on Gemini CLI 0.65.0, 2026-10-27 | the project skill loads only in a folder Gemini CLI trusts |
 | Cursor | none | `.cursor/rules/rtdd.mdc` | not yet verified | Cursor's user rules live in its settings, not in a file; `rtdd skill install` says so and `rtdd skill prompt` prints a copy to paste there |
 
 ## Usage
