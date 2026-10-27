@@ -99,7 +99,8 @@ func PlanLegacyFiles(root string, opts PlanOptions) ([]Step, error) {
 }
 
 // PlanGlobalLegacyFiles is PlanLegacyFiles for the home directory: the block an older
-// `rtdd skill install` merged into ~/.codex/AGENTS.md and ~/.gemini/GEMINI.md.
+// `rtdd skill install` merged into ~/.codex/AGENTS.md and ~/.gemini/GEMINI.md, and rtdd's
+// files in a directory an agent's row has Retired.
 func PlanGlobalLegacyFiles(home string) ([]Step, error) {
 	steps := []Step{}
 	for _, rel := range legacyGlobalFiles {
@@ -109,6 +110,21 @@ func PlanGlobalLegacyFiles(home string) ([]Step, error) {
 		}
 		if step != nil {
 			steps = append(steps, *step)
+		}
+	}
+	for _, a := range Agents() {
+		for _, dir := range a.Retired {
+			retire, err := planRemoveDir(home, dir, generatedFile(home, dir))
+			if err != nil {
+				return nil, err
+			}
+			// What stays is the user's, and footprint is only what rtdd wrote.
+			for _, s := range retire {
+				if s.Action == Delete {
+					s.Note = "the " + a.Name + " skill an older `rtdd skill install` wrote"
+					steps = append(steps, s)
+				}
+			}
 		}
 	}
 	return steps, nil

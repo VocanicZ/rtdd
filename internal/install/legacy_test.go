@@ -154,6 +154,48 @@ func TestGlobalLegacyFilesStripTheBlockFromTheSharedHomeFiles(t *testing.T) {
 	}
 }
 
+// v0.3.0 wrote Codex's skill to ~/.codex/skills/rtdd/, a directory the codex row has
+// Retired. Until an install removes it, it is footprint — but only rtdd's renders are; a
+// file the user put beside them is neither reported nor removed.
+func TestGlobalLegacyFilesReportRtddsFilesInARetiredDirectory(t *testing.T) {
+	home := t.TempDir()
+	writeAt(t, home, ".codex/skills/rtdd/SKILL.md", protocol.Generated+"\nv0.3.0's skill\n")
+	steps, err := PlanGlobalLegacyFiles(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := stepFor(t, steps, ".codex/skills/rtdd/"); s.Action != Delete || !strings.Contains(s.Note, "Codex skill") {
+		t.Errorf("retired directory step = %v %q, want a Delete naming the Codex skill", s.Action, s.Note)
+	}
+
+	writeAt(t, home, ".codex/skills/rtdd/notes.md", "mine\n")
+	steps, err = PlanGlobalLegacyFiles(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(steps) != 1 || steps[0].Path != ".codex/skills/rtdd/SKILL.md" || steps[0].Action != Delete {
+		t.Errorf("steps = %+v, want only a Delete of rtdd's SKILL.md", steps)
+	}
+	if err := ApplyUninstall(home, steps); err != nil {
+		t.Fatal(err)
+	}
+	if got := repoFiles(t, home); strings.Join(got, ",") != ".codex/skills/rtdd/notes.md" {
+		t.Errorf("home after --legacy-files holds %v, want only the user's notes.md", got)
+	}
+
+	if err := os.Remove(filepath.Join(home, ".codex", "skills", "rtdd", "notes.md")); err != nil {
+		t.Fatal(err)
+	}
+	writeAt(t, home, ".codex/skills/rtdd/notes.md", "mine\n")
+	steps, err = PlanGlobalLegacyFiles(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(steps) != 0 {
+		t.Errorf("steps = %+v for a retired directory holding only the user's file, want none", steps)
+	}
+}
+
 // The report init, doctor and update print: one Legacy line per piece of footprint, each
 // naming the command that removes it, and nothing Apply would write.
 func TestReportLegacyIsAReadOnlyLinePerPiece(t *testing.T) {

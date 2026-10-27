@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/VocanicZ/rtdd/internal/protocol"
 )
 
 // GlobalSurface is one machine-wide agent front-end: a directory in the user's home
@@ -24,10 +26,6 @@ type GlobalSurface struct {
 	// Present are paths relative to the home directory, any one of which existing is how rtdd
 	// decides the agent is installed. A trailing slash is a directory.
 	Present []string
-	// Needs is a directory, relative to the home directory, that must also exist before rtdd
-	// writes this surface, and NeedsNote is the skip note when it does not. Codex reads
-	// skills only in a release that keeps ~/.codex/skills/.
-	Needs, NeedsNote string
 	// Owned is rtdd's own directory, relative to the home directory and slash-separated
 	// with a trailing slash. Everything rtdd writes for the agent is inside it. It is empty
 	// for an agent with no file-based user level.
@@ -36,6 +34,10 @@ type GlobalSurface struct {
 	// level, and Limit is the skip note that says so.
 	Files []GlobalFile
 	Limit string
+	// Retired are directories an earlier rtdd wrote for the agent, relative to the home
+	// directory with a trailing slash. Installing removes them, so the agent never loads two
+	// copies of rtdd.
+	Retired []string
 }
 
 // GlobalFile is one file a GlobalSurface writes.
@@ -72,8 +74,7 @@ func GlobalSurfaces() []GlobalSurface {
 	for _, a := range Agents() {
 		sf := GlobalSurface{
 			Agent: a.Name, Present: a.Present,
-			Needs: a.Needs, NeedsNote: a.NeedsNote,
-			Owned: a.Owned, Files: a.User,
+			Owned: a.Owned, Files: a.User, Retired: a.Retired,
 		}
 		if len(a.User) == 0 && len(a.Limits) > 0 {
 			sf.Limit = a.Limits[0] + "; `rtdd skill prompt` prints a copy to give it"
@@ -135,14 +136,21 @@ func PlanGlobal(home string, files map[string]string, force bool) ([]Step, error
 				})
 			}
 		}
+
+		for _, dir := range sf.Retired {
+			retire, err := planRemoveDir(home, dir, generatedFile(home, dir))
+			if err != nil {
+				return nil, err
+			}
+			steps = append(steps, retire...)
+		}
 	}
 
 	return steps, nil
 }
 
 // globalSkip is the step for a surface rtdd does not write on this machine, or nil when it
-// does: the agent has no file-based user level, is not installed, or is installed without
-// what the surface Needs.
+// does: the agent has no file-based user level, or is not installed.
 func globalSkip(home string, sf GlobalSurface) (*Step, error) {
 	if len(sf.Files) == 0 {
 		return &Step{Path: sf.Present[0], Action: Skip, Note: sf.Limit}, nil
@@ -154,20 +162,11 @@ func globalSkip(home string, sf GlobalSurface) (*Step, error) {
 	if !present {
 		return &Step{Path: sf.Owned, Action: Skip, Note: sf.Agent + " is not installed on this machine"}, nil
 	}
-	if sf.Needs == "" {
-		return nil, nil
-	}
-	switch _, err := os.Stat(filepath.Join(home, filepath.FromSlash(sf.Needs))); {
-	case os.IsNotExist(err):
-		return &Step{Path: sf.Owned, Action: Skip, Note: sf.NeedsNote}, nil
-	case err != nil:
-		return nil, err
-	}
 	return nil, nil
 }
 
 // PlanGlobalUninstall is PlanGlobal's inverse: it removes rtdd's own directory for each
-// agent.
+// agent, and any directory an earlier rtdd wrote for it.
 //
 // It never removes an agent's config directory, only rtdd's own inside it. A file the user
 // put in rtdd's directory is not rtdd's to delete, so then only rtdd's files go and the
@@ -181,35 +180,70 @@ func PlanGlobalUninstall(home string) ([]Step, error) {
 		if sf.Owned == "" {
 			continue
 		}
-		entries, err := os.ReadDir(filepath.Join(home, filepath.FromSlash(sf.Owned)))
-		if os.IsNotExist(err) {
-			steps = append(steps, Step{Path: sf.Owned, Action: Skip, Note: "not present"})
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
 		ours := map[string]bool{}
 		for _, f := range sf.Files {
 			ours[filepath.Base(f.Rel)] = true
 		}
-		foreign := false
-		for _, e := range entries {
-			if !ours[e.Name()] {
-				foreign = true
+		owned, err := planRemoveDir(home, sf.Owned, func(e os.DirEntry) (bool, error) { return ours[e.Name()], nil })
+		if err != nil {
+			return nil, err
+		}
+		if owned == nil {
+			owned = []Step{{Path: sf.Owned, Action: Skip, Note: "not present"}}
+		}
+		steps = append(steps, owned...)
+
+		for _, dir := range sf.Retired {
+			retire, err := planRemoveDir(home, dir, generatedFile(home, dir))
+			if err != nil {
+				return nil, err
 			}
+			steps = append(steps, retire...)
 		}
-		if !foreign {
-			steps = append(steps, Step{Path: sf.Owned, Action: Delete})
-			continue
-		}
-		for _, f := range sf.Files {
-			if _, err := os.Stat(filepath.Join(home, filepath.FromSlash(f.Rel))); err == nil {
-				steps = append(steps, Step{Path: f.Rel, Action: Delete})
-			}
-		}
-		steps = append(steps, Step{Path: sf.Owned, Action: Skip, Note: "kept; it holds files rtdd did not write"})
 	}
 
 	return steps, nil
+}
+
+// planRemoveDir is the steps that remove dir, a home-relative directory rtdd wrote, or nil
+// when it does not exist. ours says whether an entry in it is rtdd's. The directory goes
+// whole when every entry is; otherwise only rtdd's entries go, and a Skip says why the
+// directory stays.
+func planRemoveDir(home, dir string, ours func(os.DirEntry) (bool, error)) ([]Step, error) {
+	entries, err := os.ReadDir(filepath.Join(home, filepath.FromSlash(dir)))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var mine []Step
+	for _, e := range entries {
+		ok, err := ours(e)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			mine = append(mine, Step{Path: dir + e.Name(), Action: Delete})
+		}
+	}
+	if len(mine) == len(entries) {
+		return []Step{{Path: dir, Action: Delete}}, nil
+	}
+	return append(mine, Step{Path: dir, Action: Skip, Note: "kept; it holds files rtdd did not write"}), nil
+}
+
+// generatedFile is planRemoveDir's rule for a Retired directory: an entry is rtdd's when it
+// is a file carrying protocol.Generated, which every whole-file render rtdd wrote carries.
+func generatedFile(home, dir string) func(os.DirEntry) (bool, error) {
+	return func(e os.DirEntry) (bool, error) {
+		if !e.Type().IsRegular() {
+			return false, nil
+		}
+		b, err := os.ReadFile(filepath.Join(home, filepath.FromSlash(dir), e.Name()))
+		if err != nil {
+			return false, err
+		}
+		return strings.Contains(string(b), protocol.Generated), nil
+	}
 }
