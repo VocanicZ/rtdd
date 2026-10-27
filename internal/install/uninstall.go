@@ -77,11 +77,11 @@ func PlanUninstall(root string, opts UninstallOptions) ([]Step, error) {
 
 	// The same table `rtdd init --project-skill` writes from, so the two cannot drift (#549).
 	for _, rel := range sortedKeys(ProjectSkillFiles) {
-		step, err := uninstallWholeFile(root, rel)
+		fileSteps, err := uninstallWholeFile(root, rel)
 		if err != nil {
 			return nil, err
 		}
-		steps = append(steps, step)
+		steps = append(steps, fileSteps...)
 	}
 
 	for _, rel := range []string{"AGENTS.md", "CLAUDE.md"} {
@@ -139,29 +139,31 @@ func PlanUninstall(root string, opts UninstallOptions) ([]Step, error) {
 
 // uninstallWholeFile plans the removal of one ProjectSkillFiles front-end. Only a file that
 // carries protocol.Generated is rtdd's; one without it is the user's and is kept. When it is
-// the only file in rtdd's own directory (.claude/skills/rtdd/), the directory goes with it.
-func uninstallWholeFile(root, rel string) (Step, error) {
+// the only file in rtdd's own directory (.claude/skills/rtdd/), a second step removes the
+// directory it leaves empty.
+func uninstallWholeFile(root, rel string) ([]Step, error) {
 	b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
 	switch {
 	case os.IsNotExist(err):
-		return Step{Path: rel, Action: Skip, Note: "not present"}, nil
+		return []Step{{Path: rel, Action: Skip, Note: "not present"}}, nil
 	case err != nil:
-		return Step{}, err
+		return nil, err
 	}
 	if !strings.Contains(string(b), protocol.Generated) {
-		return Step{Path: rel, Action: Skip, Note: "kept; not written by rtdd"}, nil
+		return []Step{{Path: rel, Action: Skip, Note: "kept; not written by rtdd"}}, nil
 	}
+	steps := []Step{{Path: rel, Action: Delete}}
 	dir := filepath.Dir(rel)
 	if filepath.Base(dir) == "rtdd" {
 		entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(dir)))
 		if err != nil {
-			return Step{}, err
+			return nil, err
 		}
 		if len(entries) == 1 {
-			return Step{Path: filepath.ToSlash(dir) + "/", Action: Delete}, nil
+			steps = append(steps, Step{Path: filepath.ToSlash(dir) + "/", Action: Delete, Note: "empty once the file above is gone"})
 		}
 	}
-	return Step{Path: rel, Action: Delete}, nil
+	return steps, nil
 }
 
 // removeLine drops every line equal to want and preserves the rest exactly.

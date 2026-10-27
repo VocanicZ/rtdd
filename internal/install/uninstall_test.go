@@ -113,20 +113,6 @@ func installedRepo(t *testing.T) string {
 
 // stepFor lives in install_test.go — uninstall asserts on the same Step list.
 
-// frontEndStep is the step PlanUninstall plans for a ProjectSkillFiles path: the file's own,
-// or its rtdd/ directory's when the file is all that directory holds.
-func frontEndStep(t *testing.T, steps []Step, rel string) Step {
-	t.Helper()
-	if dir := filepath.ToSlash(filepath.Dir(rel)); filepath.Base(dir) == "rtdd" {
-		for _, s := range steps {
-			if s.Path == dir+"/" {
-				return s
-			}
-		}
-	}
-	return stepFor(t, steps, rel)
-}
-
 // TestPlanUninstallRemovesExactlyWhatPlanWrites is the symmetry claim: uninstall covers
 // the front-ends and the marker block, which is the whole of what Plan writes outside
 // .rtdd/, and the .gitattributes line a v0.2 init wrote.
@@ -137,8 +123,13 @@ func TestPlanUninstallRemovesExactlyWhatPlanWrites(t *testing.T) {
 		t.Fatalf("PlanUninstall: %v", err)
 	}
 	for _, rel := range sortedKeys(ProjectSkillFiles) {
-		if got := frontEndStep(t, steps, rel).Action; got != Delete {
+		if got := stepFor(t, steps, rel).Action; got != Delete {
 			t.Errorf("%s: action = %v, want Delete", rel, got)
+		}
+	}
+	for _, dir := range []string{".agents/skills/rtdd/", ".claude/skills/rtdd/"} {
+		if got := stepFor(t, steps, dir).Action; got != Delete {
+			t.Errorf("%s: action = %v, want Delete — the file leaves it empty", dir, got)
 		}
 	}
 	if got := stepFor(t, steps, "AGENTS.md").Action; got != StripBlock {
