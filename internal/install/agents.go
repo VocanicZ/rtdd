@@ -47,6 +47,17 @@ func Agents() []Agent {
 			Verified: "verified on Claude Code 2.1.311, 2026-10-27",
 		},
 		{
+			ID: "antigravity", Name: "Antigravity",
+			Present: []string{".gemini/config/"},
+			Owned:   ".gemini/config/skills/rtdd/",
+			User:    []GlobalFile{{Rel: ".gemini/config/skills/rtdd/SKILL.md", Source: protocol.GlobalSkillPath, Marker: protocol.Generated}},
+			Project: []GlobalFile{{Rel: ".agents/skills/rtdd/SKILL.md", Source: "dist/SKILL.md", Marker: protocol.Generated}},
+			Limits: []string{
+				"also reads `GEMINI.md` and `AGENTS.md` as rules; rtdd writes neither",
+			},
+			Verified: "verified on agy 1.1.27, 2026-10-27",
+		},
+		{
 			ID: "codex", Name: "Codex",
 			Present:   []string{".codex/"},
 			Needs:     ".codex/skills",
@@ -56,7 +67,9 @@ func Agents() []Agent {
 		},
 		{
 			ID: "gemini", Name: "Gemini CLI",
-			Present: []string{".gemini/"},
+			// Not .gemini/: Antigravity keeps its configuration in ~/.gemini/config/, and a
+			// machine with only Antigravity must not get a Gemini CLI extension.
+			Present: []string{".gemini/settings.json", ".gemini/oauth_creds.json"},
 			Owned:   ".gemini/extensions/rtdd/",
 			User: []GlobalFile{
 				{Rel: ".gemini/extensions/rtdd/gemini-extension.json", Literal: geminiManifest, Marker: `"name": "rtdd"`},

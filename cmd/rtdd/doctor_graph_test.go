@@ -42,6 +42,7 @@ func TestDoctorReportsTheGraphTestFilesAndOverLinkedNames(t *testing.T) {
 		"  run  8\n" +
 		"agents:\n" +
 		"  Claude Code  not installed\n" +
+		"  Antigravity  not installed\n" +
 		"  Codex  not installed\n" +
 		"  Gemini CLI  not installed\n" +
 		"  Cursor  Cursor's user rules live in its settings, not in a file\n" +

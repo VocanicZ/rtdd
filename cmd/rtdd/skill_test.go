@@ -78,7 +78,8 @@ func TestSkillInstallSucceedsAndCreatesNothingWhenNoAgentIsInstalled(t *testing.
 // #509 acceptance: with a fake HOME, `rtdd skill install` creates only rtdd-owned
 // directories, and ~/.codex/AGENTS.md and ~/.gemini/GEMINI.md are untouched.
 func TestSkillInstallCreatesOnlyRtddOwnedDirectories(t *testing.T) {
-	home := fakeHome(t, ".claude", ".codex/skills/.system", ".gemini")
+	home := fakeHome(t, ".claude", ".codex/skills/.system")
+	writeFile(t, home, ".gemini/settings.json", "{}\n")
 	shared := map[string]string{".codex/AGENTS.md": "# Mine\n\nkeep me\n", ".gemini/GEMINI.md": "# Gemini, mine\n"}
 	for rel, body := range shared {
 		writeFile(t, home, rel, body)

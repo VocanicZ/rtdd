@@ -63,6 +63,7 @@ markers. An agent is listed here only when every row of the feature × agent mat
 | agent | user level | project level (`--project-skill`) | verified | limitations |
 | --- | --- | --- | --- | --- |
 | Claude Code | `~/.claude/skills/rtdd/` | `.claude/skills/rtdd/SKILL.md` | verified on Claude Code 2.1.311, 2026-10-27 | none |
+| Antigravity | `~/.gemini/config/skills/rtdd/` | `.agents/skills/rtdd/SKILL.md` | verified on agy 1.1.27, 2026-10-27 | also reads `GEMINI.md` and `AGENTS.md` as rules; rtdd writes neither |
 | Codex | `~/.codex/skills/rtdd/` | none | not yet verified | written only when `~/.codex/skills/` exists — a Codex without it reads no skills |
 | Gemini CLI | `~/.gemini/extensions/rtdd/` | none | not yet verified | none |
 | Cursor | none | `.cursor/rules/rtdd.mdc` | not yet verified | Cursor's user rules live in its settings, not in a file; `rtdd skill install` says so and `rtdd skill prompt` prints a copy to paste there |
@@ -110,15 +111,17 @@ with `--append-to`.
 | `.rtdd/.gitignore` | `rtdd init` | always; holds `graph.json` |
 | `.rtdd/graph.json` | any command that builds the graph | the rebuildable cache; ignored |
 | `.claude/skills/rtdd/SKILL.md` | `rtdd init --project-skill` | opt-in |
+| `.agents/skills/rtdd/SKILL.md` | `rtdd init --project-skill` | opt-in |
 | `.cursor/rules/rtdd.mdc` | `rtdd init --project-skill` | opt-in |
 | rtdd's block in a file you name | `rtdd init --append-to <file>` | opt-in |
 | `~/.claude/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.claude/` exists |
+| `~/.gemini/config/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.gemini/config/` exists — Antigravity |
 | `~/.codex/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.codex/skills/` exists — a Codex that reads skills |
-| `~/.gemini/extensions/rtdd/gemini-extension.json`, `~/.gemini/extensions/rtdd/GEMINI.md` | `rtdd skill install`, the installer | when `~/.gemini/` exists |
+| `~/.gemini/extensions/rtdd/gemini-extension.json`, `~/.gemini/extensions/rtdd/GEMINI.md` | `rtdd skill install`, the installer | when `~/.gemini/settings.json` or `~/.gemini/oauth_creds.json` exists — Gemini CLI, not an Antigravity-only `~/.gemini/` |
 | the `rtdd` binary | the installer, `rtdd update` | on your PATH, or `--install-dir` |
 
 An agent directory that does not exist is skipped rather than created. `rtdd skill
-uninstall` removes the three `~/` directories rtdd owns; `rtdd uninstall --state` removes
+uninstall` removes every `~/` directory rtdd owns; `rtdd uninstall --state` removes
 `.rtdd/`.
 
 ## The process
