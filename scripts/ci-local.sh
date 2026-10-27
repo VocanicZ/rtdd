@@ -72,7 +72,8 @@ go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' ./internal/ins
 # budget_step runs one wall-clock budget test as its own named step. The `-list` guard
 # keeps a renamed or deleted test from passing as zero executed tests. A budget test skips
 # itself with an INCONCLUSIVE: message when the host is saturated (internal/testenv, #514):
-# a timing taken on an oversubscribed box is not a measurement, so it neither passes nor
+# CPU pressure (PSI `some avg10`) at or above testenv.PSIThreshold, or load1 above the CPU
+# count (#540). A timing taken on an oversubscribed box is not a measurement, so it neither passes nor
 # fails the budget, and the step says so and carries on. A real --- FAIL still fails the
 # gate: the output is captured, not piped, so go test's own exit status decides the step.
 budget_step() {
