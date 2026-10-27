@@ -526,6 +526,24 @@ func rowUninstallAndLegacy(t *testing.T, a matrixAgent) {
 	if after := snapshot(t, home); !reflect.DeepEqual(after, before) {
 		t.Errorf("install then uninstall left %v, want the home exactly as it was %v", slices.Sorted(maps.Keys(after)), slices.Sorted(maps.Keys(before)))
 	}
+	// A file the user wrote at rtdd's own path is not rtdd's: install calls it a conflict,
+	// so uninstall must not delete it either (#550). Only rtdd's marker makes a file rtdd's.
+	for _, u := range a.user {
+		writeFile(t, home, u, userText)
+	}
+	if code, _, stderr := rtdd(t, dir, "skill", "uninstall"); code != 0 {
+		t.Fatalf("rtdd skill uninstall exited %d: %s", code, stderr)
+	}
+	for _, u := range a.user {
+		if got := homeFile(t, home, u); got != userText {
+			t.Errorf("skill uninstall left the user's own %s as %q; want it byte-identical", u, got)
+		}
+	}
+	for _, u := range a.user {
+		if err := os.RemoveAll(filepath.Join(home, filepath.FromSlash(filepath.Dir(u)))); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for _, l := range a.legacy {
 		writeFile(t, home, l, "# my own rules\n\n"+protocol.BeginMarker+"\nold block\n"+protocol.EndMarker+"\n\nkeep me\n")
 	}

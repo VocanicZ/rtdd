@@ -179,11 +179,7 @@ func PlanGlobalUninstall(home string) ([]Step, error) {
 		if sf.Owned == "" {
 			continue
 		}
-		ours := map[string]bool{}
-		for _, f := range sf.Files {
-			ours[filepath.Base(f.Rel)] = true
-		}
-		owned, err := planRemoveDir(home, sf.Owned, func(e os.DirEntry) (bool, error) { return ours[e.Name()], nil })
+		owned, err := planRemoveDir(home, sf.Owned, ownedFile(home, sf))
 		if err != nil {
 			return nil, err
 		}
@@ -230,6 +226,28 @@ func planRemoveDir(home, dir string, ours func(os.DirEntry) (bool, error)) ([]St
 		return []Step{{Path: dir, Action: Delete}}, nil
 	}
 	return append(mine, Step{Path: dir, Action: Skip, Note: "kept; it holds files rtdd did not write"}), nil
+}
+
+// ownedFile is planRemoveDir's rule for a surface's Owned directory: an entry is rtdd's when
+// it is a file named for one of sf.Files and carrying that file's Marker. The name alone is
+// not enough (#550) — PlanGlobal calls an unmarked file at rtdd's path a conflict and will
+// not overwrite it, so uninstalling must not delete it either.
+func ownedFile(home string, sf GlobalSurface) func(os.DirEntry) (bool, error) {
+	markers := map[string]string{}
+	for _, f := range sf.Files {
+		markers[filepath.Base(f.Rel)] = f.Marker
+	}
+	return func(e os.DirEntry) (bool, error) {
+		marker, named := markers[e.Name()]
+		if !named || !e.Type().IsRegular() {
+			return false, nil
+		}
+		b, err := os.ReadFile(filepath.Join(home, filepath.FromSlash(sf.Owned), e.Name()))
+		if err != nil {
+			return false, err
+		}
+		return strings.Contains(string(b), marker), nil
+	}
 }
 
 // generatedFile is planRemoveDir's rule for a Retired directory: an entry is rtdd's when it
