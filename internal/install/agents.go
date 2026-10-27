@@ -108,6 +108,17 @@ func Agents() []Agent {
 			},
 			Verified: "verified on Cursor 2.4, 2026-10-27",
 		},
+		{
+			ID: "opencode", Name: "OpenCode",
+			Present: []string{".config/opencode/"},
+			Owned:   ".config/opencode/skills/rtdd/",
+			User:    []GlobalFile{{Rel: ".config/opencode/skills/rtdd/SKILL.md", Source: protocol.GlobalSkillPath, Marker: protocol.Generated}},
+			Project: []GlobalFile{{Rel: ".agents/skills/rtdd/SKILL.md", Source: "dist/SKILL.md", Marker: protocol.Generated}},
+			Limits: []string{
+				"also reads `~/.claude/skills/` and `~/.agents/skills/`, so it may list rtdd more than once; every copy is the same text",
+			},
+			Verified: "verified on opencode-ai 1.19.4, 2026-10-27",
+		},
 	}
 }
 
