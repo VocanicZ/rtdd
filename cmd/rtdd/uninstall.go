@@ -63,7 +63,11 @@ func cmdUninstall(args []string, stdout, stderr io.Writer) int {
 		return uninstallLegacy(root, *dryRun, stdout, stderr)
 	}
 
-	steps, err := install.PlanUninstall(root, install.UninstallOptions{State: *state})
+	// The home directory is looked up even without --global: run from there, this
+	// repository's front-ends share their paths with the user-level installs (#553). A home
+	// directory that cannot be found cannot be the root either.
+	userHome, _ := homeDir()
+	steps, err := install.PlanUninstall(root, install.UninstallOptions{State: *state, Home: userHome})
 	if err != nil {
 		fmt.Fprintf(stderr, "rtdd uninstall: %v\n", err)
 		return 3
