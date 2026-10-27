@@ -36,6 +36,10 @@ only into directories rtdd owns — never into your `~/.codex/AGENTS.md` or
 
 For any other agent — Cursor, whose user rules live in its settings rather than in a file,
 or anything else — `rtdd skill prompt` prints a self-contained document to hand it.
+An agent that reads only a shared file — an `AGENTS.md`, a `GEMINI.md`, a rules pane in its
+settings — has no directory rtdd can own, so rtdd never writes that file on its own: such an
+agent gets only the explicit opt-in `rtdd init --append-to <file>`, which touches nothing
+outside rtdd's markers.
 
 ```
 rtdd skill install     # (re)install the machine-wide front-ends
