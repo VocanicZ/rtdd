@@ -544,6 +544,29 @@ func rowUninstallAndLegacy(t *testing.T, a matrixAgent) {
 			t.Errorf("--legacy-files changed %s, which no rtdd ever wrote", s)
 		}
 	}
+
+	// The repository level: plain `rtdd uninstall` takes out every project file
+	// `rtdd init --project-skill` wrote for this agent, and the rtdd/ directory it leaves.
+	if len(a.project) == 0 {
+		return
+	}
+	proj := newTestRepo(t)
+	if code, _, stderr := rtdd(t, proj, "init", "--project-skill"); code != 0 {
+		t.Fatalf("rtdd init --project-skill exited %d: %s", code, stderr)
+	}
+	if code, _, stderr := rtdd(t, proj, "uninstall"); code != 0 {
+		t.Fatalf("rtdd uninstall exited %d: %s", code, stderr)
+	}
+	for _, p := range a.project {
+		if _, err := os.Stat(filepath.Join(proj, filepath.FromSlash(p))); !os.IsNotExist(err) {
+			t.Errorf("init --project-skill then uninstall left %s for %s", p, a.name)
+		}
+		if dir := filepath.Dir(p); filepath.Base(dir) == "rtdd" {
+			if _, err := os.Stat(filepath.Join(proj, dir)); !os.IsNotExist(err) {
+				t.Errorf("init --project-skill then uninstall left the directory %s/ for %s", dir, a.name)
+			}
+		}
+	}
 }
 
 // doctorLine is the line of doctor's agents: section that names the agent.

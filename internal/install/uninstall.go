@@ -67,24 +67,21 @@ type UninstallOptions struct {
 
 // PlanUninstall computes what `rtdd uninstall` would do, without touching the filesystem.
 //
-// It is Plan's inverse for the files rtdd knows by name — the two whole-file front-ends
-// `--project-skill` writes and the marker block in AGENTS.md and CLAUDE.md, whichever init
+// It is Plan's inverse for the files rtdd knows by name — every whole-file front-end
+// `--project-skill` writes (ProjectSkillFiles) and the marker block in AGENTS.md and CLAUDE.md, whichever init
 // wrote them — plus the .gitattributes line a v0.2 init wrote. .rtdd/ itself, with
 // .rtdd/.gitignore in it, goes only with --state. The binary is not in this list, because a repository is not where the binary
 // lives.
 func PlanUninstall(root string, opts UninstallOptions) ([]Step, error) {
 	steps := []Step{}
 
-	for _, rel := range []string{".claude/skills/rtdd/SKILL.md", ".cursor/rules/rtdd.mdc"} {
-		abs := filepath.Join(root, filepath.FromSlash(rel))
-		switch _, err := os.Stat(abs); {
-		case os.IsNotExist(err):
-			steps = append(steps, Step{Path: rel, Action: Skip, Note: "not present"})
-		case err != nil:
+	// The same table `rtdd init --project-skill` writes from, so the two cannot drift (#549).
+	for _, rel := range sortedKeys(ProjectSkillFiles) {
+		step, err := uninstallWholeFile(root, rel)
+		if err != nil {
 			return nil, err
-		default:
-			steps = append(steps, Step{Path: rel, Action: Delete})
 		}
+		steps = append(steps, step)
 	}
 
 	for _, rel := range []string{"AGENTS.md", "CLAUDE.md"} {
@@ -138,6 +135,33 @@ func PlanUninstall(root string, opts UninstallOptions) ([]Step, error) {
 	}
 
 	return steps, nil
+}
+
+// uninstallWholeFile plans the removal of one ProjectSkillFiles front-end. Only a file that
+// carries protocol.Generated is rtdd's; one without it is the user's and is kept. When it is
+// the only file in rtdd's own directory (.claude/skills/rtdd/), the directory goes with it.
+func uninstallWholeFile(root, rel string) (Step, error) {
+	b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	switch {
+	case os.IsNotExist(err):
+		return Step{Path: rel, Action: Skip, Note: "not present"}, nil
+	case err != nil:
+		return Step{}, err
+	}
+	if !strings.Contains(string(b), protocol.Generated) {
+		return Step{Path: rel, Action: Skip, Note: "kept; not written by rtdd"}, nil
+	}
+	dir := filepath.Dir(rel)
+	if filepath.Base(dir) == "rtdd" {
+		entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(dir)))
+		if err != nil {
+			return Step{}, err
+		}
+		if len(entries) == 1 {
+			return Step{Path: filepath.ToSlash(dir) + "/", Action: Delete}, nil
+		}
+	}
+	return Step{Path: rel, Action: Delete}, nil
 }
 
 // removeLine drops every line equal to want and preserves the rest exactly.

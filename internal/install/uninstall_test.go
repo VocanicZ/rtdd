@@ -96,8 +96,10 @@ func installedRepo(t *testing.T) string {
 			t.Fatalf("write %s: %v", rel, err)
 		}
 	}
-	write(".claude/skills/rtdd/SKILL.md", "# rtdd\n\nskill body\n")
-	write(".cursor/rules/rtdd.mdc", "cursor rule body\n")
+	// Every front-end carries protocol.Generated, as `rtdd init --project-skill` renders it.
+	for _, rel := range sortedKeys(ProjectSkillFiles) {
+		write(rel, protocol.Generated+"\n\n"+OptInMarker+"\n\nbody\n")
+	}
 	merged, _, err := MergeBlock("# House rules\n\nWritten by the project.\n", testBlock())
 	if err != nil {
 		t.Fatalf("MergeBlock: %v", err)
@@ -111,6 +113,20 @@ func installedRepo(t *testing.T) string {
 
 // stepFor lives in install_test.go — uninstall asserts on the same Step list.
 
+// frontEndStep is the step PlanUninstall plans for a ProjectSkillFiles path: the file's own,
+// or its rtdd/ directory's when the file is all that directory holds.
+func frontEndStep(t *testing.T, steps []Step, rel string) Step {
+	t.Helper()
+	if dir := filepath.ToSlash(filepath.Dir(rel)); filepath.Base(dir) == "rtdd" {
+		for _, s := range steps {
+			if s.Path == dir+"/" {
+				return s
+			}
+		}
+	}
+	return stepFor(t, steps, rel)
+}
+
 // TestPlanUninstallRemovesExactlyWhatPlanWrites is the symmetry claim: uninstall covers
 // the front-ends and the marker block, which is the whole of what Plan writes outside
 // .rtdd/, and the .gitattributes line a v0.2 init wrote.
@@ -120,8 +136,8 @@ func TestPlanUninstallRemovesExactlyWhatPlanWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PlanUninstall: %v", err)
 	}
-	for _, rel := range []string{".claude/skills/rtdd/SKILL.md", ".cursor/rules/rtdd.mdc"} {
-		if got := stepFor(t, steps, rel).Action; got != Delete {
+	for _, rel := range sortedKeys(ProjectSkillFiles) {
+		if got := frontEndStep(t, steps, rel).Action; got != Delete {
 			t.Errorf("%s: action = %v, want Delete", rel, got)
 		}
 	}
@@ -185,13 +201,41 @@ func TestApplyUninstallLeavesTheHostsOwnContent(t *testing.T) {
 	if strings.Contains(string(ga), gitattributesLine) {
 		t.Errorf(".gitattributes still carries rtdd's line: %q", ga)
 	}
-	for _, rel := range []string{".claude/skills/rtdd/SKILL.md", ".cursor/rules/rtdd.mdc"} {
+	for _, rel := range sortedKeys(ProjectSkillFiles) {
 		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); !os.IsNotExist(err) {
 			t.Errorf("%s survived the uninstall", rel)
 		}
 	}
+	for _, dir := range []string{".agents/skills/rtdd", ".claude/skills/rtdd"} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(dir))); !os.IsNotExist(err) {
+			t.Errorf("the emptied directory %s/ survived the uninstall", dir)
+		}
+	}
 	if _, err := os.Stat(filepath.Join(root, ".rtdd", "map.jsonl")); err != nil {
 		t.Errorf("the recorded map was removed without --state: %v", err)
+	}
+}
+
+// TestPlanUninstallKeepsAFrontEndRtddDidNotWrite - a file at a ProjectSkillFiles path
+// without protocol.Generated is the user's, and uninstall leaves it and its directory alone.
+func TestPlanUninstallKeepsAFrontEndRtddDidNotWrite(t *testing.T) {
+	root := installedRepo(t)
+	rel := ".agents/skills/rtdd/SKILL.md"
+	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(rel)), []byte("my own skill\n"), 0o644); err != nil {
+		t.Fatalf("write %s: %v", rel, err)
+	}
+	steps, err := PlanUninstall(root, UninstallOptions{})
+	if err != nil {
+		t.Fatalf("PlanUninstall: %v", err)
+	}
+	if got := stepFor(t, steps, rel); got.Action != Skip || got.Note == "" {
+		t.Errorf("%s: step = %+v, want Skip with a note", rel, got)
+	}
+	if err := ApplyUninstall(root, steps); err != nil {
+		t.Fatalf("ApplyUninstall: %v", err)
+	}
+	if b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel))); err != nil || string(b) != "my own skill\n" {
+		t.Errorf("%s = %q, %v; want the user's file kept", rel, b, err)
 	}
 }
 
