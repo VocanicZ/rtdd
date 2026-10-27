@@ -63,6 +63,11 @@ type UninstallOptions struct {
 	// Off by default: the config may be tuned by hand, and removing the agent front-ends
 	// is not a request to throw it away.
 	State bool
+	// Home is the user's home directory. When the repository root is the home directory —
+	// no repository encloses it, or it is a dotfiles repository — a ProjectSkillFiles path
+	// that is also a user-level install path is `rtdd skill install`'s, and only --global
+	// removes it (#553). Empty means the root is never treated as the home directory.
+	Home string
 }
 
 // PlanUninstall computes what `rtdd uninstall` would do, without touching the filesystem.
@@ -75,8 +80,14 @@ type UninstallOptions struct {
 func PlanUninstall(root string, opts UninstallOptions) ([]Step, error) {
 	steps := []Step{}
 
+	atHome := opts.Home != "" && samePath(root, opts.Home)
+
 	// The same table `rtdd init --project-skill` writes from, so the two cannot drift (#549).
 	for _, rel := range sortedKeys(ProjectSkillFiles) {
+		if atHome && userLevel(rel) {
+			steps = append(steps, Step{Path: rel, Action: Skip, Note: "kept; a user-level install — `rtdd uninstall --global` removes it"})
+			continue
+		}
 		fileSteps, err := uninstallWholeFile(root, rel)
 		if err != nil {
 			return nil, err
@@ -164,6 +175,29 @@ func uninstallWholeFile(root, rel string) ([]Step, error) {
 		}
 	}
 	return steps, nil
+}
+
+// samePath reports whether a and b name the same directory once symlinks are resolved, so
+// a home directory reached through a symlink still counts as the home directory.
+func samePath(a, b string) bool {
+	if ra, err := filepath.EvalSymlinks(a); err == nil {
+		a = ra
+	}
+	if rb, err := filepath.EvalSymlinks(b); err == nil {
+		b = rb
+	}
+	return filepath.Clean(a) == filepath.Clean(b)
+}
+
+// userLevel reports whether rel, slash-separated and relative to the home directory, lies in
+// a GlobalSurface's Owned directory: a path `rtdd skill install` writes.
+func userLevel(rel string) bool {
+	for _, sf := range GlobalSurfaces() {
+		if sf.Owned != "" && strings.HasPrefix(rel, sf.Owned) {
+			return true
+		}
+	}
+	return false
 }
 
 // removeLine drops every line equal to want and preserves the rest exactly.
