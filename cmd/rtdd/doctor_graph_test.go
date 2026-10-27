@@ -49,6 +49,7 @@ func TestDoctorReportsTheGraphTestFilesAndOverLinkedNames(t *testing.T) {
 		"  Cursor  not installed\n" +
 		"  OpenCode  not installed\n" +
 		"  Zcode  not installed\n" +
+		"  Hermes Agent  not installed\n" +
 		"legacy files (an older rtdd wrote them outside .rtdd/):\n" +
 		"  none\n"
 	if out != want {

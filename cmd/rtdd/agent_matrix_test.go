@@ -83,6 +83,12 @@ var matrixAgents = []matrixAgent{
 		id: "zcode", name: "Zcode", present: []string{".zcode/"},
 		user: []string{".zcode/skills/rtdd/SKILL.md"},
 	},
+	{
+		id: "hermes", name: "Hermes Agent", present: []string{".hermes/"},
+		user:    []string{".hermes/skills/rtdd/SKILL.md"},
+		project: []string{".agents/skills/rtdd/SKILL.md"},
+		shared:  []string{".hermes/config.yaml"},
+	},
 }
 
 // matrixRows are PRD #511's "Features every agent must pass", one function each.
@@ -133,6 +139,7 @@ var verifiedOn = map[string]string{
 	"cursor":      "verified on Cursor 2.4, 2026-10-27",
 	"opencode":    "verified on opencode-ai 1.19.4, 2026-10-27",
 	"zcode":       "verified on ZCode 3.16.3, 2026-10-27",
+	"hermes":      "verified on Hermes Agent v0.22.5, 2026-10-27",
 }
 
 func TestEveryVerifiedColumnSaysSo(t *testing.T) {
@@ -229,6 +236,17 @@ func TestZcodeHasNoProjectSurface(t *testing.T) {
 	home := fakeHome(t, ".zcode")
 	rtdd(t, t.TempDir(), "skill", "install")
 	homeFile(t, home, ".zcode/skills/rtdd/SKILL.md")
+}
+
+// ~/.hermes/config.yaml is the user's; the skills directory needs no entry in it.
+func TestSkillInstallLeavesHermesConfigAlone(t *testing.T) {
+	home := fakeHome(t, ".hermes")
+	writeFile(t, home, ".hermes/config.yaml", "skills:\n  external_dirs: []\n")
+	rtdd(t, t.TempDir(), "skill", "install")
+	if got := homeFile(t, home, ".hermes/config.yaml"); got != "skills:\n  external_dirs: []\n" {
+		t.Errorf("rtdd skill install changed ~/.hermes/config.yaml:\n%s", got)
+	}
+	homeFile(t, home, ".hermes/skills/rtdd/SKILL.md")
 }
 
 func TestSkillInstallNeverWritesCopilotInstructions(t *testing.T) {

@@ -130,6 +130,17 @@ func Agents() []Agent {
 			},
 			Verified: "verified on ZCode 3.16.3, 2026-10-27",
 		},
+		{
+			ID: "hermes", Name: "Hermes Agent",
+			Present: []string{".hermes/"},
+			Owned:   ".hermes/skills/rtdd/",
+			User:    []GlobalFile{{Rel: ".hermes/skills/rtdd/SKILL.md", Source: protocol.GlobalSkillPath, Marker: protocol.Generated}},
+			Project: []GlobalFile{{Rel: ".agents/skills/rtdd/SKILL.md", Source: "dist/SKILL.md", Marker: protocol.Generated}},
+			Limits: []string{
+				"the project skill loads only after `hermes skills trust`, which rtdd never runs",
+			},
+			Verified: "verified on Hermes Agent v0.22.5, 2026-10-27",
+		},
 	}
 }
 
