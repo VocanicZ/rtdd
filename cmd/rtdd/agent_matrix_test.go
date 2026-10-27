@@ -49,9 +49,11 @@ var matrixAgents = []matrixAgent{
 		shared:  []string{".gemini/GEMINI.md"},
 	},
 	{
-		id: "codex", name: "Codex", present: []string{".codex/skills/"},
-		user:   []string{".codex/skills/rtdd/SKILL.md"},
-		shared: []string{".codex/AGENTS.md"}, legacy: []string{".codex/AGENTS.md"},
+		id: "codex", name: "Codex", present: []string{".codex/"},
+		user:    []string{".agents/skills/rtdd/SKILL.md"},
+		project: []string{".agents/skills/rtdd/SKILL.md"},
+		shared:  []string{".codex/AGENTS.md"},
+		legacy:  []string{".codex/AGENTS.md"},
 	},
 	{
 		id: "gemini", name: "Gemini CLI", present: []string{".gemini/settings.json"},
@@ -107,6 +109,7 @@ func TestAgentMatrixColumnsAreTheAgentsTable(t *testing.T) {
 var verifiedOn = map[string]string{
 	"claude":      "verified on Claude Code 2.1.311, 2026-10-27",
 	"antigravity": "verified on agy 1.1.27, 2026-10-27",
+	"codex":       "verified on codex-cli 0.154.0, 2026-10-27",
 }
 
 func TestEveryVerifiedColumnSaysSo(t *testing.T) {
@@ -146,6 +149,61 @@ func TestSkillInstallForAntigravityAloneWritesNoGeminiExtension(t *testing.T) {
 	}
 	if got := homeFile(t, home, ".gemini/config/skills/rtdd/SKILL.md"); !strings.Contains(got, "name: rtdd") {
 		t.Errorf("Antigravity's skill is not the rtdd skill:\n%s", got)
+	}
+}
+
+// v0.3.0 wrote ~/.codex/skills/rtdd/. Installing now moves rtdd's render to
+// ~/.agents/skills/rtdd/ and removes the old copy, so Codex never loads two — but a file
+// the user put there is theirs, and it and its directory stay.
+func TestSkillInstallRetiresTheOldCodexSkillDirectory(t *testing.T) {
+	home := fakeHome(t, ".codex")
+	writeFile(t, home, ".codex/skills/rtdd/SKILL.md", protocol.Generated+"\nv0.3.0's skill\n")
+	if code, _, stderr := rtdd(t, t.TempDir(), "skill", "install"); code != 0 {
+		t.Fatalf("rtdd skill install exited %d: %s", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".codex", "skills", "rtdd")); !os.IsNotExist(err) {
+		t.Errorf("the old ~/.codex/skills/rtdd/ is still there (err %v)", err)
+	}
+	homeFile(t, home, ".agents/skills/rtdd/SKILL.md")
+
+	home = fakeHome(t, ".codex")
+	writeFile(t, home, ".codex/skills/rtdd/SKILL.md", protocol.Generated+"\nv0.3.0's skill\n")
+	writeFile(t, home, ".codex/skills/rtdd/notes.md", "mine\n")
+	_, stdout, _ := rtdd(t, t.TempDir(), "skill", "install")
+	if homeFile(t, home, ".codex/skills/rtdd/notes.md") != "mine\n" {
+		t.Error("a file the user put in the old directory was not kept")
+	}
+	if !strings.Contains(stdout, "kept; it holds files rtdd did not write") {
+		t.Errorf("the output does not say why the old directory stayed:\n%s", stdout)
+	}
+}
+
+// The install that removes the old directory does not also report it as footprint for
+// `rtdd uninstall --legacy-files` to remove: by the time the user reads that, it is gone.
+func TestSkillInstallDoesNotReportTheDirectoryItRetiresAsLegacy(t *testing.T) {
+	home := fakeHome(t, ".codex")
+	writeFile(t, home, ".codex/skills/rtdd/SKILL.md", protocol.Generated+"\nv0.3.0's skill\n")
+	_, stdout, _ := rtdd(t, t.TempDir(), "skill", "install")
+	if !strings.Contains(stdout, "delete         .codex/skills/rtdd/") {
+		t.Errorf("the output does not say the old directory is removed:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "legacy") {
+		t.Errorf("the output reports the directory it removes as legacy:\n%s", stdout)
+	}
+}
+
+// `rtdd update` retires the old directory too, and says it removed it rather than that it
+// refreshed it.
+func TestRefreshGlobalSkillSaysItRemovedTheOldCodexSkill(t *testing.T) {
+	home := fakeHome(t, ".codex")
+	writeFile(t, home, ".codex/skills/rtdd/SKILL.md", protocol.Generated+"\nv0.3.0's skill\n")
+	var out, errb strings.Builder
+	refreshGlobalSkill(&out, &errb)
+	if _, err := os.Stat(filepath.Join(home, ".codex", "skills", "rtdd")); !os.IsNotExist(err) {
+		t.Errorf("rtdd update left the old ~/.codex/skills/rtdd/ (err %v)", err)
+	}
+	if !strings.Contains(out.String(), "removed an older release's agent skill at .codex/skills/rtdd/") {
+		t.Errorf("rtdd update's output does not say it removed the old skill:\n%s", out.String())
 	}
 }
 

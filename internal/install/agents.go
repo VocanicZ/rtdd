@@ -20,16 +20,15 @@ type Agent struct {
 	// Present: home-relative paths, any one of which existing means the agent is installed.
 	// A trailing slash is a directory.
 	Present []string
-	// Needs and NeedsNote: a further home-relative directory the user surface requires, and
-	// the skip note when it is absent. Codex reads skills only in a release that keeps
-	// ~/.codex/skills/.
-	Needs, NeedsNote string
 	// Owned: rtdd's user-level directory, home-relative with a trailing slash; "" when User
 	// is empty.
 	Owned   string
 	User    []GlobalFile // `rtdd skill install`; empty: no file-based user level
 	Project []GlobalFile // `rtdd init --project-skill`; Rel is repo-relative
 	Limits  []string     // one sentence each: the skip note, doctor's line, the README cell
+	// Retired: home-relative directories, trailing slash, an earlier rtdd wrote for this
+	// agent and this one removes.
+	Retired []string
 	// Verified: "verified on <tool> <version>, <YYYY-MM-DD>"; "" until the agent is checked
 	// against a release of its tool.
 	Verified string
@@ -59,11 +58,16 @@ func Agents() []Agent {
 		},
 		{
 			ID: "codex", Name: "Codex",
-			Present:   []string{".codex/"},
-			Needs:     ".codex/skills",
-			NeedsNote: "this Codex keeps no ~/.codex/skills/, so it reads no skills; rtdd never writes ~/.codex/AGENTS.md — `rtdd skill prompt` prints a copy to give it",
-			Owned:     ".codex/skills/rtdd/",
-			User:      []GlobalFile{{Rel: ".codex/skills/rtdd/SKILL.md", Source: protocol.GlobalSkillPath, Marker: protocol.Generated}},
+			Present: []string{".codex/"},
+			Owned:   ".agents/skills/rtdd/",
+			User:    []GlobalFile{{Rel: ".agents/skills/rtdd/SKILL.md", Source: protocol.GlobalSkillPath, Marker: protocol.Generated}},
+			Project: []GlobalFile{{Rel: ".agents/skills/rtdd/SKILL.md", Source: "dist/SKILL.md", Marker: protocol.Generated}},
+			// v0.3.0 wrote ~/.codex/skills/rtdd/, which Codex's documentation no longer names.
+			Retired: []string{".codex/skills/rtdd/"},
+			Limits: []string{
+				"`~/.agents/skills/` is shared with other agents; `rtdd skill uninstall` removes rtdd's copy for all of them",
+			},
+			Verified: "verified on codex-cli 0.154.0, 2026-10-27",
 		},
 		{
 			ID: "gemini", Name: "Gemini CLI",

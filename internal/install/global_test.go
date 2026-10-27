@@ -118,7 +118,7 @@ func TestPlanGlobalWritesOnlyRtddOwnedDirectories(t *testing.T) {
 			t.Errorf("~/%s = %q after install, want it byte-identical %q", rel, got, body)
 		}
 	}
-	owned := []string{".claude/skills/rtdd/", ".codex/skills/rtdd/", ".gemini/extensions/rtdd/"}
+	owned := []string{".claude/skills/rtdd/", ".agents/skills/rtdd/", ".gemini/extensions/rtdd/"}
 	var created []string
 	for _, f := range repoFiles(t, home) {
 		if before[f] {
@@ -134,8 +134,8 @@ func TestPlanGlobalWritesOnlyRtddOwnedDirectories(t *testing.T) {
 		}
 	}
 	want := []string{
+		".agents/skills/rtdd/SKILL.md",
 		".claude/skills/rtdd/SKILL.md",
-		".codex/skills/rtdd/SKILL.md",
 		".gemini/extensions/rtdd/GEMINI.md",
 		".gemini/extensions/rtdd/gemini-extension.json",
 	}
@@ -144,23 +144,24 @@ func TestPlanGlobalWritesOnlyRtddOwnedDirectories(t *testing.T) {
 	}
 }
 
-// A Codex without a skills directory reads no skills; rtdd skips it, says why, and never
-// falls back to the shared ~/.codex/AGENTS.md.
-func TestPlanGlobalSkipsACodexWithNoSkillsDirectory(t *testing.T) {
+// Codex reads skills from the ~/.agents/skills/ it shares with other agents, not from
+// ~/.codex/skills/: a home with .codex/ and no .codex/skills/ gets rtdd's skill there, and
+// never the shared ~/.codex/AGENTS.md.
+func TestPlanGlobalWritesCodexToTheSharedAgentsDirectory(t *testing.T) {
 	home := homeWith(t, ".codex")
 	steps, err := PlanGlobal(home, globalFiles(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := stepFor(t, steps, ".codex/skills/rtdd/")
-	if s.Action != Skip || !strings.Contains(s.Note, "~/.codex/skills/") || !strings.Contains(s.Note, "never writes ~/.codex/AGENTS.md") {
-		t.Errorf("codex step = %v %q, want a skip naming the missing skills directory", s.Action, s.Note)
+	const rel = ".agents/skills/rtdd/SKILL.md"
+	if s := stepFor(t, steps, rel); s.Action != Create {
+		t.Errorf("%s: action = %v, want create", rel, s.Action)
 	}
 	if err := Apply(home, steps); err != nil {
 		t.Fatal(err)
 	}
-	if got := repoFiles(t, home); len(got) != 0 {
-		t.Errorf("install wrote %v into a home whose Codex reads no skills", got)
+	if got := repoFiles(t, home); strings.Join(got, ",") != rel {
+		t.Errorf("install wrote %v, want only %s", got, rel)
 	}
 }
 
@@ -254,7 +255,7 @@ func TestPlanGlobalUninstallRestoresTheHostsFiles(t *testing.T) {
 		t.Fatalf("ApplyUninstall: %v", err)
 	}
 
-	for _, dir := range []string{".claude/skills/rtdd", ".codex/skills/rtdd", ".gemini/extensions/rtdd"} {
+	for _, dir := range []string{".claude/skills/rtdd", ".agents/skills/rtdd", ".gemini/extensions/rtdd"} {
 		if _, err := os.Stat(filepath.Join(home, filepath.FromSlash(dir))); !os.IsNotExist(err) {
 			t.Errorf("uninstall left ~/%s behind", dir)
 		}
@@ -285,6 +286,32 @@ func TestPlanGlobalUninstallKeepsADirectoryHoldingAForeignFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := repoFiles(t, home); strings.Join(got, ",") != ".claude/skills/rtdd/notes.md" {
+		t.Errorf("home after uninstall holds %v, want only the user's notes.md", got)
+	}
+}
+
+// Uninstalling removes a directory an earlier rtdd wrote too, by PlanGlobal's rule for it:
+// whole when every file in it is rtdd's render, and otherwise only rtdd's files.
+func TestPlanGlobalUninstallRemovesARetiredDirectory(t *testing.T) {
+	home := homeWith(t)
+	writeAt(t, home, ".codex/skills/rtdd/SKILL.md", protocol.Generated+"\nv0.3.0's skill\n")
+	undo, err := PlanGlobalUninstall(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := stepFor(t, undo, ".codex/skills/rtdd/"); s.Action != Delete {
+		t.Errorf("retired directory step = %v, want delete", s.Action)
+	}
+
+	writeAt(t, home, ".codex/skills/rtdd/notes.md", "mine\n")
+	undo, err = PlanGlobalUninstall(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyUninstall(home, undo); err != nil {
+		t.Fatal(err)
+	}
+	if got := repoFiles(t, home); strings.Join(got, ",") != ".codex/skills/rtdd/notes.md" {
 		t.Errorf("home after uninstall holds %v, want only the user's notes.md", got)
 	}
 }

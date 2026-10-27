@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/VocanicZ/rtdd/internal/install"
 	"github.com/VocanicZ/rtdd/internal/protocol"
 )
 
@@ -105,7 +106,7 @@ func TestSkillInstallCreatesOnlyRtddOwnedDirectories(t *testing.T) {
 			created = append(created, f)
 		}
 	}
-	want := ".claude/skills/rtdd/SKILL.md,.codex/skills/rtdd/SKILL.md,.gemini/extensions/rtdd/GEMINI.md,.gemini/extensions/rtdd/gemini-extension.json"
+	want := ".agents/skills/rtdd/SKILL.md,.claude/skills/rtdd/SKILL.md,.gemini/extensions/rtdd/GEMINI.md,.gemini/extensions/rtdd/gemini-extension.json"
 	if strings.Join(created, ",") != want {
 		t.Errorf("install created %v, want %s", created, want)
 	}
@@ -245,6 +246,25 @@ func TestRefreshGlobalSkillRewritesAnOlderReleasesSkill(t *testing.T) {
 	}
 }
 
+// unplannedLegacy keeps every piece of footprint the plan leaves in place and drops the one
+// it deletes.
+func TestUnplannedLegacyDropsWhatThePlanDeletes(t *testing.T) {
+	home := fakeHome(t, ".codex")
+	writeFile(t, home, ".codex/skills/rtdd/SKILL.md", protocol.Generated+"\nv0.3.0's skill\n")
+	writeFile(t, home, ".codex/AGENTS.md", "# Mine\n\n"+protocol.BeginMarker+"\nold\n"+protocol.EndMarker+"\n")
+	var all []string
+	for _, l := range globalLegacy() {
+		all = append(all, l.Path)
+	}
+	if strings.Join(all, ",") != "~/.codex/AGENTS.md,~/.codex/skills/rtdd/" {
+		t.Fatalf("globalLegacy = %v, want the AGENTS.md block and the retired directory", all)
+	}
+	got := unplannedLegacy([]install.Step{{Path: ".codex/skills/rtdd/", Action: install.Delete}})
+	if len(got) != 1 || got[0].Path != "~/.codex/AGENTS.md" {
+		t.Errorf("unplannedLegacy = %+v, want only ~/.codex/AGENTS.md", got)
+	}
+}
+
 // The refresh runs from `rtdd update`, which has already replaced the binary by the time it
 // is called. A home directory it cannot write must not turn a successful update into a
 // failure — the update DID happen, and saying otherwise would send the user to re-run it.
@@ -264,7 +284,7 @@ func TestUninstallGlobalDryRunPrintsThePlanAndChangesNothing(t *testing.T) {
 	// Codex, not Claude Code: the repo-scoped plan already lists
 	// ".claude/skills/rtdd/SKILL.md" as a path relative to the REPOSITORY, so asserting on
 	// that string cannot tell the machine-wide half of the plan from the repo half.
-	// ".codex/skills/rtdd/" appears only in the machine-wide plan.
+	// ".agents/skills/rtdd/" appears only in the machine-wide plan.
 	home := fakeHome(t, ".codex/skills")
 	dir := newTestRepo(t)
 	if code, _, stderr := rtdd(t, dir, "skill", "install"); code != 0 {
@@ -275,10 +295,10 @@ func TestUninstallGlobalDryRunPrintsThePlanAndChangesNothing(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr)
 	}
-	if !strings.Contains(stdout, ".codex/skills/rtdd/") {
+	if !strings.Contains(stdout, ".agents/skills/rtdd/") {
 		t.Errorf("--dry-run --global did not print the machine-wide plan:\n%s", stdout)
 	}
-	if _, err := os.Stat(filepath.Join(home, filepath.FromSlash(".codex/skills/rtdd/SKILL.md"))); err != nil {
+	if _, err := os.Stat(filepath.Join(home, filepath.FromSlash(".agents/skills/rtdd/SKILL.md"))); err != nil {
 		t.Errorf("--dry-run removed the global front-end: %v", err)
 	}
 }

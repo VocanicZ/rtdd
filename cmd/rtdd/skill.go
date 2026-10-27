@@ -87,7 +87,7 @@ func cmdSkillInstall(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "rtdd skill install: %v\n", err)
 		return 2
 	}
-	fmt.Fprint(stdout, RenderInit(append(steps, globalLegacy()...)))
+	fmt.Fprint(stdout, RenderInit(append(steps, unplannedLegacy(steps)...)))
 
 	if *dryRun {
 		fmt.Fprintln(stdout, "\ndry run — nothing was changed")
@@ -236,8 +236,31 @@ func refreshGlobalSkill(stdout, stderr io.Writer) {
 		return
 	}
 	for _, s := range kept {
-		if s.Action != install.Skip {
+		switch s.Action {
+		case install.Skip:
+		case install.Delete:
+			fmt.Fprintf(stdout, "removed an older release's agent skill at %s\n", s.Path)
+		default:
 			fmt.Fprintf(stdout, "refreshed the agent skill at %s\n", s.Path)
 		}
 	}
+}
+
+// unplannedLegacy is globalLegacy less what steps already delete: install retires an older
+// release's directory itself, and reporting it as footprint to remove would be stale by the
+// time the user read it.
+func unplannedLegacy(steps []install.Step) []install.Step {
+	deleted := map[string]bool{}
+	for _, s := range steps {
+		if s.Action == install.Delete {
+			deleted["~/"+s.Path] = true
+		}
+	}
+	var out []install.Step
+	for _, l := range globalLegacy() {
+		if !deleted[l.Path] {
+			out = append(out, l)
+		}
+	}
+	return out
 }
