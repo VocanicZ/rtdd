@@ -86,6 +86,17 @@ func Agents() []Agent {
 			Verified: "verified on Gemini CLI 0.65.0, 2026-10-27",
 		},
 		{
+			ID: "copilot", Name: "Copilot CLI",
+			Present: []string{".copilot/"},
+			Owned:   ".copilot/skills/rtdd/",
+			User:    []GlobalFile{{Rel: ".copilot/skills/rtdd/SKILL.md", Source: protocol.GlobalSkillPath, Marker: protocol.Generated}},
+			Project: []GlobalFile{{Rel: ".agents/skills/rtdd/SKILL.md", Source: "dist/SKILL.md", Marker: protocol.Generated}},
+			Limits: []string{
+				"a `COPILOT_HOME` other than `~/.copilot` is not followed; set `RTDD_HOME` to its parent",
+			},
+			Verified: "verified on @github/copilot 1.0.104, 2026-10-27",
+		},
+		{
 			ID: "cursor", Name: "Cursor",
 			Present: []string{".cursor/"},
 			Project: []GlobalFile{{Rel: ".cursor/rules/rtdd.mdc", Source: "dist/cursor/rules/rtdd.mdc", Marker: protocol.Generated}},
