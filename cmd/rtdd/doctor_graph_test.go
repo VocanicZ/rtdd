@@ -46,7 +46,7 @@ func TestDoctorReportsTheGraphTestFilesAndOverLinkedNames(t *testing.T) {
 		"  Codex  not installed\n" +
 		"  Gemini CLI  not installed\n" +
 		"  Copilot CLI  not installed\n" +
-		"  Cursor  Cursor's user rules live in its settings, not in a file\n" +
+		"  Cursor  not installed\n" +
 		"legacy files (an older rtdd wrote them outside .rtdd/):\n" +
 		"  none\n"
 	if out != want {

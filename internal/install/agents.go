@@ -99,8 +99,14 @@ func Agents() []Agent {
 		{
 			ID: "cursor", Name: "Cursor",
 			Present: []string{".cursor/"},
+			Owned:   ".cursor/skills/rtdd/",
+			User:    []GlobalFile{{Rel: ".cursor/skills/rtdd/SKILL.md", Source: protocol.GlobalSkillPath, Marker: protocol.Generated}},
 			Project: []GlobalFile{{Rel: ".cursor/rules/rtdd.mdc", Source: "dist/cursor/rules/rtdd.mdc", Marker: protocol.Generated}},
-			Limits:  []string{"Cursor's user rules live in its settings, not in a file"},
+			Limits: []string{
+				"User Rules live in Cursor's settings and are not written",
+				"the `agent` CLI reading `~/.cursor/skills/` is unverified",
+			},
+			Verified: "verified on Cursor 2.4, 2026-10-27",
 		},
 	}
 }

@@ -65,10 +65,9 @@ const geminiManifest = `{
 // GlobalSurfaces is the machine-wide front-ends, one per Agents() row, in the order they
 // are reported.
 //
-// An agent with no file-based user level — Cursor, whose User Rules live inside the
-// application's settings — still has a surface, with no files: rtdd has nothing to write for
-// it, and says so rather than skipping it silently. `rtdd skill prompt` is the answer for it
-// and for every agent not in the table.
+// An agent with no file-based user level still has a surface, with no files: rtdd has
+// nothing to write for it, and says so rather than skipping it silently. `rtdd skill prompt`
+// is the answer for it and for every agent not in the table.
 func GlobalSurfaces() []GlobalSurface {
 	var out []GlobalSurface
 	for _, a := range Agents() {

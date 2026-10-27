@@ -70,8 +70,8 @@ var matrixAgents = []matrixAgent{
 	},
 	{
 		id: "cursor", name: "Cursor", present: []string{".cursor/"},
+		user:    []string{".cursor/skills/rtdd/SKILL.md"},
 		project: []string{".cursor/rules/rtdd.mdc"},
-		limit:   "user rules live in its settings",
 	},
 }
 
@@ -120,6 +120,7 @@ var verifiedOn = map[string]string{
 	"codex":       "verified on codex-cli 0.154.0, 2026-10-27",
 	"gemini":      "verified on Gemini CLI 0.65.0, 2026-10-27",
 	"copilot":     "verified on @github/copilot 1.0.104, 2026-10-27",
+	"cursor":      "verified on Cursor 2.4, 2026-10-27",
 }
 
 func TestEveryVerifiedColumnSaysSo(t *testing.T) {
@@ -178,6 +179,22 @@ func TestGeminiExtensionManifestNamesItsContextFile(t *testing.T) {
 		t.Errorf("manifest = %+v, want name rtdd, a version, contextFileName GEMINI.md", m)
 	}
 	homeFile(t, home, ".gemini/extensions/rtdd/"+m.ContextFileName)
+}
+
+// Cursor 2.4 reads ~/.cursor/skills/; installing writes rtdd's skill there and no rule
+// file, because User Rules are not files.
+func TestCursorGetsAUserLevelSkill(t *testing.T) {
+	home := fakeHome(t, ".cursor")
+	_, stdout, _ := rtdd(t, t.TempDir(), "skill", "install")
+	if got := homeFile(t, home, ".cursor/skills/rtdd/SKILL.md"); !strings.Contains(got, "name: rtdd") {
+		t.Errorf("Cursor's user skill is not the rtdd skill:\n%s", got)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".cursor", "rules")); !os.IsNotExist(err) {
+		t.Error("rtdd skill install created ~/.cursor/rules/")
+	}
+	if strings.Contains(stdout, "user rules live in its settings") {
+		t.Errorf("the install still reports Cursor as having no user level:\n%s", stdout)
+	}
 }
 
 // Copilot's instruction files are the user's; rtdd's way in is the skills directory.

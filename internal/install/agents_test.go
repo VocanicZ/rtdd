@@ -56,8 +56,12 @@ func TestAgentStatusReadsTheHome(t *testing.T) {
 	for _, s := range states {
 		got[s.Agent.ID] = s.State
 	}
-	if got["claude"] != "present" || got["codex"] != "absent" || got["cursor"] != "limited" {
-		t.Errorf("AgentStatus = %v, want claude present, codex absent, cursor limited", got)
+	if got["claude"] != "present" || got["codex"] != "absent" || got["cursor"] != "absent" {
+		t.Errorf("AgentStatus = %v, want claude present, codex absent, cursor absent", got)
+	}
+	// No row is limited today; one with no file-based user level still says so.
+	if state, err := agentState(home, Agent{ID: "x", Present: []string{".claude/"}, Limits: []string{"no user level"}}); err != nil || state != "limited" {
+		t.Errorf("agentState of an agent with no User = %q, %v; want limited", state, err)
 	}
 	steps, _ := PlanGlobal(home, globalFiles(), false)
 	if err := Apply(home, steps); err != nil {
