@@ -13,7 +13,9 @@ import (
 // globalFiles is what install.Files() returns, reduced to the two keys PlanGlobal reads.
 func globalFiles() map[string]string {
 	return map[string]string{
-		protocol.GlobalSkillPath: "GLOBAL SKILL BODY\n",
+		// Every real render carries protocol.Generated, and uninstall removes a file only
+		// when it does (#550).
+		protocol.GlobalSkillPath: protocol.Generated + "\nGLOBAL SKILL BODY\n",
 		protocol.GlobalAgentsPath: protocol.BeginMarker + "\n## rtdd\n\nglobal block\n" +
 			protocol.EndMarker + "\n",
 	}
@@ -276,7 +278,7 @@ func TestPlanGlobalUninstallRestoresTheHostsFiles(t *testing.T) {
 // directory stays.
 func TestPlanGlobalUninstallKeepsADirectoryHoldingAForeignFile(t *testing.T) {
 	home := homeWith(t, ".claude/skills/rtdd")
-	writeAt(t, home, ".claude/skills/rtdd/SKILL.md", "skill\n")
+	writeAt(t, home, ".claude/skills/rtdd/SKILL.md", protocol.Generated+"\nskill\n")
 	writeAt(t, home, ".claude/skills/rtdd/notes.md", "mine\n")
 	undo, err := PlanGlobalUninstall(home)
 	if err != nil {
