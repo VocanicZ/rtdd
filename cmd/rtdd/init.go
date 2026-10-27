@@ -4,7 +4,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
+	"slices"
+	"strings"
 
 	"github.com/VocanicZ/rtdd/internal/gitctx"
 	"github.com/VocanicZ/rtdd/internal/install"
@@ -42,7 +45,7 @@ func cmdInit(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	dryRun := fs.Bool("dry-run", false, "print the plan and change nothing")
 	var opts install.PlanOptions
-	fs.BoolVar(&opts.ProjectSkill, "project-skill", false, "also write the Claude Code skill and the Cursor rule into the repository")
+	fs.BoolVar(&opts.ProjectSkill, "project-skill", false, "also write every agent's project skill into the repository: "+strings.Join(slices.Sorted(maps.Keys(install.ProjectSkillFiles)), ", "))
 	fs.Func("append-to", "also merge rtdd's marker block into this shared file (repeatable)", func(v string) error {
 		opts.AppendTo = append(opts.AppendTo, v)
 		return nil
