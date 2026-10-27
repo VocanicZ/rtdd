@@ -57,8 +57,10 @@ var matrixAgents = []matrixAgent{
 	},
 	{
 		id: "gemini", name: "Gemini CLI", present: []string{".gemini/settings.json"},
-		user:   []string{".gemini/extensions/rtdd/GEMINI.md", ".gemini/extensions/rtdd/gemini-extension.json"},
-		shared: []string{".gemini/GEMINI.md"}, legacy: []string{".gemini/GEMINI.md"},
+		user:    []string{".gemini/extensions/rtdd/GEMINI.md", ".gemini/extensions/rtdd/gemini-extension.json"},
+		project: []string{".agents/skills/rtdd/SKILL.md"},
+		shared:  []string{".gemini/GEMINI.md"},
+		legacy:  []string{".gemini/GEMINI.md"},
 	},
 	{
 		id: "cursor", name: "Cursor", present: []string{".cursor/"},
@@ -110,6 +112,7 @@ var verifiedOn = map[string]string{
 	"claude":      "verified on Claude Code 2.1.311, 2026-10-27",
 	"antigravity": "verified on agy 1.1.27, 2026-10-27",
 	"codex":       "verified on codex-cli 0.154.0, 2026-10-27",
+	"gemini":      "verified on Gemini CLI 0.65.0, 2026-10-27",
 }
 
 func TestEveryVerifiedColumnSaysSo(t *testing.T) {
@@ -150,6 +153,24 @@ func TestSkillInstallForAntigravityAloneWritesNoGeminiExtension(t *testing.T) {
 	if got := homeFile(t, home, ".gemini/config/skills/rtdd/SKILL.md"); !strings.Contains(got, "name: rtdd") {
 		t.Errorf("Antigravity's skill is not the rtdd skill:\n%s", got)
 	}
+}
+
+// Gemini CLI reads the extension's context file by the manifest's contextFileName; a
+// manifest naming any other file would load an extension with no instructions in it.
+func TestGeminiExtensionManifestNamesItsContextFile(t *testing.T) {
+	home := fakeHome(t)
+	writeFile(t, home, ".gemini/settings.json", "{}\n")
+	if code, _, stderr := rtdd(t, t.TempDir(), "skill", "install"); code != 0 {
+		t.Fatalf("rtdd skill install exited %d: %s", code, stderr)
+	}
+	var m struct{ Name, Version, ContextFileName string }
+	if err := json.Unmarshal([]byte(homeFile(t, home, ".gemini/extensions/rtdd/gemini-extension.json")), &m); err != nil {
+		t.Fatal(err)
+	}
+	if m.Name != "rtdd" || m.ContextFileName != "GEMINI.md" || m.Version == "" {
+		t.Errorf("manifest = %+v, want name rtdd, a version, contextFileName GEMINI.md", m)
+	}
+	homeFile(t, home, ".gemini/extensions/rtdd/"+m.ContextFileName)
 }
 
 // v0.3.0 wrote ~/.codex/skills/rtdd/. Installing now moves rtdd's render to
