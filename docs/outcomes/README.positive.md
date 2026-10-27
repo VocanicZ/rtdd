@@ -71,6 +71,7 @@ markers. An agent is listed here only when every row of the feature × agent mat
 | OpenCode | `~/.config/opencode/skills/rtdd/` | `.agents/skills/rtdd/SKILL.md` | verified on opencode-ai 1.19.4, 2026-10-27 | also reads `~/.claude/skills/` and `~/.agents/skills/`, so it may list rtdd more than once; every copy is the same text |
 | Zcode | `~/.zcode/skills/rtdd/` | none | verified on ZCode 3.16.3, 2026-10-27 | a desktop app, not a CLI; no documented project-level path, so `--project-skill` writes nothing for it; press Refresh under Settings → Skills after installing |
 | Hermes Agent | `~/.hermes/skills/rtdd/` | `.agents/skills/rtdd/SKILL.md` | verified on Hermes Agent v0.22.5, 2026-10-27 | the project skill loads only after `hermes skills trust`, which rtdd never runs |
+| OpenClaw | `~/.openclaw/skills/rtdd/` | `.agents/skills/rtdd/SKILL.md` | verified on openclaw 2026.10.7, 2026-10-27 | its project is a workspace (`~/.openclaw/workspace` by default), so the project skill is read only when the repository is the workspace |
 
 ## Usage
 
@@ -127,6 +128,7 @@ with `--append-to`.
 | `~/.config/opencode/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.config/opencode/` exists — OpenCode |
 | `~/.zcode/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.zcode/` exists — Zcode |
 | `~/.hermes/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.hermes/` exists — Hermes Agent |
+| `~/.openclaw/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.openclaw/` exists — OpenClaw |
 | the `rtdd` binary | the installer, `rtdd update` | on your PATH, or `--install-dir` |
 
 An agent directory that does not exist is skipped rather than created. `rtdd skill
