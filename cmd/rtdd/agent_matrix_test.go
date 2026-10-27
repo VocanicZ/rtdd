@@ -79,6 +79,10 @@ var matrixAgents = []matrixAgent{
 		project: []string{".agents/skills/rtdd/SKILL.md"},
 		shared:  []string{".config/opencode/AGENTS.md"},
 	},
+	{
+		id: "zcode", name: "Zcode", present: []string{".zcode/"},
+		user: []string{".zcode/skills/rtdd/SKILL.md"},
+	},
 }
 
 // matrixRows are PRD #511's "Features every agent must pass", one function each.
@@ -128,6 +132,7 @@ var verifiedOn = map[string]string{
 	"copilot":     "verified on @github/copilot 1.0.104, 2026-10-27",
 	"cursor":      "verified on Cursor 2.4, 2026-10-27",
 	"opencode":    "verified on opencode-ai 1.19.4, 2026-10-27",
+	"zcode":       "verified on ZCode 3.16.3, 2026-10-27",
 }
 
 func TestEveryVerifiedColumnSaysSo(t *testing.T) {
@@ -214,6 +219,16 @@ func TestOpenCodeSkillNameEqualsItsDirectory(t *testing.T) {
 	if got := homeFile(t, home, rel); !strings.Contains(got, "\nname: "+dirName+"\n") {
 		t.Errorf("%s does not declare name: %s:\n%s", rel, dirName, got)
 	}
+}
+
+// Zcode's project path is undocumented, so --project-skill writes nothing on its behalf.
+func TestZcodeHasNoProjectSurface(t *testing.T) {
+	if p := agentRow(t, "zcode").Project; len(p) != 0 {
+		t.Errorf("zcode has a project surface %v; no Z.ai document names one", p)
+	}
+	home := fakeHome(t, ".zcode")
+	rtdd(t, t.TempDir(), "skill", "install")
+	homeFile(t, home, ".zcode/skills/rtdd/SKILL.md")
 }
 
 func TestSkillInstallNeverWritesCopilotInstructions(t *testing.T) {

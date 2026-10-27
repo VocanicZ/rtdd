@@ -119,6 +119,17 @@ func Agents() []Agent {
 			},
 			Verified: "verified on opencode-ai 1.19.4, 2026-10-27",
 		},
+		{
+			ID: "zcode", Name: "Zcode",
+			Present: []string{".zcode/"},
+			Owned:   ".zcode/skills/rtdd/",
+			User:    []GlobalFile{{Rel: ".zcode/skills/rtdd/SKILL.md", Source: protocol.GlobalSkillPath, Marker: protocol.Generated}},
+			Limits: []string{
+				"a desktop app, not a CLI; no documented project-level path, so `--project-skill` writes nothing for it",
+				"press Refresh under Settings \u2192 Skills after installing",
+			},
+			Verified: "verified on ZCode 3.16.3, 2026-10-27",
+		},
 	}
 }
 
