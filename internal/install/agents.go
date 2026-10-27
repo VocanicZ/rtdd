@@ -141,6 +141,17 @@ func Agents() []Agent {
 			},
 			Verified: "verified on Hermes Agent v0.22.5, 2026-10-27",
 		},
+		{
+			ID: "openclaw", Name: "OpenClaw",
+			Present: []string{".openclaw/"},
+			Owned:   ".openclaw/skills/rtdd/",
+			User:    []GlobalFile{{Rel: ".openclaw/skills/rtdd/SKILL.md", Source: protocol.GlobalSkillPath, Marker: protocol.Generated}},
+			Project: []GlobalFile{{Rel: ".agents/skills/rtdd/SKILL.md", Source: "dist/SKILL.md", Marker: protocol.Generated}},
+			Limits: []string{
+				"its project is a workspace (`~/.openclaw/workspace` by default), so the project skill is read only when the repository is the workspace",
+			},
+			Verified: "verified on openclaw 2026.10.7, 2026-10-27",
+		},
 	}
 }
 

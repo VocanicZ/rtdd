@@ -89,6 +89,12 @@ var matrixAgents = []matrixAgent{
 		project: []string{".agents/skills/rtdd/SKILL.md"},
 		shared:  []string{".hermes/config.yaml"},
 	},
+	{
+		id: "openclaw", name: "OpenClaw", present: []string{".openclaw/"},
+		user:    []string{".openclaw/skills/rtdd/SKILL.md"},
+		project: []string{".agents/skills/rtdd/SKILL.md"},
+		shared:  []string{".openclaw/workspace/AGENTS.md"},
+	},
 }
 
 // matrixRows are PRD #511's "Features every agent must pass", one function each.
@@ -140,6 +146,7 @@ var verifiedOn = map[string]string{
 	"opencode":    "verified on opencode-ai 1.19.4, 2026-10-27",
 	"zcode":       "verified on ZCode 3.16.3, 2026-10-27",
 	"hermes":      "verified on Hermes Agent v0.22.5, 2026-10-27",
+	"openclaw":    "verified on openclaw 2026.10.7, 2026-10-27",
 }
 
 func TestEveryVerifiedColumnSaysSo(t *testing.T) {
@@ -147,6 +154,21 @@ func TestEveryVerifiedColumnSaysSo(t *testing.T) {
 		if got := agentRow(t, id).Verified; got != want {
 			t.Errorf("%s: Verified = %q, want %q", id, got, want)
 		}
+	}
+}
+
+// PRD #511's ten agents, every one a column, every column verified.
+func TestEveryAgentInScopeIsAVerifiedMatrixColumn(t *testing.T) {
+	want := []string{"claude", "antigravity", "codex", "gemini", "copilot", "cursor", "opencode", "zcode", "hermes", "openclaw"}
+	var got []string
+	for _, a := range matrixAgents {
+		got = append(got, a.id)
+		if verifiedOn[a.id] == "" {
+			t.Errorf("%s is a matrix column with no verifiedOn entry", a.id)
+		}
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("matrix columns = %v, want PRD #511's %v", got, want)
 	}
 }
 
