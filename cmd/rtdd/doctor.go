@@ -21,7 +21,8 @@ const overLinkDefinitions = 8
 
 // cmdDoctor implements `rtdd doctor` (spec §8): where the graph came from, how stale
 // graphify is, what the test_files globs found, and the names over-linked enough to
-// widen every round that touches them, and what an older rtdd wrote outside .rtdd/ (#509).
+// widen every round that touches them, which agents rtdd is installed for (#510), and what
+// an older rtdd wrote outside .rtdd/ (#509).
 // It runs nothing; it changes only the graph cache.
 func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
@@ -51,11 +52,39 @@ func cmdDoctor(args []string, stdout, stderr io.Writer) int {
 	legacy := append(repoLegacy(root), globalLegacy()...)
 	hubs := overLinked(res.Graph, overLinkDefinitions)
 	current.recordFindings(len(hubs) + len(legacy))
-	fmt.Fprint(stdout, renderDoctor(res, cfg, scan.Filter(root, listed, cfg.ScanExclude), hubs, legacy))
+	fmt.Fprint(stdout, renderDoctor(res, cfg, scan.Filter(root, listed, cfg.ScanExclude), hubs, agentLines(), legacy))
 	return 0
 }
 
-func renderDoctor(res *graphbuild.Result, cfg graph.Config, files []string, hubs []nameCount, legacy []install.Step) string {
+// agentLines is doctor's agents: section, one line per install.Agents() row. Like the legacy
+// report it is a side report, so a home directory it cannot read is a line, never an exit
+// code.
+func agentLines() []string {
+	home, err := homeDir()
+	var states []install.AgentState
+	if err == nil {
+		states, err = install.AgentStatus(home)
+	}
+	if err != nil {
+		return []string{"(could not read the home directory: " + err.Error() + ")"}
+	}
+	var out []string
+	for _, s := range states {
+		switch s.State {
+		case "installed":
+			out = append(out, s.Agent.Name+"  installed  ~/"+s.Agent.Owned)
+		case "present":
+			out = append(out, s.Agent.Name+"  present, not installed — run `rtdd skill install`")
+		case "limited":
+			out = append(out, s.Agent.Name+"  "+s.Agent.Limits[0])
+		default:
+			out = append(out, s.Agent.Name+"  not installed")
+		}
+	}
+	return out
+}
+
+func renderDoctor(res *graphbuild.Result, cfg graph.Config, files []string, hubs []nameCount, agents []string, legacy []install.Step) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "graph source:  %s\n", res.Source)
 	fmt.Fprintf(&b, "built at:      %s\n", res.BuiltAtCommit)
@@ -84,6 +113,11 @@ func renderDoctor(res *graphbuild.Result, cfg graph.Config, files []string, hubs
 	}
 	for _, h := range hubs {
 		fmt.Fprintf(&b, "  %s  %d\n", h.name, h.count)
+	}
+
+	b.WriteString("agents:\n")
+	for _, l := range agents {
+		fmt.Fprintf(&b, "  %s\n", l)
 	}
 
 	b.WriteString("legacy files (an older rtdd wrote them outside .rtdd/):\n")

@@ -34,12 +34,9 @@ only into directories rtdd owns — never into your `~/.codex/AGENTS.md` or
 `~/.gemini/GEMINI.md`; [What rtdd writes](#what-rtdd-writes) lists every path. Pass
 `--no-skill`, or set `RTDD_NO_SKILL=1`, to install the binary alone.
 
-For any other agent — Cursor, whose user rules live in its settings rather than in a file,
-or anything else — `rtdd skill prompt` prints a self-contained document to hand it.
-An agent that reads only a shared file — an `AGENTS.md`, a `GEMINI.md`, a rules pane in its
-settings — has no directory rtdd can own, so rtdd never writes that file on its own: such an
-agent gets only the explicit opt-in `rtdd init --append-to <file>`, which touches nothing
-outside rtdd's markers.
+[Supported agents](#supported-agents) lists each agent rtdd installs for and its
+limitations. For any other agent, or one without a file-based user level, `rtdd skill
+prompt` prints a self-contained document to hand it.
 
 ```
 rtdd skill install     # (re)install the machine-wide front-ends
@@ -52,6 +49,23 @@ refreshes the machine-wide skill to match; `rtdd update --check` asks without in
 `rtdd uninstall` removes what `rtdd init` wrote into a repository, leaving `.rtdd/` unless
 you add `--state`, and the machine-wide front-ends unless you add `--global`.
 `rtdd uninstall --legacy-files` removes what an older rtdd wrote outside its own files.
+
+## Supported agents
+
+rtdd installs its instructions into a directory each agent reads and rtdd owns. An agent
+that reads only a shared file — an `AGENTS.md`, a `GEMINI.md`, a rules pane in its settings —
+has no directory rtdd can own, so rtdd never writes that file on its own: such an agent gets
+only the explicit opt-in `rtdd init --append-to <file>`, which touches nothing outside rtdd's
+markers. An agent is listed here only when every row of the feature × agent matrix
+(`cmd/rtdd/agent_matrix_test.go`) — install, `--project-skill`, `rtdd update`, uninstall and
+`--legacy-files`, `rtdd doctor`, the same instructions, `RTDD_EVENT_LOG` — passes for it.
+
+| agent | user level | project level (`--project-skill`) | verified | limitations |
+| --- | --- | --- | --- | --- |
+| Claude Code | `~/.claude/skills/rtdd/` | `.claude/skills/rtdd/SKILL.md` | not yet verified | none |
+| Codex | `~/.codex/skills/rtdd/` | none | not yet verified | written only when `~/.codex/skills/` exists — a Codex without it reads no skills |
+| Gemini CLI | `~/.gemini/extensions/rtdd/` | none | not yet verified | none |
+| Cursor | none | `.cursor/rules/rtdd.mdc` | not yet verified | Cursor's user rules live in its settings, not in a file; `rtdd skill install` says so and `rtdd skill prompt` prints a copy to paste there |
 
 ## Usage
 

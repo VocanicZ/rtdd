@@ -40,6 +40,11 @@ func TestDoctorReportsTheGraphTestFilesAndOverLinkedNames(t *testing.T) {
 		"test nodes:    1\n" +
 		"names defined 8 or more times (a call to one is linked only when its scope, receiver or imports narrow it):\n" +
 		"  run  8\n" +
+		"agents:\n" +
+		"  Claude Code  not installed\n" +
+		"  Codex  not installed\n" +
+		"  Gemini CLI  not installed\n" +
+		"  Cursor  Cursor's user rules live in its settings, not in a file\n" +
 		"legacy files (an older rtdd wrote them outside .rtdd/):\n" +
 		"  none\n"
 	if out != want {

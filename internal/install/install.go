@@ -32,11 +32,8 @@ const rootGraphCacheLine = ".rtdd/graph.json"
 const OptInMarker = "<!-- rtdd: opted in with `rtdd init --project-skill` or `--append-to`, so not legacy -->"
 
 // ProjectSkillFiles maps the whole-file front-ends `rtdd init --project-skill` writes to the
-// generator output each one is rendered from.
-var ProjectSkillFiles = map[string]string{
-	".claude/skills/rtdd/SKILL.md": "dist/SKILL.md",
-	".cursor/rules/rtdd.mdc":       "dist/cursor/rules/rtdd.mdc",
-}
+// generator output each one is rendered from: every Agents() row's Project.
+var ProjectSkillFiles = projectSkillFiles()
 
 // PlanOptions are `rtdd init`'s opt-ins. Without them init writes inside .rtdd/ and
 // nowhere else: a user's AGENTS.md, CLAUDE.md, .gitignore, .claude/ and .cursor/ stay

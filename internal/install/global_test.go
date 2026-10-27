@@ -286,6 +286,30 @@ func TestPlanGlobalUninstallKeepsADirectoryHoldingAForeignFile(t *testing.T) {
 	}
 }
 
+// An agent with no file-based user level has no Owned directory, and filepath.Join(home, "")
+// is the home directory itself: an uninstall plan must never name it, whether the home is
+// empty or holds only such an agent's directory.
+func TestPlanGlobalUninstallNeverPlansTheHomeDirectory(t *testing.T) {
+	for _, dirs := range [][]string{nil, {".cursor"}} {
+		home := homeWith(t, dirs...)
+		undo, err := PlanGlobalUninstall(home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range undo {
+			if s.Path == "" || filepath.Clean(filepath.Join(home, filepath.FromSlash(s.Path))) == filepath.Clean(home) {
+				t.Errorf("home %v: uninstall planned %v on the home directory itself", dirs, s.Action)
+			}
+		}
+		if err := ApplyUninstall(home, undo); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(home); err != nil {
+			t.Errorf("home %v: uninstall removed the home directory: %v", dirs, err)
+		}
+	}
+}
+
 // `rtdd update` re-runs the machine-wide install after every upgrade, and the new binary
 // renders a different skill than the old one did. If rtdd treated its OWN previous output
 // as a conflict, the normal upgrade path would fail on every machine and leave everyone

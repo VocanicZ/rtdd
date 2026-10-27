@@ -4,8 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/VocanicZ/rtdd/internal/protocol"
 )
 
 // GlobalSurface is one machine-wide agent front-end: a directory in the user's home
@@ -23,18 +21,21 @@ import (
 type GlobalSurface struct {
 	// Agent is the tool's name, for the line the command prints.
 	Agent string
-	// Dir is the agent's config directory relative to the home directory. Its presence is
-	// how rtdd decides the agent is installed.
-	Dir string
+	// Present are paths relative to the home directory, any one of which existing is how rtdd
+	// decides the agent is installed. A trailing slash is a directory.
+	Present []string
 	// Needs is a directory, relative to the home directory, that must also exist before rtdd
 	// writes this surface, and NeedsNote is the skip note when it does not. Codex reads
 	// skills only in a release that keeps ~/.codex/skills/.
 	Needs, NeedsNote string
 	// Owned is rtdd's own directory, relative to the home directory and slash-separated
-	// with a trailing slash. Everything rtdd writes for the agent is inside it.
+	// with a trailing slash. Everything rtdd writes for the agent is inside it. It is empty
+	// for an agent with no file-based user level.
 	Owned string
-	// Files are what rtdd writes inside Owned.
+	// Files are what rtdd writes inside Owned. None means the agent has no file-based user
+	// level, and Limit is the skip note that says so.
 	Files []GlobalFile
+	Limit string
 }
 
 // GlobalFile is one file a GlobalSurface writes.
@@ -59,38 +60,27 @@ const geminiManifest = `{
 }
 `
 
-// GlobalSurfaces is the fixed set of machine-wide front-ends, in the order they are
-// reported.
+// GlobalSurfaces is the machine-wide front-ends, one per Agents() row, in the order they
+// are reported.
 //
-// Cursor is absent on purpose: it has no file-based user-level rules — its User Rules live
-// inside the application's settings — so there is nothing for rtdd to write. `rtdd skill
-// prompt` is the answer for Cursor and for every other agent not listed here.
+// An agent with no file-based user level — Cursor, whose User Rules live inside the
+// application's settings — still has a surface, with no files: rtdd has nothing to write for
+// it, and says so rather than skipping it silently. `rtdd skill prompt` is the answer for it
+// and for every agent not in the table.
 func GlobalSurfaces() []GlobalSurface {
-	return []GlobalSurface{
-		{
-			Agent: "Claude Code",
-			Dir:   ".claude",
-			Owned: ".claude/skills/rtdd/",
-			Files: []GlobalFile{{Rel: ".claude/skills/rtdd/SKILL.md", Source: protocol.GlobalSkillPath, Marker: protocol.Generated}},
-		},
-		{
-			Agent:     "Codex",
-			Dir:       ".codex",
-			Needs:     ".codex/skills",
-			NeedsNote: "this Codex keeps no ~/.codex/skills/, so it reads no skills; rtdd never writes ~/.codex/AGENTS.md — `rtdd skill prompt` prints a copy to give it",
-			Owned:     ".codex/skills/rtdd/",
-			Files:     []GlobalFile{{Rel: ".codex/skills/rtdd/SKILL.md", Source: protocol.GlobalSkillPath, Marker: protocol.Generated}},
-		},
-		{
-			Agent: "Gemini CLI",
-			Dir:   ".gemini",
-			Owned: ".gemini/extensions/rtdd/",
-			Files: []GlobalFile{
-				{Rel: ".gemini/extensions/rtdd/gemini-extension.json", Literal: geminiManifest, Marker: `"name": "rtdd"`},
-				{Rel: ".gemini/extensions/rtdd/GEMINI.md", Source: protocol.GlobalAgentsPath, Marker: protocol.BeginMarker},
-			},
-		},
+	var out []GlobalSurface
+	for _, a := range Agents() {
+		sf := GlobalSurface{
+			Agent: a.Name, Present: a.Present,
+			Needs: a.Needs, NeedsNote: a.NeedsNote,
+			Owned: a.Owned, Files: a.User,
+		}
+		if len(a.User) == 0 && len(a.Limits) > 0 {
+			sf.Limit = a.Limits[0] + "; `rtdd skill prompt` prints a copy to give it"
+		}
+		out = append(out, sf)
 	}
+	return out
 }
 
 // PlanGlobal computes what `rtdd skill install` would do, without touching the filesystem.
@@ -118,10 +108,7 @@ func PlanGlobal(home string, files map[string]string, force bool) ([]Step, error
 		}
 
 		for _, f := range sf.Files {
-			content := f.Literal
-			if f.Source != "" {
-				content = files[f.Source]
-			}
+			content := f.Content(files)
 			existing, err := os.ReadFile(filepath.Join(home, filepath.FromSlash(f.Rel)))
 			if err != nil && !os.IsNotExist(err) {
 				return nil, err
@@ -154,21 +141,27 @@ func PlanGlobal(home string, files map[string]string, force bool) ([]Step, error
 }
 
 // globalSkip is the step for a surface rtdd does not write on this machine, or nil when it
-// does: the agent is not installed, or is installed without what the surface Needs.
+// does: the agent has no file-based user level, is not installed, or is installed without
+// what the surface Needs.
 func globalSkip(home string, sf GlobalSurface) (*Step, error) {
-	for _, gate := range []struct{ dir, note string }{
-		{sf.Dir, sf.Agent + " is not installed on this machine"},
-		{sf.Needs, sf.NeedsNote},
-	} {
-		if gate.dir == "" {
-			continue
-		}
-		switch _, err := os.Stat(filepath.Join(home, filepath.FromSlash(gate.dir))); {
-		case os.IsNotExist(err):
-			return &Step{Path: sf.Owned, Action: Skip, Note: gate.note}, nil
-		case err != nil:
-			return nil, err
-		}
+	if len(sf.Files) == 0 {
+		return &Step{Path: sf.Present[0], Action: Skip, Note: sf.Limit}, nil
+	}
+	present, err := anyExists(home, sf.Present)
+	if err != nil {
+		return nil, err
+	}
+	if !present {
+		return &Step{Path: sf.Owned, Action: Skip, Note: sf.Agent + " is not installed on this machine"}, nil
+	}
+	if sf.Needs == "" {
+		return nil, nil
+	}
+	switch _, err := os.Stat(filepath.Join(home, filepath.FromSlash(sf.Needs))); {
+	case os.IsNotExist(err):
+		return &Step{Path: sf.Owned, Action: Skip, Note: sf.NeedsNote}, nil
+	case err != nil:
+		return nil, err
 	}
 	return nil, nil
 }
@@ -183,6 +176,11 @@ func PlanGlobalUninstall(home string) ([]Step, error) {
 	steps := []Step{}
 
 	for _, sf := range GlobalSurfaces() {
+		// No Owned directory means nothing of rtdd's to remove — and filepath.Join(home, "")
+		// is the home directory itself, which no plan may ever name.
+		if sf.Owned == "" {
+			continue
+		}
 		entries, err := os.ReadDir(filepath.Join(home, filepath.FromSlash(sf.Owned)))
 		if os.IsNotExist(err) {
 			steps = append(steps, Step{Path: sf.Owned, Action: Skip, Note: "not present"})
