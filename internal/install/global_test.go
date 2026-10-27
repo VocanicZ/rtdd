@@ -85,7 +85,8 @@ func TestPlanGlobalWritesTheClaudeSkillWhenClaudeIsInstalled(t *testing.T) {
 // #509: ~/.codex/AGENTS.md and ~/.gemini/GEMINI.md are the user's shared memory files.
 // An install writes only into rtdd's own directories and leaves both byte-identical.
 func TestPlanGlobalWritesOnlyRtddOwnedDirectories(t *testing.T) {
-	home := homeWith(t, ".claude", ".codex/skills/.system", ".gemini")
+	home := homeWith(t, ".claude", ".codex/skills/.system")
+	writeAt(t, home, ".gemini/settings.json", "{}\n")
 	shared := map[string]string{
 		".codex/AGENTS.md":  "# My instructions\n\nAlways use tabs.\n",
 		".gemini/GEMINI.md": "# Gemini notes\n",
@@ -166,7 +167,8 @@ func TestPlanGlobalSkipsACodexWithNoSkillsDirectory(t *testing.T) {
 // The Gemini CLI surface is an extension: a manifest naming its own context file, which
 // carries the short machine-wide block.
 func TestPlanGlobalWritesAGeminiExtension(t *testing.T) {
-	home := homeWith(t, ".gemini")
+	home := homeWith(t)
+	writeAt(t, home, ".gemini/settings.json", "{}\n")
 	steps, err := PlanGlobal(home, globalFiles(), false)
 	if err != nil {
 		t.Fatal(err)
@@ -227,7 +229,8 @@ func TestPlanGlobalConflictsOnAnEditedSkillAndForceOverwrites(t *testing.T) {
 // An install followed by an uninstall leaves the home directory as it was found: rtdd's
 // own directories go whole, and the user's shared files were never touched.
 func TestPlanGlobalUninstallRestoresTheHostsFiles(t *testing.T) {
-	home := homeWith(t, ".claude", ".codex/skills", ".gemini")
+	home := homeWith(t, ".claude", ".codex/skills")
+	writeAt(t, home, ".gemini/settings.json", "{}\n")
 	existing := "# My instructions\n\nAlways use tabs.\n"
 	codex := filepath.Join(home, ".codex", "AGENTS.md")
 	if err := os.WriteFile(codex, []byte(existing), 0o644); err != nil {

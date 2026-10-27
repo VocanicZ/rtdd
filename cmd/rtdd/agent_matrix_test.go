@@ -43,12 +43,18 @@ var matrixAgents = []matrixAgent{
 		shared:  []string{".claude/CLAUDE.md"},
 	},
 	{
+		id: "antigravity", name: "Antigravity", present: []string{".gemini/config/"},
+		user:    []string{".gemini/config/skills/rtdd/SKILL.md"},
+		project: []string{".agents/skills/rtdd/SKILL.md"},
+		shared:  []string{".gemini/GEMINI.md"},
+	},
+	{
 		id: "codex", name: "Codex", present: []string{".codex/skills/"},
 		user:   []string{".codex/skills/rtdd/SKILL.md"},
 		shared: []string{".codex/AGENTS.md"}, legacy: []string{".codex/AGENTS.md"},
 	},
 	{
-		id: "gemini", name: "Gemini CLI", present: []string{".gemini/"},
+		id: "gemini", name: "Gemini CLI", present: []string{".gemini/settings.json"},
 		user:   []string{".gemini/extensions/rtdd/GEMINI.md", ".gemini/extensions/rtdd/gemini-extension.json"},
 		shared: []string{".gemini/GEMINI.md"}, legacy: []string{".gemini/GEMINI.md"},
 	},
@@ -99,7 +105,8 @@ func TestAgentMatrixColumnsAreTheAgentsTable(t *testing.T) {
 // adds its entry when its column has been checked against that page, and its Agents() row
 // must say the same.
 var verifiedOn = map[string]string{
-	"claude": "verified on Claude Code 2.1.311, 2026-10-27",
+	"claude":      "verified on Claude Code 2.1.311, 2026-10-27",
+	"antigravity": "verified on agy 1.1.27, 2026-10-27",
 }
 
 func TestEveryVerifiedColumnSaysSo(t *testing.T) {
@@ -124,6 +131,21 @@ func TestClaudeCodeProjectSkillIsTheProjectRender(t *testing.T) {
 	}
 	if !strings.Contains(got, install.OptInMarker) {
 		t.Errorf("the project skill carries no opt-in marker:\n%s", got)
+	}
+}
+
+// Antigravity and Gemini CLI share ~/.gemini/. A machine with only Antigravity gets
+// Antigravity's skill and nothing of Gemini CLI's.
+func TestSkillInstallForAntigravityAloneWritesNoGeminiExtension(t *testing.T) {
+	home := fakeHome(t, ".gemini/config")
+	if code, _, stderr := rtdd(t, t.TempDir(), "skill", "install"); code != 0 {
+		t.Fatalf("rtdd skill install exited %d: %s", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".gemini", "extensions")); !os.IsNotExist(err) {
+		t.Errorf("a machine with only Antigravity got ~/.gemini/extensions/ (err %v)", err)
+	}
+	if got := homeFile(t, home, ".gemini/config/skills/rtdd/SKILL.md"); !strings.Contains(got, "name: rtdd") {
+		t.Errorf("Antigravity's skill is not the rtdd skill:\n%s", got)
 	}
 }
 
