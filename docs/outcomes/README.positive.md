@@ -69,6 +69,7 @@ markers. An agent is listed here only when every row of the feature × agent mat
 | Copilot CLI | `~/.copilot/skills/rtdd/` | `.agents/skills/rtdd/SKILL.md` | verified on @github/copilot 1.0.104, 2026-10-27 | a `COPILOT_HOME` other than `~/.copilot` is not followed; set `RTDD_HOME` to its parent |
 | Cursor | `~/.cursor/skills/rtdd/` | `.cursor/rules/rtdd.mdc` | verified on Cursor 2.4, 2026-10-27 | User Rules live in Cursor's settings and are not written; the `agent` CLI reading `~/.cursor/skills/` is unverified |
 | OpenCode | `~/.config/opencode/skills/rtdd/` | `.agents/skills/rtdd/SKILL.md` | verified on opencode-ai 1.19.4, 2026-10-27 | also reads `~/.claude/skills/` and `~/.agents/skills/`, so it may list rtdd more than once; every copy is the same text |
+| Zcode | `~/.zcode/skills/rtdd/` | none | verified on ZCode 3.16.3, 2026-10-27 | a desktop app, not a CLI; no documented project-level path, so `--project-skill` writes nothing for it; press Refresh under Settings → Skills after installing |
 
 ## Usage
 
@@ -123,6 +124,7 @@ with `--append-to`.
 | `~/.copilot/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.copilot/` exists — Copilot CLI |
 | `~/.cursor/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.cursor/` exists — Cursor |
 | `~/.config/opencode/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.config/opencode/` exists — OpenCode |
+| `~/.zcode/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.zcode/` exists — Zcode |
 | the `rtdd` binary | the installer, `rtdd update` | on your PATH, or `--install-dir` |
 
 An agent directory that does not exist is skipped rather than created. `rtdd skill
