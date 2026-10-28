@@ -46,6 +46,11 @@ type PlanOptions struct {
 	// AppendTo names shared files — AGENTS.md, CLAUDE.md, anything — to merge rtdd's
 	// marker-delimited block into. Each one is named explicitly; none is implied.
 	AppendTo []string
+	// Home is the user's home directory. When the repository root is the home directory,
+	// a ProjectSkillFiles path that is also a user-level install path is `rtdd skill
+	// install`'s, not an older init's footprint, and PlanLegacyFiles leaves it out (#554).
+	// Empty means the root is never treated as the home directory.
+	Home string
 }
 
 // Plan computes what `rtdd init` would do without touching the filesystem.

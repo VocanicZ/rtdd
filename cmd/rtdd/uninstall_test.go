@@ -344,3 +344,56 @@ func TestUninstallFromHomeKeepsTheUserLevelInstalls(t *testing.T) {
 		})
 	}
 }
+
+// #554: `rtdd uninstall --legacy-files` run from the home directory must leave the
+// user-level installs `rtdd skill install` wrote. They sit at ProjectSkillFiles paths and
+// carry protocol.Generated without OptInMarker — exactly what an older init's front-end
+// looks like — so only knowing the root is the home directory tells them apart (#553).
+func TestUninstallLegacyFilesFromHomeKeepsTheUserLevelInstalls(t *testing.T) {
+	for name, seed := range map[string]func(t *testing.T) string{
+		"no repository": func(t *testing.T) string { return t.TempDir() },
+		"dotfiles repo": func(t *testing.T) string { return gittest.Init(t) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			home := seed(t)
+			t.Setenv("RTDD_HOME", home)
+			for _, dir := range []string{".claude", ".codex"} {
+				if err := os.MkdirAll(filepath.Join(home, dir), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if code, _, stderr := rtdd(t, home, "skill", "install"); code != 0 {
+				t.Fatalf("rtdd skill install: exit %d (stderr: %s)", code, stderr)
+			}
+			before := homeFiles(t, home)
+			for _, rel := range []string{".claude/skills/rtdd/SKILL.md", ".agents/skills/rtdd/SKILL.md"} {
+				if _, ok := before[rel]; !ok {
+					t.Fatalf("skill install did not write ~/%s", rel)
+				}
+			}
+
+			code, stdout, stderr := rtdd(t, home, "uninstall", "--legacy-files", "--dry-run")
+			if code != 0 {
+				t.Fatalf("dry run: exit code = %d, want 0 (stderr: %s)", code, stderr)
+			}
+			for _, dir := range []string{".claude/skills/rtdd/", ".agents/skills/rtdd/"} {
+				if strings.Contains(stdout, dir) {
+					t.Errorf("dry run plans to remove the user-level install %s:\n%s", dir, stdout)
+				}
+			}
+
+			code, stdout, stderr = rtdd(t, home, "uninstall", "--legacy-files")
+			if code != 0 {
+				t.Fatalf("exit code = %d, want 0 (stdout: %s, stderr: %s)", code, stdout, stderr)
+			}
+			after := homeFiles(t, home)
+			for rel, want := range before {
+				if got, ok := after[rel]; !ok {
+					t.Errorf("~/%s was deleted by uninstall --legacy-files", rel)
+				} else if got != want {
+					t.Errorf("~/%s changed by uninstall --legacy-files", rel)
+				}
+			}
+		})
+	}
+}

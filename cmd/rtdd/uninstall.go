@@ -135,12 +135,14 @@ func cmdUninstall(args []string, stdout, stderr io.Writer) int {
 // Both plans are made, and checked for conflicts, before anything is written: a file rtdd
 // cannot read unambiguously stops the whole run with nothing changed.
 func uninstallLegacy(root string, dryRun bool, stdout, stderr io.Writer) int {
-	steps, err := install.PlanLegacyFiles(root, install.PlanOptions{})
+	home, err := homeDir()
 	if err != nil {
 		fmt.Fprintf(stderr, "rtdd uninstall: %v\n", err)
 		return 3
 	}
-	home, err := homeDir()
+	// Run from the home directory, the user-level installs sit at the old front-ends' paths
+	// with the same marker; Home keeps them out of the plan (#554).
+	steps, err := install.PlanLegacyFiles(root, install.PlanOptions{Home: home})
 	if err != nil {
 		fmt.Fprintf(stderr, "rtdd uninstall: %v\n", err)
 		return 3

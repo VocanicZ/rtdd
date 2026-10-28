@@ -57,6 +57,9 @@ func cmdInit(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: rtdd init [--dry-run] [--project-skill] [--append-to <file>]...")
 		return 2
 	}
+	// Run from the home directory, the user-level installs are not an older init's
+	// footprint (#554).
+	opts.Home, _ = homeDir()
 
 	root, err := findRepoRoot(".")
 	if err != nil {
