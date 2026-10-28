@@ -536,3 +536,57 @@ func TestReleasePreflightOnThisRepoReportsFourPasses(t *testing.T) {
 		mustMatchLine(t, out, re)
 	}
 }
+
+// linkageRunRe matches a `go test … -run '^TestReleaseArtifactsAreStaticallyLinked$' <pkg>`
+// invocation and captures <pkg>, stopping at whitespace or the `;` of an `if …; then`.
+var linkageRunRe = regexp.MustCompile(`go test [^\n]*-run '\^TestReleaseArtifactsAreStaticallyLinked\$' ([^\s;]+)`)
+
+// TestLinkageCheckEntrypointsNameTheTestsRealPackage pins every entrypoint that runs the
+// release-linkage check to the package that actually defines it. Issue #561: fa715cc moved
+// the test out of the repo root into pkgDir, and release-preflight.sh kept running it in `.`,
+// where `go test` fails at setup ("no Go files") - so every preflight reported
+// `Release binaries: fail` whatever the artifacts looked like. The preflight tests above stub
+// `go` and never look at the package argument, so only reading the scripts catches it.
+func TestLinkageCheckEntrypointsNameTheTestsRealPackage(t *testing.T) {
+	root := findRepoRootForTest(t)
+	for _, rel := range []string{
+		"scripts/release-preflight.sh",
+		"scripts/ci-local.sh",
+		".github/workflows/ci.yml",
+	} {
+		src, err := os.ReadFile(filepath.Join(root, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		matches := linkageRunRe.FindAllStringSubmatch(string(src), -1)
+		if len(matches) == 0 {
+			t.Errorf("%s: no `go test -run '^TestReleaseArtifactsAreStaticallyLinked$' <pkg>` invocation found", rel)
+			continue
+		}
+		for _, m := range matches {
+			pkg := m[1]
+			if !packageDefinesTest(t, filepath.Join(root, filepath.FromSlash(pkg)), "TestReleaseArtifactsAreStaticallyLinked") {
+				t.Errorf("%s runs TestReleaseArtifactsAreStaticallyLinked in %q, which holds no _test.go defining it (it lives in ./%s/)", rel, pkg, pkgDir)
+			}
+		}
+	}
+}
+
+// packageDefinesTest reports whether dir holds a _test.go file declaring `func name(`.
+func packageDefinesTest(t *testing.T, dir, name string) bool {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join(dir, "*_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(b), "func "+name+"(") {
+			return true
+		}
+	}
+	return false
+}

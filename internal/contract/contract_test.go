@@ -242,7 +242,7 @@ var ciCommands = []string{
 	// inspected by this test, which cross-builds the whole .goreleaser.yaml matrix. It
 	// runs inside `go test ./...` too; naming it as its own step means a red build points
 	// straight at the release artifacts instead of at the suite in general.
-	"go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' .",
+	"go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' ./internal/installtest/",
 }
 
 func TestLocalCIEntrypointIsExecutableAndRunsTheSameChecks(t *testing.T) {
