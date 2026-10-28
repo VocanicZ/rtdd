@@ -29,6 +29,7 @@ import pytest
 from replay import chart
 from replay.chart import _short
 from replay.report import FAILURE_WORDING
+from tests.rtddbin import requires_v03_rtdd
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 RESULTS = REPO_ROOT / "bench" / "results"
@@ -466,3 +467,139 @@ def test_the_example_looks_like_real_code_not_a_star_graph(worked):
         f"{chart._edge_count(covers)} edges across {len(rows)} tests is too sparse to "
         f"read as a dependency graph"
     )
+
+
+# --- the rounds example: v0.3's graph of calls, drawn from what rtdd recorded --------
+#
+# v0.3 picks from a graph of functions, methods and classes, in rounds. This figure is
+# the README's own `## How it picks` example: the graph `rtdd which` built for it and the
+# rounds it returned for the edit to `add`. Its edges are static calls, so its captions
+# may not borrow the v0.2 words for a recorded run.
+
+
+@pytest.fixture
+def rounds():
+    return chart.load_rounds_example(REPO_ROOT)
+
+
+def test_the_rounds_figure_draws_every_function_and_test_the_graph_holds(rounds):
+    graph, which = rounds
+    svg = chart.rounds_svg(graph, which, chart.LIGHT)
+    for node in graph["nodes"]:
+        assert f">{node['name']}<" in svg, f"{node['id']} is in the graph but not in the figure"
+
+
+def test_the_rounds_figure_runs_exactly_the_rounds_rtdd_which_returned(rounds):
+    graph, which = rounds
+    svg = chart.rounds_svg(graph, which, chart.LIGHT)
+    got = marks(svg)
+    returned = {_short(t["id"]): str(r["round"]) for r in which["rounds"] for t in r.get("tests", [])}
+    assert {m.removeprefix("round/"): v for (s, m), v in got.items() if s == "rtdd"} == returned
+    assert returned == {"test_add": "1", "test_total": "2"}
+    # running everything runs every test the graph holds
+    tests = chart.Rounds.read(graph, which).tests
+    assert {m for s, m in got if s == "full"} == {f"runs/{_short(t)}" for t in tests}
+    assert svg.count('<animate attributeName="width"') == len(tests) + len(returned)
+
+
+def test_the_rounds_figure_leaves_unreached_tests_to_round_3(rounds):
+    graph, which = rounds
+    r = chart.Rounds.read(graph, which)
+    unreached = [t for t in r.tests if t not in r.round_of]
+    assert len(unreached) >= 1, "the example needs a test no round reaches, or nothing is left to the full suite"
+    svg = chart.rounds_svg(graph, which, chart.LIGHT)
+    assert svg.count(">Round 3 only") == len(unreached)
+    assert svg.count(">(full suite, once at the end)") == len(unreached)
+
+
+def test_round_2_is_reached_through_a_neighbour_not_by_name(rounds):
+    """The claim the figure exists to make: test_total never calls add, total does."""
+    graph, which = rounds
+    r = chart.Rounds.read(graph, which)
+    changed = r.changed[0]
+    assert r.via, "no Round 2 test: the figure would not show a second hop"
+    for test, neighbour in r.via.items():
+        assert (test, changed) not in r.calls
+        assert (neighbour, changed) in r.calls or (changed, neighbour) in r.calls
+    assert "test_total never names add: it calls total, which calls add" in chart.rounds_svg(graph, which, chart.LIGHT)
+
+
+def test_the_rounds_figure_draws_an_edge_for_every_call_the_graph_records(rounds):
+    graph, which = rounds
+    svg = chart.rounds_svg(graph, which, chart.LIGHT)
+    calls = [l for l in graph["links"] if l["relation"] == "calls"]
+    assert svg.count("<path d=") == 2 * len(calls)
+
+
+def test_the_rounds_figure_refuses_a_round_the_graph_does_not_support(rounds):
+    graph, which = rounds
+    broken = copy.deepcopy(graph)
+    broken["links"] = [l for l in broken["links"] if l["source"] != "src/calc.py::total"]
+    with pytest.raises(chart.ChartError, match="test_total is Round 2"):
+        chart.rounds_svg(broken, which, chart.LIGHT)
+
+
+@requires_v03_rtdd
+def test_the_rounds_example_is_what_rtdd_records_for_it(rounds, tmp_path):
+    """The committed graph and rounds are this binary's, so the figure cannot outlive the tool."""
+    assert chart.record_rounds_example(tmp_path) == rounds, (
+        "rtdd no longer records the rounds example as committed — run "
+        "`uv run python -m replay.cli chart --record-rounds-example`"
+    )
+
+
+def _v02_words(text: str) -> list[str]:
+    return [w for w in chart.V02_VOCABULARY if w in text.lower()]
+
+
+def test_the_rounds_figure_speaks_v03(rounds):
+    import xml.etree.ElementTree as ET
+
+    graph, which = rounds
+    for palette in chart.PALETTES:
+        root = ET.fromstring(chart.rounds_svg(graph, which, palette))
+        captions = " ".join(" ".join(node.itertext()) for node in root.iter("{http://www.w3.org/2000/svg}text"))
+        assert not _v02_words(captions), f"the rounds figure says {_v02_words(captions)}"
+
+
+PICTURE = re.compile(r"<picture>(.*?)</picture>", re.S)
+
+#: The README's dated v0.2 record, which `internal/contract/docs_v030_test.go` also exempts:
+#: a figure inside it is labelled as how v0.2 picked, not presented as current.
+V02_RECORD = re.compile(r"<!-- rtdd:v0\.2-record -->.*?<!-- /rtdd:v0\.2-record -->", re.S)
+
+
+@pytest.mark.parametrize("readme", ["README.md", "docs/outcomes/README.positive.md"])
+def test_readme_figures_never_use_v02_vocabulary(readme):
+    """A figure on the README is read as how rtdd works now: its alt text and captions too."""
+    import xml.etree.ElementTree as ET
+
+    src = V02_RECORD.sub("", (REPO_ROOT / readme).read_text())
+    figures = [m for m in PICTURE.findall(src) if "docs/results/figures/" in m]
+    assert figures, f"{readme} embeds no figure from docs/results/figures/"
+    for picture in figures:
+        alt = re.search(r'alt="([^"]*)"', picture)
+        assert alt and alt[1], f"{readme} embeds a figure without alt text: {picture}"
+        assert not _v02_words(alt[1]), f"{readme}'s figure alt text says {_v02_words(alt[1])}"
+        for rel in re.findall(r'(?:srcset|src)="(docs/results/figures/[^"]+\.svg)"', picture):
+            root = ET.fromstring((REPO_ROOT / rel).read_text())
+            captions = " ".join(" ".join(n.itertext()) for n in root.iter("{http://www.w3.org/2000/svg}text"))
+            assert not _v02_words(captions), f"{rel}, on {readme}, says {_v02_words(captions)}"
+
+
+def test_the_how_it_picks_section_embeds_both_themes_of_the_rounds_figure():
+    src = (REPO_ROOT / "README.md").read_text()
+    section = src[src.index("## How it picks"):]
+    section = section[:section.index("\n## ", 1)]
+    picture = PICTURE.search(section)
+    assert picture, "## How it picks embeds no figure"
+    assert 'media="(prefers-color-scheme: dark)" srcset="docs/results/figures/how-it-picks-v3-dark.svg"' in picture[1]
+    assert 'src="docs/results/figures/how-it-picks-v3-light.svg"' in picture[1]
+    # directly under the intro paragraph, before the rounds it then lists
+    assert section.index("<picture>") < section.index("- **Round 1**")
+
+
+def test_names_join_as_a_sentence_reads_them():
+    assert chart._joined(["a"]) == "a"
+    assert chart._joined(["a", "b"]) == "a and b"
+    assert chart._joined(["a", "b", "c"]) == "a, b and c"

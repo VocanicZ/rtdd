@@ -155,6 +155,11 @@ use without rtdd, and nothing rtdd prints is a pass or a fail.
 rtdd builds a graph of the repository's functions, methods and classes, links every test to
 the code it calls, and reads the lines you changed against it:
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/results/figures/how-it-picks-v3-dark.svg">
+  <img alt="Two panels side by side, each holding the same graph: four functions in src/calc.py on the left of the panel (add, total, mean and clamp), four tests on the right (test_add, test_total, test_mean and test_clamp), and an edge wherever the graph records a call, including total calling add. The edit to add is highlighted as changed in both. In the left panel, running everything, every edge stays grey and all four tests run, one after another. In the right panel, RTDD, the edge from test_add into add lights and test_add is marked Round 1; then the edge from total into add lights, then the one from test_total into total, and test_total is marked Round 2. Those two run; test_mean and test_clamp are marked Round 3 only (full suite, once at the end). The panel ends on 2 of 4 tests in Rounds 1 and 2, against 4 of 4 on every edit." src="docs/results/figures/how-it-picks-v3-light.svg">
+</picture>
+
 - **Round 1** — the tests linked to the code you changed, and every test you changed.
 - **Round 2** — the tests linked to that code's direct neighbours, its callers and its
   callees, minus Round 1.

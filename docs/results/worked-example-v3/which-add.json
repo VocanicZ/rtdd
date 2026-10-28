@@ -1,0 +1,71 @@
+{
+  "schema": 3,
+  "command": "which",
+  "base": "HEAD",
+  "graph": {
+    "source": "scanner",
+    "built_at_commit": "<HEAD>",
+    "stale_files": 0,
+    "nodes": 11,
+    "edges": 5,
+    "tests": 4,
+    "imports": 1,
+    "inherits": 0,
+    "implements": 0,
+    "ambiguous_calls": 0
+  },
+  "changed": [
+    {
+      "path": "src/calc.py",
+      "lines": [
+        {
+          "start": 2,
+          "end": 2
+        }
+      ]
+    }
+  ],
+  "changed_nodes": [
+    {
+      "id": "src/calc.py::add",
+      "file": "src/calc.py",
+      "name": "add",
+      "start": 1,
+      "end": 2
+    }
+  ],
+  "rounds": [
+    {
+      "round": 1,
+      "tests": [
+        {
+          "id": "tests/test_calc.py::test_add",
+          "file": "tests/test_calc.py",
+          "name": "test_add"
+        }
+      ],
+      "files": [
+        "tests/test_calc.py"
+      ]
+    },
+    {
+      "round": 2,
+      "tests": [
+        {
+          "id": "tests/test_calc.py::test_total",
+          "file": "tests/test_calc.py",
+          "name": "test_total"
+        }
+      ],
+      "files": [
+        "tests/test_calc.py"
+      ]
+    },
+    {
+      "round": 3,
+      "full_suite": true
+    }
+  ],
+  "untested": [],
+  "warnings": []
+}

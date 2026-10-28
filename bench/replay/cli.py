@@ -512,7 +512,16 @@ def cmd_chart(args) -> int:
     generated rather than drawn: `tests/test_chart.py` re-renders them here and fails if
     the committed bytes differ, which makes a figure that disagrees with `summary.json`
     a build failure rather than a thing a reviewer has to notice.
+
+    `--record-rounds-example` first re-asks the `rtdd` on PATH for the rounds example
+    the `how-it-picks-v3` figure is drawn from.
     """
+    if getattr(args, "record_rounds_example", False):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as work:
+            for path in chart.write_rounds_example(pathlib.Path(work)):
+                print(f"wrote {path}")
     ids = set(_corpus(getattr(args, "corpus_version", None)).ids())
     summaries = []
     for d in sorted(RESULTS.iterdir()) if RESULTS.exists() else []:
@@ -645,6 +654,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     ch = sub.add_parser("chart", help="regenerate docs/results/figures/ from committed summaries")
     ch.add_argument("--corpus-version", type=int, default=None, dest="corpus_version")
+    ch.add_argument("--record-rounds-example", action="store_true", dest="record_rounds_example",
+                    help="re-record docs/results/worked-example-v3/ with the rtdd on PATH first")
     ch.set_defaults(func=cmd_chart)
     return p
 
