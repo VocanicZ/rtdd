@@ -55,7 +55,7 @@ fi
 # because a repo can have a green suite and still produce an artifact that will not
 # run on a user's machine.
 banner "go test -run TestReleaseArtifactsAreStaticallyLinked"
-if go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' .; then
+if go test -count=1 -run '^TestReleaseArtifactsAreStaticallyLinked$' ./internal/installtest/; then
   linkage_status=pass
 else
   echo "FAIL: release artifacts are not all statically linked" >&2
