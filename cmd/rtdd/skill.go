@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/user"
 	"strings"
 
 	"github.com/VocanicZ/rtdd/internal/install"
@@ -23,11 +24,33 @@ const skillUsage = `usage:
 // variable per platform — HOME on Unix, USERPROFILE on Windows — so a test that set one of
 // those directly would only redirect the install on one OS. It is also the escape hatch for
 // anyone whose agent configuration lives somewhere unusual.
+//
+// With neither variable set the home directory still exists — the environment just does
+// not name it — so the account's own home directory stands in (#557). Without it, a
+// command run from the home directory could not tell the user-level installs there from
+// a repository's own files.
 func homeDir() (string, error) {
 	if h := os.Getenv("RTDD_HOME"); h != "" {
 		return h, nil
 	}
-	return os.UserHomeDir()
+	h, err := os.UserHomeDir()
+	if err == nil {
+		return h, nil
+	}
+	if h, aerr := accountHome(); aerr == nil && h != "" {
+		return h, nil
+	}
+	return "", err
+}
+
+// accountHome is the home directory the system records for the current user. A variable
+// so a test can stand a fake home directory in for the real account's.
+var accountHome = func() (string, error) {
+	u, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	return u.HomeDir, nil
 }
 
 // cmdSkill implements `rtdd skill`: the MACHINE-WIDE counterpart of `rtdd init`.

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -395,5 +397,136 @@ func TestUninstallLegacyFilesFromHomeKeepsTheUserLevelInstalls(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// skillInstalledHome is a fake home directory holding what `rtdd skill install` writes for
+// Claude Code and Codex, and the files in it before anything else runs.
+func skillInstalledHome(t *testing.T) (string, map[string]string) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("RTDD_HOME", home)
+	for _, dir := range []string{".claude", ".codex"} {
+		if err := os.MkdirAll(filepath.Join(home, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if code, _, stderr := rtdd(t, home, "skill", "install"); code != 0 {
+		t.Fatalf("rtdd skill install: exit %d (stderr: %s)", code, stderr)
+	}
+	before := homeFiles(t, home)
+	for _, rel := range []string{".claude/skills/rtdd/SKILL.md", ".agents/skills/rtdd/SKILL.md"} {
+		if _, ok := before[rel]; !ok {
+			t.Fatalf("skill install did not write ~/%s", rel)
+		}
+	}
+	return home, before
+}
+
+// runAsIs runs the CLI in dir with the environment exactly as the test left it: unlike
+// rtdd, it does not point an unset RTDD_HOME at a fresh directory.
+func runAsIs(t *testing.T, dir string, args ...string) (code int, stdout, stderr string) {
+	t.Helper()
+	t.Chdir(dir)
+	var out, errBuf bytes.Buffer
+	code = run(args, &out, &errBuf)
+	return code, out.String(), errBuf.String()
+}
+
+// assertHomeUnchanged fails for every file in before that is gone or changed.
+func assertHomeUnchanged(t *testing.T, home string, before map[string]string, by string) {
+	t.Helper()
+	after := homeFiles(t, home)
+	for rel, want := range before {
+		if got, ok := after[rel]; !ok {
+			t.Errorf("~/%s was deleted by %s", rel, by)
+		} else if got != want {
+			t.Errorf("~/%s changed by %s", rel, by)
+		}
+	}
+}
+
+// #557: with neither RTDD_HOME nor HOME set, the home directory still exists — rtdd just
+// cannot name it from the environment — so it falls back to the account's home directory,
+// and run from there, uninstall still keeps the user-level installs.
+func TestUninstallWithNoHomeVariableKeepsTheUserLevelInstalls(t *testing.T) {
+	for name, args := range map[string][]string{
+		"plain":        {"uninstall"},
+		"legacy-files": {"uninstall", "--legacy-files"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			home, before := skillInstalledHome(t)
+			t.Setenv("RTDD_HOME", "")
+			t.Setenv("HOME", "")
+			old := accountHome
+			accountHome = func() (string, error) { return home, nil }
+			t.Cleanup(func() { accountHome = old })
+
+			code, stdout, stderr := runAsIs(t, home, append(args, "--dry-run")...)
+			if code != 0 {
+				t.Fatalf("dry run: exit code = %d, want 0 (stderr: %s)", code, stderr)
+			}
+			for _, rel := range []string{".claude/skills/rtdd/SKILL.md", ".agents/skills/rtdd/SKILL.md"} {
+				for _, line := range strings.Split(stdout, "\n") {
+					if strings.HasPrefix(line, "delete") && strings.Contains(line, rel) {
+						t.Errorf("dry run plans to delete the user-level install %s:\n%s", rel, stdout)
+					}
+				}
+			}
+
+			if code, stdout, stderr := runAsIs(t, home, args...); code != 0 {
+				t.Fatalf("exit code = %d, want 0 (stdout: %s, stderr: %s)", code, stdout, stderr)
+			}
+			assertHomeUnchanged(t, home, before, strings.Join(args, " ")+" with no HOME")
+		})
+	}
+}
+
+// #557: when no home directory can be found at all, a plain uninstall cannot tell whether
+// it runs from there, so it refuses rather than risk the user-level installs.
+func TestUninstallWithNoHomeDirectoryRefuses(t *testing.T) {
+	home, before := skillInstalledHome(t)
+	t.Setenv("RTDD_HOME", "")
+	t.Setenv("HOME", "")
+	old := accountHome
+	accountHome = func() (string, error) { return "", errors.New("no account") }
+	t.Cleanup(func() { accountHome = old })
+
+	code, _, stderr := runAsIs(t, home, "uninstall")
+	if code != 3 {
+		t.Errorf("exit code = %d, want 3 (stderr: %s)", code, stderr)
+	}
+	assertHomeUnchanged(t, home, before, "uninstall with no home directory")
+}
+
+// #557: a relative RTDD_HOME or HOME names the home directory just as well as an absolute
+// one, so run from there, uninstall keeps the user-level installs.
+func TestUninstallWithARelativeHomeKeepsTheUserLevelInstalls(t *testing.T) {
+	for _, variable := range []string{"RTDD_HOME", "HOME"} {
+		for name, args := range map[string][]string{
+			"plain":        {"uninstall"},
+			"legacy-files": {"uninstall", "--legacy-files"},
+		} {
+			t.Run(variable+"/"+name, func(t *testing.T) {
+				home, before := skillInstalledHome(t)
+				t.Setenv("RTDD_HOME", "")
+				t.Setenv(variable, ".")
+
+				code, stdout, stderr := runAsIs(t, home, append(args, "--dry-run")...)
+				if code != 0 {
+					t.Fatalf("dry run: exit code = %d, want 0 (stderr: %s)", code, stderr)
+				}
+				for _, line := range strings.Split(stdout, "\n") {
+					if strings.HasPrefix(line, "delete") && strings.Contains(line, "/skills/rtdd/") {
+						t.Errorf("dry run plans to delete a user-level install:\n%s", stdout)
+					}
+				}
+
+				if code, stdout, stderr := runAsIs(t, home, args...); code != 0 {
+					t.Fatalf("exit code = %d, want 0 (stdout: %s, stderr: %s)", code, stdout, stderr)
+				}
+				assertHomeUnchanged(t, home, before, strings.Join(args, " ")+" with "+variable+"=.")
+			})
+		}
 	}
 }

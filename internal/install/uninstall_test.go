@@ -273,3 +273,26 @@ func TestPlanUninstallRefusesAnAmbiguousAgentsFile(t *testing.T) {
 		t.Error("ApplyUninstall proceeded through a conflict instead of stopping")
 	}
 }
+
+// #557: run from the home directory, a user-level install path that holds no file is
+// reported as not present, not as a user-level install that is being kept.
+func TestPlanUninstallFromHomeReportsAMissingUserLevelFileAsNotPresent(t *testing.T) {
+	home := t.TempDir()
+	steps, err := PlanUninstall(home, UninstallOptions{Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for _, s := range steps {
+		if !userLevel(s.Path) {
+			continue
+		}
+		seen++
+		if s.Action != Skip || s.Note != "not present" {
+			t.Errorf("%s: %s %q, want skip \"not present\"", s.Path, s.Action, s.Note)
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no user-level path in the plan")
+	}
+}
