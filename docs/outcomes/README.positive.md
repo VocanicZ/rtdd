@@ -315,6 +315,14 @@ re-run. Round 3 — the full suite once, at the end — is what catches what the
 The measurements below were taken on v0.2.0's coverage selector, which v0.3.0 replaces;
 v0.3.0's rounds are measured by [rtdd-bench](https://github.com/VocanicZ/rtdd-bench) (PRD #412).
 
+How v0.2 picked: the seed run recorded which tests executed which files, and a change ran only the
+tests that executed it. v0.3.0 picks from a graph of functions instead (see [How it picks](#how-it-picks)).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/results/figures/how-it-picks-dark.svg">
+  <img alt="Two panels side by side, each holding the same graph: eight source files on the left of the panel, eight tests on the right, and an edge wherever the seed run watched that test execute that file. In the left panel, running everything, every edge is grey and all eight tests run. In the right panel, RTDD, auth.py is highlighted and the two edges into it lead to test_auth and test_api; those two run and the other six are marked never runs. Both catch the change." src="docs/results/figures/how-it-picks-light.svg">
+</picture>
+
 RTDD is built for one loop: an agent edits, runs tests, edits again, dozens of times in a
 single task. Without it the agent runs the whole suite every time. So there are two
 questions — does RTDD save time, and does it miss anything the full suite would catch.
