@@ -56,7 +56,7 @@ NOT_MEASURED = report.NOT_MEASURED
 #: Order is fixed so a re-render cannot churn the diff. `rtdd-vs-full` leads because it
 #: is the only figure that answers the project's own question rather than the
 #: pre-registered one; the `axis2-*` figures answer the baselines a reviewer will ask for.
-FIGURES: tuple[str, ...] = ("how-it-picks", "rtdd-vs-full", "axis2-savings", "axis2-safety", "axis2-wallclock")
+FIGURES: tuple[str, ...] = ("how-it-picks", "how-it-picks-v3", "rtdd-vs-full", "axis2-savings", "axis2-safety", "axis2-wallclock")
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
@@ -994,6 +994,279 @@ def worked_example_svg(rows: Sequence[dict], selection: dict, palette: Palette) 
     return _svg(W, H, body, palette)
 
 
+# --- figure: the rounds example, animated -----------------------------------------
+#
+# v0.3 picks from a graph of functions, methods and classes, in rounds, so the figure
+# above — a file-level map of what each test executed — cannot be relabelled into it.
+# This one is drawn from what `rtdd` itself recorded for the README's `## How it picks`
+# example: the graph it built, and the rounds `rtdd which --json` returned for the edit
+# to `add`. Its edges are the graph's static calls, and its captions say nothing else.
+
+ROUNDS_EXAMPLE = "docs/results/worked-example-v3"
+
+#: v0.2 words a v0.3 figure may not use: v0.3 records static calls, not what a run executed.
+V02_VOCABULARY: tuple[str, ...] = ("seed", "executed by", "coverage map", "map.jsonl")
+
+
+def record_rounds_example(work: pathlib.Path, rtdd: str = "rtdd") -> tuple[dict, dict]:
+    """Build `repo.json` as a repository in `work`, make its edit, and ask `rtdd`.
+
+    Returns the graph `rtdd which` built, trimmed to its nodes and links, and the
+    `rtdd which --json` result with the commit it was built at replaced by `<HEAD>`,
+    which is the one thing that differs between two recordings.
+    """
+    import os
+    import subprocess
+
+    repo = json.loads((REPO_ROOT / ROUNDS_EXAMPLE / "repo.json").read_text())
+    env = {**os.environ, "GIT_AUTHOR_NAME": "rtdd", "GIT_AUTHOR_EMAIL": "rtdd@example.invalid",
+           "GIT_COMMITTER_NAME": "rtdd", "GIT_COMMITTER_EMAIL": "rtdd@example.invalid"}
+
+    def write(files: dict) -> None:
+        for rel, text in files.items():
+            (work / rel).parent.mkdir(parents=True, exist_ok=True)
+            (work / rel).write_text(text)
+
+    def run(*cmd: str) -> str:
+        return subprocess.run(cmd, cwd=work, env=env, check=True, capture_output=True, text=True).stdout
+
+    write(repo["base"])
+    run("git", "init", "-q")
+    run("git", "add", "-A")
+    run("git", "commit", "-q", "-m", "base")
+    write(repo["edit"])
+    which = json.loads(run(rtdd, "which", "--json"))
+    which["graph"]["built_at_commit"] = "<HEAD>"
+    cache = json.loads((work / ".rtdd" / "graph.json").read_text())
+    graph = {
+        "nodes": [{"id": n["id"], "name": n["rtdd_name"], "kind": n["rtdd_kind"],
+                   "file": n["source_file"], "start": n["rtdd_start"]} for n in cache["nodes"]],
+        "links": [{"source": l["source"], "target": l["target"], "relation": l["relation"]}
+                  for l in cache["links"]],
+    }
+    return graph, which
+
+
+def write_rounds_example(work: pathlib.Path) -> list[pathlib.Path]:
+    graph, which = record_rounds_example(work)
+    out = []
+    for name, record in (("graph.json", graph), ("which-add.json", which)):
+        path = REPO_ROOT / ROUNDS_EXAMPLE / name
+        path.write_text(json.dumps(record, indent=2) + "\n")
+        out.append(path)
+    return out
+
+
+def load_rounds_example(root: pathlib.Path) -> tuple[dict, dict]:
+    base = root / ROUNDS_EXAMPLE
+    try:
+        graph = json.loads((base / "graph.json").read_text())
+        which = json.loads((base / "which-add.json").read_text())
+    except FileNotFoundError as exc:
+        raise ChartError(f"the rounds figure needs {exc.filename}") from exc
+    return graph, which
+
+
+def _joined(names: Sequence[str]) -> str:
+    return " and ".join(names) if len(names) < 3 else ", ".join(names[:-1]) + f" and {names[-1]}"
+
+
+@dataclasses.dataclass(frozen=True)
+class Rounds:
+    """The example, read off the two records and checked against each other."""
+
+    functions: list[str]
+    tests: list[str]
+    calls: list[tuple[str, str]]       # (caller, callee), test or function -> function
+    changed: list[str]
+    round_of: dict[str, int]           # test -> 1 or 2; a test absent here is Round 3 only
+    via: dict[str, str]                # Round 2 test -> the neighbour it calls
+
+    @classmethod
+    def read(cls, graph: dict, which: dict) -> "Rounds":
+        test_files = {f for r in which["rounds"] for f in r.get("files", [])}
+        nodes = sorted(graph["nodes"], key=lambda n: (n["file"], n["start"]))
+        tests = [n["id"] for n in nodes if n["file"] in test_files]
+        functions = [n["id"] for n in nodes if n["file"] not in test_files]
+        if len(tests) != which["graph"]["tests"]:
+            raise ChartError(f"the graph holds {len(tests)} tests but rtdd which counted {which['graph']['tests']}")
+        calls = [(l["source"], l["target"]) for l in graph["links"] if l["relation"] == "calls"]
+        changed = [n["id"] for n in which["changed_nodes"]]
+        for node in changed:
+            if node not in functions:
+                raise ChartError(f"{node} changed but the graph has no such function")
+        neighbours = ({b for a, b in calls if a in changed} | {a for a, b in calls if b in changed}) - set(changed)
+        neighbours &= set(functions)
+        round_of: dict[str, int] = {}
+        via: dict[str, str] = {}
+        for r in which["rounds"]:
+            for t in r.get("tests", []):
+                round_of[t["id"]] = r["round"]
+        for t, n in round_of.items():
+            reached = [f for a, f in calls if a == t and f in (changed if n == 1 else neighbours)]
+            if not reached:
+                raise ChartError(f"{t} is Round {n} but the graph records no call from it that puts it there")
+            if n == 2:
+                via[t] = reached[0]
+        return cls(functions, tests, calls, changed, round_of, via)
+
+
+def _graph_sentence(r: Rounds) -> str:
+    """Only what the graph records: its size, and what calls the changed function."""
+    changed = r.changed[0]
+    callers = sorted(_short(a) for a, b in r.calls if b == changed)
+    return (f"{len(r.functions)} functions, {len(r.tests)} tests, {len(r.calls)} calls the graph records. "
+            f"{_short(changed)} is called by {_joined(callers)}.")
+
+
+def _rounds_punchline(r: Rounds) -> str:
+    changed = _short(r.changed[0])
+    second = [f"{_short(t)} never names {changed}: it calls {_short(n)}, which calls {changed}, so it is Round 2."
+              for t, n in sorted(r.via.items())]
+    unreached = [_short(t) for t in r.tests if t not in r.round_of]
+    tail = f" No call links {_joined(unreached)} to {changed}: they wait for Round 3." if unreached else ""
+    return " ".join(second) + tail
+
+
+def rounds_svg(graph: dict, which: dict, palette: Palette) -> str:
+    """Two panels, the same graph of calls in each, decided differently.
+
+    The left panel draws every call and reads none of them: every test runs. The right
+    one follows the calls out of the changed function — Round 1 is the tests that call it,
+    Round 2 the tests that call its direct neighbours — and leaves the rest for the full
+    suite at the end. Every round shown is one `rtdd which` returned.
+    """
+    r = Rounds.read(graph, which)
+    n = len(r.tests)
+    W, PW, GAP = 900, 414, 16
+    ROW, TOP = 34, 166
+    graph_h = max(len(r.functions), n) * ROW
+    total_y = TOP + graph_h + 8
+    panel_end = total_y + 20
+    punchline = _wrap(_rounds_punchline(r), 150)
+    H = int(panel_end + 34 + 14 * len(punchline) + 22)
+    changed_cue, r1_cue, hop_cue, r2_cue, run_cue = 0.4, 1.2, 1.9, 2.5, 3.2
+    step = (DUR - 0.5 - run_cue) / n
+
+    def keys(*cues: float) -> str:
+        out: list[float] = []
+        for c in cues:
+            f = round(min(max(c, 0.0), DUR) / DUR, 5)
+            out.append(f if not out else max(f, out[-1]))
+        return ";".join(f"{v:g}" for v in out)
+
+    def appear(cue: float) -> str:
+        return _anim("opacity", "0;0;1;1", keys(0, cue, cue + 0.25, DUR), calc="linear")
+
+    changed = r.changed[0]
+    lit_call = {(t, f): (r1_cue if r.round_of.get(t) == 1 else r2_cue) for t, f in r.calls
+                if t in r.round_of and (f == changed or f == r.via.get(t))}
+    lit_call.update({(a, b): hop_cue for a, b in r.calls
+                     if a in r.functions and b in r.functions and changed in (a, b)
+                     and ({a, b} - {changed}) & set(r.via.values())})
+
+    body: list[str] = [
+        _text(MARGIN, MARGIN + 4, "The same edit, two ways of deciding what to run",
+              fill=palette.ink, size=17, weight="700"),
+        _text(MARGIN, MARGIN + 24, _graph_sentence(r), fill=palette.muted, size=11.5),
+    ]
+    panels = (("Run everything", MARGIN, palette.full, False),
+              ("RTDD", MARGIN + PW + GAP, palette.rtdd, True))
+    for title, px, colour, consults in panels:
+        sx, tx = px + 70, px + 180
+        bar_x, bar_w = px + 262, 96
+        body.append(f'<rect x="{px}" y="{MARGIN + 44}" width="{PW}" height="{panel_end - MARGIN - 44}" '
+                    f'rx="10" fill="none" stroke="{palette.grid}"/>')
+        body.append(_text(px + 20, MARGIN + 72, title, fill=palette.ink, size=14, weight="700"))
+        body.append(_text(px + 20, MARGIN + 92,
+                          f"follow the calls out of {_short(changed)}, one hop per round" if consults
+                          else "every test, every edit; the calls go unread",
+                          fill=colour if consults else palette.muted, size=11))
+        body.append(_text(sx, TOP - 20, "functions", fill=palette.muted, size=9.5, anchor="middle"))
+        body.append(_text(tx, TOP - 20, "tests", fill=palette.muted, size=9.5, anchor="middle"))
+        body.append(_text(bar_x + bar_w / 2, TOP - 20, "what runs", fill=palette.muted,
+                          size=9.5, anchor="middle"))
+        sy = {f: TOP + i * ROW for i, f in enumerate(r.functions)}
+        ty = {t: TOP + i * ROW for i, t in enumerate(r.tests)}
+
+        # every call the graph records, drawn in both panels
+        for a, b in r.calls:
+            if a in ty:
+                d = (f'M{tx - 11:.0f} {ty[a]:.0f} C{tx - 46:.0f} {ty[a]:.0f}, '
+                     f'{sx + 46:.0f} {sy[b]:.0f}, {sx + 10:.0f} {sy[b]:.0f}')
+            else:
+                bulge = sx + 22 + 10 * abs(sy[a] - sy[b]) / ROW
+                d = (f'M{sx + 9:.0f} {sy[a]:.0f} C{bulge:.0f} {sy[a]:.0f}, '
+                     f'{bulge:.0f} {sy[b]:.0f}, {sx + 9:.0f} {sy[b]:.0f}')
+            if consults and (a, b) in lit_call:
+                cue = lit_call[(a, b)]
+                body.append(f'<path d="{d}" fill="none" stroke="{palette.warn}" stroke-width="2.2" opacity="0.12">'
+                            + _anim("opacity", "0.12;0.12;1;1", keys(0, cue, cue + 0.25, DUR), calc="linear")
+                            + "</path>")
+            else:
+                body.append(f'<path d="{d}" fill="none" stroke="{palette.grid}" stroke-width="1.1"/>')
+
+        for f in r.functions:
+            hot = f in r.changed
+            body.append(f'<circle cx="{sx}" cy="{sy[f]:.0f}" r="6" fill="none" '
+                        f'stroke="{palette.muted}" stroke-width="1.2"/>')
+            body.append(_text(sx - 14, sy[f] + 4, _short(f), fill=palette.ink if hot else palette.muted,
+                              size=10, anchor="end", mono=True, weight="700" if hot else "normal"))
+            if hot:
+                body.append(f'<circle cx="{sx}" cy="{sy[f]:.0f}" r="8" fill="none" stroke="{palette.warn}" '
+                            f'stroke-width="2.4" opacity="0">' + appear(changed_cue) + "</circle>")
+                body.append(f'<text x="{sx - 14:.1f}" y="{sy[f] + 16:.1f}" font-family="{FONT}" font-size="9" '
+                            f'font-weight="normal" fill="{palette.warn}" text-anchor="end" opacity="0">changed'
+                            + appear(changed_cue) + "</text>")
+
+        runs = [t for t in r.tests if t in r.round_of or not consults]
+        runs.sort(key=lambda t: r.round_of.get(t, 0) if consults else 0)
+        for t in r.tests:
+            running = t in runs
+            body.append(f'<circle cx="{tx}" cy="{ty[t]:.0f}" r="7" fill="none" '
+                        f'stroke="{colour if running else palette.muted}" stroke-width="1.6"/>')
+            if running:
+                cue = (r1_cue if r.round_of[t] == 1 else r2_cue) if consults else run_cue
+                body.append(f'<circle cx="{tx}" cy="{ty[t]:.0f}" r="7" fill="{colour}" opacity="0">'
+                            + appear(cue) + "</circle>")
+            body.append(_text(tx + 14, ty[t] + 4, _short(t),
+                              fill=palette.ink if running else palette.muted, size=10, mono=True))
+            body.append(f'<rect x="{bar_x}" y="{ty[t] - 6:.0f}" width="{bar_w}" height="12" rx="3" '
+                        f'fill="{palette.grid}" opacity="0.45"/>')
+            if running:
+                start = run_cue + runs.index(t) * step
+                mark = (_data("rtdd", f"round/{_short(t)}", str(r.round_of[t])) if consults
+                        else _data("full", f"runs/{_short(t)}", "1"))
+                body.append(f'<rect x="{bar_x}" y="{ty[t] - 6:.0f}" width="0" height="12" rx="3" '
+                            f'fill="{colour}" {mark}>'
+                            + _anim("width", f"0;0;{bar_w};{bar_w}", keys(0, start, start + step, DUR),
+                                    calc="linear") + "</rect>")
+                if consults:
+                    cue = r1_cue if r.round_of[t] == 1 else r2_cue
+                    body.append(f'<text x="{bar_x + bar_w + 6:.1f}" y="{ty[t] + 4:.1f}" font-family="{FONT}" '
+                                f'font-size="9.5" font-weight="700" fill="{colour}" text-anchor="start" '
+                                f'opacity="0">{_esc(f"Round {r.round_of[t]}")}' + appear(cue) + "</text>")
+            else:
+                for i, line in enumerate(("Round 3 only", "(full suite, once at the end)")):
+                    body.append(f'<text x="{bar_x + 4:.1f}" y="{ty[t] + 3 + (i * 2 - 1) * 5:.1f}" '
+                                f'font-family="{FONT}" font-size="8.5" font-weight="{"700" if i == 0 else "normal"}" '
+                                f'fill="{palette.muted}" text-anchor="start" opacity="0">{_esc(line)}'
+                                + appear(run_cue) + "</text>")
+
+        done = run_cue + len(runs) * step
+        verdict = (f"{len(runs)} of {n} tests in Rounds 1 and 2" if consults
+                   else f"{len(runs)} of {n} tests, on every edit")
+        body.append(f'<text x="{px + 20:.0f}" y="{total_y:.0f}" font-family="{FONT}" font-size="13" '
+                    f'font-weight="700" fill="{colour}" text-anchor="start" opacity="0">{_esc(verdict)}'
+                    + appear(done) + "</text>")
+
+    for i, line in enumerate(punchline):
+        body.append(_text(MARGIN, panel_end + 24 + i * 14, line, fill=palette.muted, size=11))
+    body.append(_source_note(H - 22, palette,
+                             f"source: {ROUNDS_EXAMPLE}/graph.json · {ROUNDS_EXAMPLE}/which-add.json"))
+    return _svg(W, H, body, palette)
+
+
 # --- emission ----------------------------------------------------------------------
 
 
@@ -1001,6 +1274,9 @@ def render_figure(figure: str, summaries: Sequence[dict], palette: Palette) -> s
     if figure == "how-it-picks":
         rows, selection = load_worked_example(REPO_ROOT)
         return worked_example_svg(rows, selection, palette)
+    if figure == "how-it-picks-v3":
+        graph, which = load_rounds_example(REPO_ROOT)
+        return rounds_svg(graph, which, palette)
     if figure == "rtdd-vs-full":
         summary, session = load_head_to_head()
         return head_to_head_svg(summary, session, palette)

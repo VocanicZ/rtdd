@@ -1,0 +1,87 @@
+{
+  "nodes": [
+    {
+      "id": "src/calc.py::add",
+      "name": "add",
+      "kind": "func",
+      "file": "src/calc.py",
+      "start": 1
+    },
+    {
+      "id": "src/calc.py::total",
+      "name": "total",
+      "kind": "func",
+      "file": "src/calc.py",
+      "start": 5
+    },
+    {
+      "id": "src/calc.py::mean",
+      "name": "mean",
+      "kind": "func",
+      "file": "src/calc.py",
+      "start": 9
+    },
+    {
+      "id": "src/calc.py::clamp",
+      "name": "clamp",
+      "kind": "func",
+      "file": "src/calc.py",
+      "start": 13
+    },
+    {
+      "id": "tests/test_calc.py::test_add",
+      "name": "test_add",
+      "kind": "func",
+      "file": "tests/test_calc.py",
+      "start": 4
+    },
+    {
+      "id": "tests/test_calc.py::test_total",
+      "name": "test_total",
+      "kind": "func",
+      "file": "tests/test_calc.py",
+      "start": 8
+    },
+    {
+      "id": "tests/test_calc.py::test_mean",
+      "name": "test_mean",
+      "kind": "func",
+      "file": "tests/test_calc.py",
+      "start": 12
+    },
+    {
+      "id": "tests/test_calc.py::test_clamp",
+      "name": "test_clamp",
+      "kind": "func",
+      "file": "tests/test_calc.py",
+      "start": 16
+    }
+  ],
+  "links": [
+    {
+      "source": "src/calc.py::total",
+      "target": "src/calc.py::add",
+      "relation": "calls"
+    },
+    {
+      "source": "tests/test_calc.py::test_add",
+      "target": "src/calc.py::add",
+      "relation": "calls"
+    },
+    {
+      "source": "tests/test_calc.py::test_clamp",
+      "target": "src/calc.py::clamp",
+      "relation": "calls"
+    },
+    {
+      "source": "tests/test_calc.py::test_mean",
+      "target": "src/calc.py::mean",
+      "relation": "calls"
+    },
+    {
+      "source": "tests/test_calc.py::test_total",
+      "target": "src/calc.py::total",
+      "relation": "calls"
+    }
+  ]
+}
