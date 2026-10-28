@@ -85,7 +85,15 @@ func PlanUninstall(root string, opts UninstallOptions) ([]Step, error) {
 	// The same table `rtdd init --project-skill` writes from, so the two cannot drift (#549).
 	for _, rel := range sortedKeys(ProjectSkillFiles) {
 		if atHome && userLevel(rel) {
-			steps = append(steps, Step{Path: rel, Action: Skip, Note: "kept; a user-level install — `rtdd uninstall --global` removes it"})
+			// A path holding no file is reported as such, not as an install being kept.
+			switch _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); {
+			case os.IsNotExist(err):
+				steps = append(steps, Step{Path: rel, Action: Skip, Note: "not present"})
+			case err != nil:
+				return nil, err
+			default:
+				steps = append(steps, Step{Path: rel, Action: Skip, Note: "kept; a user-level install — `rtdd uninstall --global` removes it"})
+			}
 			continue
 		}
 		fileSteps, err := uninstallWholeFile(root, rel)
@@ -177,16 +185,22 @@ func uninstallWholeFile(root, rel string) ([]Step, error) {
 	return steps, nil
 }
 
-// samePath reports whether a and b name the same directory once symlinks are resolved, so
-// a home directory reached through a symlink still counts as the home directory.
+// samePath reports whether a and b name the same directory once made absolute and their
+// symlinks resolved, so a home directory given as a relative path (RTDD_HOME=.) or reached
+// through a symlink still counts as the home directory (#557).
 func samePath(a, b string) bool {
-	if ra, err := filepath.EvalSymlinks(a); err == nil {
-		a = ra
+	return canonical(a) == canonical(b)
+}
+
+// canonical is p absolute, with its symlinks resolved where it exists.
+func canonical(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		p = abs
 	}
-	if rb, err := filepath.EvalSymlinks(b); err == nil {
-		b = rb
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		p = r
 	}
-	return filepath.Clean(a) == filepath.Clean(b)
+	return filepath.Clean(p)
 }
 
 // userLevel reports whether rel, slash-separated and relative to the home directory, lies in
