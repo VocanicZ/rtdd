@@ -127,6 +127,34 @@ func TestPlanProjectSkillWritesTheWholeFileFrontEndsMarkedOptIn(t *testing.T) {
 	}
 }
 
+// #558: run from the home directory, --project-skill writes no user-level install path,
+// even one that holds no file yet: that would be a user-level install of the project text.
+// A path outside every Owned directory is still written.
+func TestPlanProjectSkillFromHomeWritesNoUserLevelPath(t *testing.T) {
+	home := t.TempDir()
+	steps, err := Plan(home, fakeFiles(), PlanOptions{ProjectSkill: true, Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for _, rel := range sortedKeys(ProjectSkillFiles) {
+		s := stepFor(t, steps, rel)
+		if !userLevel(rel) {
+			if s.Action != Create {
+				t.Errorf("%s: action = %v, want Create", rel, s.Action)
+			}
+			continue
+		}
+		seen++
+		if s.Action != Skip || !strings.Contains(s.Note, "rtdd skill install") {
+			t.Errorf("%s: %s %q, want a skip naming `rtdd skill install`", rel, s.Action, s.Note)
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no user-level path in ProjectSkillFiles")
+	}
+}
+
 // --append-to is the only way rtdd's block enters a shared file, and only the file named.
 func TestPlanAppendToMergesTheBlockIntoTheNamedFileOnly(t *testing.T) {
 	root := t.TempDir()

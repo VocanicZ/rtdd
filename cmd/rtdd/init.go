@@ -58,7 +58,7 @@ func cmdInit(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	// Run from the home directory, the user-level installs are not an older init's
-	// footprint (#554).
+	// footprint (#554), nor --project-skill's to write (#558).
 	opts.Home, _ = homeDir()
 
 	root, err := findRepoRoot(".")

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
 	"github.com/VocanicZ/rtdd/internal/install"
 	"github.com/VocanicZ/rtdd/internal/protocol"
 )
@@ -338,4 +339,40 @@ func TestInitIgnoresAStrayGitAncestorAndInstallsIntoTheWorkingDirectory(t *testi
 			t.Errorf("%s was installed into the stray-.git ancestor, not the working directory", rel)
 		}
 	}
+}
+
+// #558: `rtdd init --project-skill` run from the home directory — no repository encloses
+// it, or it is a dotfiles repository — must leave the user-level installs `rtdd skill
+// install` wrote byte-identical, and say that `rtdd skill install` manages them.
+func TestInitProjectSkillFromHomeKeepsTheUserLevelInstalls(t *testing.T) {
+	for name, repo := range map[string]bool{"no repository": false, "dotfiles repo": true} {
+		t.Run(name, func(t *testing.T) {
+			home, before := skillInstalledHome(t)
+			if repo {
+				gittest.Run(t, home, "init", "-q")
+			}
+
+			code, stdout, stderr := rtdd(t, home, "init", "--project-skill")
+			if code != 0 {
+				t.Fatalf("exit code = %d, want 0 (stdout: %s, stderr: %s)", code, stdout, stderr)
+			}
+			for _, rel := range []string{".claude/skills/rtdd/SKILL.md", ".agents/skills/rtdd/SKILL.md"} {
+				line := lineFor(stdout, rel)
+				if !strings.HasPrefix(line, "skip") || !strings.Contains(line, "rtdd skill install") {
+					t.Errorf("%s: plan line = %q, want a skip naming `rtdd skill install`\n%s", rel, line, stdout)
+				}
+			}
+			assertHomeUnchanged(t, home, before, "init --project-skill")
+		})
+	}
+}
+
+// lineFor returns the first line of out that names rel, or "".
+func lineFor(out, rel string) string {
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, " "+rel) {
+			return l
+		}
+	}
+	return ""
 }

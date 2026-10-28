@@ -48,7 +48,8 @@ type PlanOptions struct {
 	AppendTo []string
 	// Home is the user's home directory. When the repository root is the home directory,
 	// a ProjectSkillFiles path that is also a user-level install path is `rtdd skill
-	// install`'s, not an older init's footprint, and PlanLegacyFiles leaves it out (#554).
+	// install`'s, not an older init's footprint: PlanLegacyFiles leaves it out (#554), and
+	// --project-skill does not write it (#558).
 	// Empty means the root is never treated as the home directory.
 	Home string
 }
@@ -94,11 +95,22 @@ func Plan(root string, files map[string]string, opts PlanOptions) ([]Step, error
 
 	// 3. Opt-in: the whole-file front-ends.
 	if opts.ProjectSkill {
+		atHome := opts.Home != "" && samePath(root, opts.Home)
 		for _, rel := range sortedKeys(ProjectSkillFiles) {
 			content := markOptIn(files[ProjectSkillFiles[rel]], protocol.Generated)
 			abs := filepath.Join(root, filepath.FromSlash(rel))
 			existing, err := os.ReadFile(abs)
 			switch {
+			case atHome && userLevel(rel):
+				// Run from the home directory, this path is a user-level install: writing the
+				// project render there would change what agents in every repository read (#558).
+				note := "kept; a user-level install — `rtdd skill install` manages it"
+				if os.IsNotExist(err) {
+					note = "a user-level install path — `rtdd skill install` writes it"
+				} else if err != nil {
+					return nil, err
+				}
+				steps = append(steps, Step{Path: rel, Action: Skip, Note: note})
 			case os.IsNotExist(err):
 				steps = append(steps, Step{Path: rel, Action: Create, Content: content})
 			case err != nil:
