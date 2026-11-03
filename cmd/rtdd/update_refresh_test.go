@@ -252,3 +252,21 @@ func TestInitDryRunInstallsNoMissingSkill(t *testing.T) {
 		t.Error("init --dry-run installed a skill")
 	}
 }
+
+// A linked agent whose canonical copy was deleted has a dangling link: its skill is missing,
+// and `rtdd init` restores the copy the link resolves to.
+func TestInitRestoresTheCanonicalCopyADanglingLinkNeeds(t *testing.T) {
+	home := fakeHome(t, ".hermes")
+	if code, _, stderr := rtdd(t, t.TempDir(), "skill", "install"); code != 0 {
+		t.Fatalf("skill install: %d %s", code, stderr)
+	}
+	if err := os.RemoveAll(filepath.Join(home, ".local", "share", "rtdd")); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := rtdd(t, newTestRepo(t), "init"); code != 0 {
+		t.Fatalf("init: %d %s", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(home, filepath.FromSlash(hermesSkill))); err != nil {
+		t.Errorf("Hermes's skill still does not resolve after init: %v", err)
+	}
+}

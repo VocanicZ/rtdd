@@ -286,7 +286,7 @@ func refreshGlobalSkill(stdout, stderr io.Writer, onlyMissing bool) {
 }
 
 // missingSteps keeps the steps that write a path that does not exist yet, plus the
-// canonical copy when a kept link needs it.
+// canonical copy when a link needs it.
 func missingSteps(home string, steps []install.Step) []install.Step {
 	var out []install.Step
 	var canonical *install.Step
@@ -300,16 +300,24 @@ func missingSteps(home string, steps []install.Step) []install.Step {
 		if s.Action != install.Create && s.Action != install.Link {
 			continue
 		}
-		if _, err := os.Lstat(filepath.Join(home, filepath.FromSlash(s.Path))); !os.IsNotExist(err) {
+		if !missing(home, s.Path) {
 			continue
 		}
 		linked = linked || s.Action == install.Link
 		out = append(out, s)
 	}
-	if linked && canonical != nil && canonical.Action != install.Skip {
+	// The canonical copy is written for a new link, or when it is itself missing: a link
+	// already in place resolves to nothing without it.
+	if canonical != nil && canonical.Action != install.Skip && (linked || missing(home, canonical.Path)) {
 		out = append([]install.Step{*canonical}, out...)
 	}
 	return out
+}
+
+// missing reports whether the home-relative path does not exist, as a file or a link.
+func missing(home, rel string) bool {
+	_, err := os.Lstat(filepath.Join(home, filepath.FromSlash(rel)))
+	return os.IsNotExist(err)
 }
 
 // unplannedLegacy is globalLegacy less what steps already delete: install retires an older
