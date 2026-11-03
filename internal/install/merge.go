@@ -32,6 +32,9 @@ const (
 	// Legacy reports a piece of an older init's footprint outside .rtdd/ (legacy.go). It is
 	// a report: Apply and ApplyUninstall write nothing for it.
 	Legacy
+	// Link makes Path a symbolic link to Target, the one canonical copy of the machine-wide
+	// skill rtdd owns (#566). Where the OS refuses the link, Apply writes Content instead.
+	Link
 )
 
 func (a Action) String() string {
@@ -56,6 +59,8 @@ func (a Action) String() string {
 		return "append-line"
 	case Legacy:
 		return "legacy"
+	case Link:
+		return "link"
 	}
 	return "unknown"
 }

@@ -45,7 +45,10 @@ rtdd skill uninstall   # remove them
 ```
 
 `rtdd update` replaces the binary with the latest release, and only if it is newer, then
-refreshes the machine-wide skill to match; `rtdd update --check` asks without installing.
+runs the new binary to refresh the machine-wide skill to match — so an agent the new
+release supports gets the skill too; `rtdd update --check` asks without installing. Every
+`rtdd update`, already-current included, and every `rtdd init` also install the skill for
+an agent that is present and lacks it — one installed after rtdd was, or a skill deleted.
 `rtdd uninstall` removes what `rtdd init` wrote into a repository, leaving `.rtdd/` unless
 you add `--state`, and the machine-wide front-ends unless you add `--global`.
 `rtdd uninstall --legacy-files` removes what an older rtdd wrote outside its own files.
@@ -125,14 +128,18 @@ with `--append-to`.
 | `~/.gemini/extensions/rtdd/gemini-extension.json`, `~/.gemini/extensions/rtdd/GEMINI.md` | `rtdd skill install`, the installer | when `~/.gemini/settings.json` or `~/.gemini/oauth_creds.json` exists — Gemini CLI, not an Antigravity-only `~/.gemini/` |
 | `~/.copilot/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.copilot/` exists — Copilot CLI |
 | `~/.cursor/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.cursor/` exists — Cursor |
-| `~/.config/opencode/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.config/opencode/` exists — OpenCode |
+| `~/.config/opencode/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.config/opencode/` exists — OpenCode; a link to the canonical copy |
 | `~/.zcode/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.zcode/` exists — Zcode |
-| `~/.hermes/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.hermes/` exists — Hermes Agent |
-| `~/.openclaw/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.openclaw/` exists — OpenClaw |
+| `~/.hermes/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.hermes/` exists — Hermes Agent; a link to the canonical copy |
+| `~/.openclaw/skills/rtdd/SKILL.md` | `rtdd skill install`, the installer | when `~/.openclaw/` exists — OpenClaw; a link to the canonical copy |
+| `~/.local/share/rtdd/skill/SKILL.md` | `rtdd skill install`, the installer | the canonical copy, when an agent above links to it |
 | the `rtdd` binary | the installer, `rtdd update` | on your PATH, or `--install-dir` |
 
-An agent directory that does not exist is skipped rather than created. `rtdd skill
-uninstall` removes every `~/` directory rtdd owns; `rtdd uninstall --state` removes
+An agent directory that does not exist is skipped rather than created. An agent verified
+to load a `SKILL.md` through a symbolic link ([docs/agent-capabilities.md](docs/agent-capabilities.md#symbolic-links))
+gets a link to one canonical copy rtdd owns, so a refresh rewrites one file; the rest get a
+copy each. A file or link at rtdd's path that rtdd did not make is left alone without
+`--force`. `rtdd skill uninstall` removes every `~/` directory rtdd owns, links included; `rtdd uninstall --state` removes
 `.rtdd/`. v0.3.0 wrote Codex's skill to `~/.codex/skills/rtdd/`; `rtdd skill install`
 removes that directory when every file in it is rtdd's render, and otherwise removes only
 rtdd's files and keeps the directory with yours.

@@ -112,7 +112,7 @@ func Agents() []Agent {
 			ID: "opencode", Name: "OpenCode",
 			Present: []string{".config/opencode/"},
 			Owned:   ".config/opencode/skills/rtdd/",
-			User:    []GlobalFile{{Rel: ".config/opencode/skills/rtdd/SKILL.md", Source: protocol.GlobalSkillPath, Marker: protocol.Generated}},
+			User:    []GlobalFile{{Rel: ".config/opencode/skills/rtdd/SKILL.md", Source: protocol.GlobalSkillPath, Marker: protocol.Generated, Link: true}},
 			Project: []GlobalFile{{Rel: ".agents/skills/rtdd/SKILL.md", Source: "dist/SKILL.md", Marker: protocol.Generated}},
 			Limits: []string{
 				"also reads `~/.claude/skills/` and `~/.agents/skills/`, so it may list rtdd more than once; every copy is the same text",
@@ -134,7 +134,7 @@ func Agents() []Agent {
 			ID: "hermes", Name: "Hermes Agent",
 			Present: []string{".hermes/"},
 			Owned:   ".hermes/skills/rtdd/",
-			User:    []GlobalFile{{Rel: ".hermes/skills/rtdd/SKILL.md", Source: protocol.GlobalSkillPath, Marker: protocol.Generated}},
+			User:    []GlobalFile{{Rel: ".hermes/skills/rtdd/SKILL.md", Source: protocol.GlobalSkillPath, Marker: protocol.Generated, Link: true}},
 			Project: []GlobalFile{{Rel: ".agents/skills/rtdd/SKILL.md", Source: "dist/SKILL.md", Marker: protocol.Generated}},
 			Limits: []string{
 				"the project skill loads only after `hermes skills trust`, which rtdd never runs",
@@ -145,7 +145,7 @@ func Agents() []Agent {
 			ID: "openclaw", Name: "OpenClaw",
 			Present: []string{".openclaw/"},
 			Owned:   ".openclaw/skills/rtdd/",
-			User:    []GlobalFile{{Rel: ".openclaw/skills/rtdd/SKILL.md", Source: protocol.GlobalSkillPath, Marker: protocol.Generated}},
+			User:    []GlobalFile{{Rel: ".openclaw/skills/rtdd/SKILL.md", Source: protocol.GlobalSkillPath, Marker: protocol.Generated, Link: true}},
 			Project: []GlobalFile{{Rel: ".agents/skills/rtdd/SKILL.md", Source: "dist/SKILL.md", Marker: protocol.Generated}},
 			Limits: []string{
 				"its project is a workspace (`~/.openclaw/workspace` by default), so the project skill is read only when the repository is the workspace",

@@ -49,7 +49,24 @@ type GlobalFile struct {
 	// Marker is text every rtdd render of this file carries. A file holding it is rtdd's own
 	// output from an earlier release and is refreshed without --force.
 	Marker string
+	// Link installs the file as a symbolic link to CanonicalSkill rather than a copy (#566).
+	// It is set only for an agent verified to load a SKILL.md through a link
+	// (docs/agent-capabilities.md), and only for a file rendered from
+	// protocol.GlobalSkillPath, which is what the canonical copy holds.
+	Link bool
 }
+
+// CanonicalSkill is the one copy of the machine-wide skill rtdd owns outright,
+// home-relative. Every agent whose GlobalFile is a Link reads it through a symbolic link, so
+// a refresh rewrites one file and no agent's copy goes stale on its own (#566).
+const CanonicalSkill = ".local/share/rtdd/skill/SKILL.md"
+
+// canonicalDir is CanonicalSkill's directory and canonicalRoot rtdd's directory around it;
+// uninstall removes the second when nothing but the first is in it.
+const (
+	canonicalDir  = ".local/share/rtdd/skill/"
+	canonicalRoot = ".local/share/rtdd/"
+)
 
 // geminiManifest is the Gemini CLI extension manifest. Its version is the extension's
 // format, not rtdd's release: the extension only names a context file rtdd regenerates on
@@ -94,9 +111,25 @@ func GlobalSurfaces() []GlobalSurface {
 // with no Codex would litter someone's home directory and make `ls ~` misreport which
 // tools are installed. Every surface still produces a step, so the output says what was
 // considered as well as what was written.
+//
+// An agent whose file is a Link gets a symbolic link to CanonicalSkill, which is planned
+// first, rather than a copy of its own (#566); the rest keep a generated file.
 func PlanGlobal(home string, files map[string]string, force bool) ([]Step, error) {
-	steps := []Step{}
+	canonical := GlobalFile{Rel: CanonicalSkill, Source: protocol.GlobalSkillPath, Marker: protocol.Generated}
+	canonStep, err := planGlobalFile(home, canonical, files, force)
+	if err != nil {
+		return nil, err
+	}
+	// A canonical copy rtdd did not write is not a target to link to: the agents that would
+	// link get copies instead, and the file is left alone and said so.
+	canonOK := canonStep.Action != Conflict
+	if !canonOK {
+		canonStep = Step{Path: CanonicalSkill, Action: Skip, Note: "kept; not written by rtdd, so every agent gets its own copy; re-run with --force to overwrite"}
+	}
+	target := filepath.Join(home, filepath.FromSlash(CanonicalSkill))
 
+	steps := []Step{}
+	linked := false
 	for _, sf := range GlobalSurfaces() {
 		skip, err := globalSkip(home, sf)
 		if err != nil {
@@ -108,32 +141,17 @@ func PlanGlobal(home string, files map[string]string, force bool) ([]Step, error
 		}
 
 		for _, f := range sf.Files {
-			content := f.Content(files)
-			existing, err := os.ReadFile(filepath.Join(home, filepath.FromSlash(f.Rel)))
-			if err != nil && !os.IsNotExist(err) {
+			var step Step
+			if f.Link && canonOK {
+				step, err = planGlobalLink(home, f, files, target, force)
+				linked = true
+			} else {
+				step, err = planGlobalFile(home, f, files, force)
+			}
+			if err != nil {
 				return nil, err
 			}
-			switch {
-			case os.IsNotExist(err):
-				steps = append(steps, Step{Path: f.Rel, Action: Create, Content: content})
-			case string(existing) == content:
-				steps = append(steps, Step{Path: f.Rel, Action: Skip, Note: "already current"})
-			case strings.Contains(string(existing), f.Marker):
-				// rtdd's own output from an earlier release. This is the ordinary upgrade
-				// path — `rtdd update` re-runs this install, and the new binary renders a
-				// different skill than the old one did — so it must not need --force. Treating
-				// it as a conflict would fail every upgrade and pin everyone to whichever
-				// skill their first install happened to write. The repo-scoped Plan is
-				// deliberately stricter: nothing re-runs `rtdd init` behind the user's back.
-				steps = append(steps, Step{Path: f.Rel, Action: Create, Content: content, Note: "refreshed for this release"})
-			case force:
-				steps = append(steps, Step{Path: f.Rel, Action: Create, Content: content, Note: "overwritten by --force"})
-			default:
-				steps = append(steps, Step{
-					Path: f.Rel, Action: Conflict,
-					Note: "exists and differs; re-run with --force to overwrite",
-				})
-			}
+			steps = append(steps, step)
 		}
 
 		for _, dir := range sf.Retired {
@@ -145,7 +163,101 @@ func PlanGlobal(home string, files map[string]string, force bool) ([]Step, error
 		}
 	}
 
+	// The canonical copy goes first, so every link Apply makes points at a file that exists.
+	// With no agent linking to it there is nothing for it to serve, and it is not written.
+	if linked || !canonOK {
+		steps = append([]Step{canonStep}, steps...)
+	}
 	return steps, nil
+}
+
+// planGlobalFile is the step that writes f as a file of its own.
+//
+// It keeps Plan's rule for a whole-file front-end: one that exists and differs is a
+// conflict rather than an overwrite, because the user may have edited it — unless it is an
+// earlier rtdd render, which is refreshed, or --force is given.
+func planGlobalFile(home string, f GlobalFile, files map[string]string, force bool) (Step, error) {
+	content := f.Content(files)
+	existing, err := os.ReadFile(filepath.Join(home, filepath.FromSlash(f.Rel)))
+	if err != nil && !os.IsNotExist(err) {
+		return Step{}, err
+	}
+	switch {
+	case os.IsNotExist(err):
+		return Step{Path: f.Rel, Action: Create, Content: content}, nil
+	case string(existing) == content:
+		return Step{Path: f.Rel, Action: Skip, Note: "already current"}, nil
+	case strings.Contains(string(existing), f.Marker):
+		// rtdd's own output from an earlier release. This is the ordinary upgrade
+		// path — `rtdd update` re-runs this install, and the new binary renders a
+		// different skill than the old one did — so it must not need --force. Treating
+		// it as a conflict would fail every upgrade and pin everyone to whichever
+		// skill their first install happened to write. The repo-scoped Plan is
+		// deliberately stricter: nothing re-runs `rtdd init` behind the user's back.
+		return Step{Path: f.Rel, Action: Create, Content: content, Note: "refreshed for this release"}, nil
+	case force:
+		return Step{Path: f.Rel, Action: Create, Content: content, Note: "overwritten by --force"}, nil
+	default:
+		return Step{Path: f.Rel, Action: Conflict, Note: "exists and differs; re-run with --force to overwrite"}, nil
+	}
+}
+
+// planGlobalLink is the step that makes f a symbolic link to target, the canonical copy.
+//
+// The conflict rule is planGlobalFile's: a link already pointing at the canonical copy is
+// current, a file an earlier rtdd wrote is replaced by the link, and anything else — a file
+// the user wrote, a link the user made to somewhere else — is left alone unless --force.
+func planGlobalLink(home string, f GlobalFile, files map[string]string, target string, force bool) (Step, error) {
+	abs := filepath.Join(home, filepath.FromSlash(f.Rel))
+	link := Step{Path: f.Rel, Action: Link, Target: target, Content: f.Content(files), Note: "links to ~/" + CanonicalSkill}
+	fi, err := os.Lstat(abs)
+	switch {
+	case os.IsNotExist(err):
+		return link, nil
+	case err != nil:
+		return Step{}, err
+	case fi.Mode()&os.ModeSymlink != 0:
+		if linksTo(abs, target) {
+			return Step{Path: f.Rel, Action: Skip, Note: "already current; links to ~/" + CanonicalSkill}, nil
+		}
+		if force {
+			link.Note = "overwritten by --force"
+			return link, nil
+		}
+		return Step{Path: f.Rel, Action: Conflict, Note: "a link rtdd did not make; re-run with --force to replace it"}, nil
+	case fi.IsDir():
+		return Step{Path: f.Rel, Action: Conflict, Note: "is a directory; move it aside and re-run"}, nil
+	}
+	existing, err := os.ReadFile(abs)
+	if err != nil {
+		return Step{}, err
+	}
+	switch {
+	case strings.Contains(string(existing), f.Marker):
+		link.Note = "replaces an earlier release's copy; links to ~/" + CanonicalSkill
+		return link, nil
+	case force:
+		link.Note = "overwritten by --force"
+		return link, nil
+	default:
+		return Step{Path: f.Rel, Action: Conflict, Note: "exists and differs; re-run with --force to overwrite"}, nil
+	}
+}
+
+// linksTo reports whether abs is a symbolic link that resolves to target: by its literal
+// destination, or — for a home directory reached through another link — by the file both
+// name.
+func linksTo(abs, target string) bool {
+	dest, err := os.Readlink(abs)
+	if err != nil {
+		return false
+	}
+	if dest == target {
+		return true
+	}
+	a, aerr := os.Stat(abs)
+	b, berr := os.Stat(target)
+	return aerr == nil && berr == nil && os.SameFile(a, b)
 }
 
 // globalSkip is the step for a surface rtdd does not write on this machine, or nil when it
@@ -197,6 +309,28 @@ func PlanGlobalUninstall(home string) ([]Step, error) {
 		}
 	}
 
+	// The canonical copy goes last, after every link to it.
+	canon, err := planRemoveCanonical(home)
+	if err != nil {
+		return nil, err
+	}
+	return append(steps, canon...), nil
+}
+
+// planRemoveCanonical is the steps that remove CanonicalSkill's directory, and rtdd's
+// directory around it when that holds nothing else.
+func planRemoveCanonical(home string) ([]Step, error) {
+	steps, err := planRemoveDir(home, canonicalDir, generatedFile(home, canonicalDir))
+	if err != nil || len(steps) != 1 || steps[0].Action != Delete {
+		return steps, err
+	}
+	entries, err := os.ReadDir(filepath.Join(home, filepath.FromSlash(canonicalRoot)))
+	if err != nil {
+		return nil, err
+	}
+	if len(entries) == 1 {
+		return []Step{{Path: canonicalRoot, Action: Delete}}, nil
+	}
 	return steps, nil
 }
 
@@ -237,12 +371,18 @@ func ownedFile(home string, sf GlobalSurface) func(os.DirEntry) (bool, error) {
 	for _, f := range sf.Files {
 		markers[filepath.Base(f.Rel)] = f.Marker
 	}
+	target := filepath.Join(home, filepath.FromSlash(CanonicalSkill))
 	return func(e os.DirEntry) (bool, error) {
 		marker, named := markers[e.Name()]
+		abs := filepath.Join(home, filepath.FromSlash(sf.Owned), e.Name())
+		// A link is rtdd's only when it is one rtdd makes: to the canonical copy (#566).
+		if named && e.Type()&os.ModeSymlink != 0 {
+			return linksTo(abs, target), nil
+		}
 		if !named || !e.Type().IsRegular() {
 			return false, nil
 		}
-		b, err := os.ReadFile(filepath.Join(home, filepath.FromSlash(sf.Owned), e.Name()))
+		b, err := os.ReadFile(abs)
 		if err != nil {
 			return false, err
 		}

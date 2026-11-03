@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strings"
 
 	"github.com/VocanicZ/rtdd/internal/install"
@@ -13,7 +14,7 @@ import (
 )
 
 const skillUsage = `usage:
-  rtdd skill install   [--dry-run] [--force]
+  rtdd skill install   [--dry-run] [--force] [--refresh]
   rtdd skill uninstall [--dry-run]
   rtdd skill prompt
 `
@@ -87,12 +88,17 @@ func cmdSkillInstall(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	dryRun := fs.Bool("dry-run", false, "print the plan and change nothing")
 	force := fs.Bool("force", false, "overwrite a hand-edited front-end")
+	refresh := fs.Bool("refresh", false, "refresh what is installed and install what is missing, leaving a hand-written front-end alone; what `rtdd update` runs")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if fs.NArg() != 0 {
+	if fs.NArg() != 0 || (*refresh && (*dryRun || *force)) {
 		fmt.Fprint(stderr, skillUsage)
 		return 2
+	}
+	if *refresh {
+		refreshGlobalSkill(stdout, stderr, false)
+		return 0
 	}
 
 	home, err := homeDir()
@@ -217,18 +223,23 @@ func RenderSkillPrompt(body string) string {
 	return b.String()
 }
 
-// refreshGlobalSkill rewrites the machine-wide front-ends after a successful `rtdd update`.
+// refreshGlobalSkill rewrites the machine-wide front-ends after a successful `rtdd update`,
+// and installs the skill for every supported agent that is present and lacks it.
 //
 // The rendered front-ends are embedded in the binary, so replacing the binary makes whatever
 // is in the home directory stale. Left alone, the skill an agent reads keeps describing the
-// release the user first installed while the binary it describes moves on.
+// release the user first installed while the binary it describes moves on. An agent
+// installed after rtdd was, or a skill someone deleted, is found the same way (#566).
+//
+// With onlyMissing it writes only what does not exist yet and refreshes nothing: what
+// `rtdd init` runs, since init is not an upgrade.
 //
 // It never fails the caller. `rtdd update` has already replaced the binary by the time this
 // runs, so the update genuinely succeeded; reporting a home directory rtdd could not write
 // as an update failure would send the user to re-run something that already worked. Trouble
 // is reported as a note on stderr and nothing more, and the surfaces PlanGlobal skips are
 // silent by construction.
-func refreshGlobalSkill(stdout, stderr io.Writer) {
+func refreshGlobalSkill(stdout, stderr io.Writer, onlyMissing bool) {
 	home, err := homeDir()
 	if err != nil {
 		fmt.Fprintf(stderr, "note: could not refresh the agent skill: %v\n", err)
@@ -243,6 +254,9 @@ func refreshGlobalSkill(stdout, stderr io.Writer) {
 	if err != nil {
 		fmt.Fprintf(stderr, "note: could not refresh the agent skill: %v\n", err)
 		return
+	}
+	if onlyMissing {
+		steps = missingSteps(home, steps)
 	}
 	// A conflict here is a front-end the user has hand-written. Updating the binary is not
 	// permission to overwrite it, so it is left exactly as it is and reported.
@@ -263,10 +277,39 @@ func refreshGlobalSkill(stdout, stderr io.Writer) {
 		case install.Skip:
 		case install.Delete:
 			fmt.Fprintf(stdout, "removed an older release's agent skill at %s\n", s.Path)
+		case install.Link:
+			fmt.Fprintf(stdout, "linked the agent skill at %s to ~/%s\n", s.Path, install.CanonicalSkill)
 		default:
 			fmt.Fprintf(stdout, "refreshed the agent skill at %s\n", s.Path)
 		}
 	}
+}
+
+// missingSteps keeps the steps that write a path that does not exist yet, plus the
+// canonical copy when a kept link needs it.
+func missingSteps(home string, steps []install.Step) []install.Step {
+	var out []install.Step
+	var canonical *install.Step
+	linked := false
+	for _, s := range steps {
+		if s.Path == install.CanonicalSkill {
+			c := s
+			canonical = &c
+			continue
+		}
+		if s.Action != install.Create && s.Action != install.Link {
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(home, filepath.FromSlash(s.Path))); !os.IsNotExist(err) {
+			continue
+		}
+		linked = linked || s.Action == install.Link
+		out = append(out, s)
+	}
+	if linked && canonical != nil && canonical.Action != install.Skip {
+		out = append([]install.Step{*canonical}, out...)
+	}
+	return out
 }
 
 // unplannedLegacy is globalLegacy less what steps already delete: install retires an older

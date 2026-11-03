@@ -15,6 +15,8 @@ type Step struct {
 	Action  Action
 	Content string
 	Note    string
+	// Target is a Link step's destination, an absolute path.
+	Target string
 }
 
 // graphCacheLine is the line .rtdd/.gitignore holds for the graph cache (spec §4.5, §12).
@@ -231,11 +233,33 @@ func Apply(root string, steps []Step) error {
 		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 			return err
 		}
+		if s.Action == Link {
+			if err := applyLink(abs, s); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := os.WriteFile(abs, []byte(s.Content), 0o644); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// applyLink makes abs a symbolic link to s.Target, replacing the file or link PlanGlobal
+// found there. An OS or filesystem that refuses symbolic links — Windows without Developer
+// Mode, some network mounts — gets a written copy of s.Content instead: the agent still
+// reads the same skill, and the next refresh rewrites the copy as it always has.
+func applyLink(abs string, s Step) error {
+	if fi, err := os.Lstat(abs); err == nil && !fi.IsDir() {
+		if err := os.Remove(abs); err != nil {
+			return err
+		}
+	}
+	if err := os.Symlink(s.Target, abs); err == nil {
+		return nil
+	}
+	return os.WriteFile(abs, []byte(s.Content), 0o644)
 }
 
 // Files returns the generated front-ends embedded in the binary, so `rtdd init`

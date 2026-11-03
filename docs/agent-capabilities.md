@@ -90,6 +90,31 @@ repository an agent works in [openclaw-workspace]; a `--project-skill` file in t
 is read only when the repository is the workspace. `.agents/skills/` is the one project path
 that is.
 
+## Symbolic links
+
+Where an agent loads a `SKILL.md` through a symbolic link, `rtdd skill install` links its
+skill to one canonical copy rtdd owns, `~/.local/share/rtdd/skill/SKILL.md`, rather than
+writing a copy per agent that can go stale on its own (#566). `GlobalFile.Link` in
+`internal/install/agents.go` is set only for an agent in the "yes" rows below; the rest keep
+a generated file. Gemini CLI's extension is a different front-end (a manifest and a
+`GEMINI.md`), so it is always generated.
+
+| agent | follows a symlinked `SKILL.md` | how it was checked |
+| --- | --- | --- |
+| Hermes Agent | yes — a linked file and a linked skill directory | `hermes skills list` (v0.22.5) with `HERMES_HOME` a fake home whose `skills/rtdd/SKILL.md` is a link: `rtdd` listed `local`, `enabled`; a dangling link: not listed (2026-11-03) |
+| OpenClaw | yes — a linked file | `openclaw skills list --json` (2026.10.8) with `HOME` a fake home whose `~/.openclaw/skills/rtdd/SKILL.md` is a link: `rtdd` listed (2026-11-03) |
+| OpenCode | yes — a linked file | `opencode debug skill` with `HOME` a fake home whose `~/.config/opencode/skills/rtdd/SKILL.md` is a link: `rtdd` listed with its body read through the link (2026-11-03) |
+| Claude Code | unverified — copy | no offline command lists its skills |
+| Google Antigravity | unverified — copy | no offline command lists its skills |
+| OpenAI Codex CLI | unverified — copy | no offline command lists its skills; `~/.agents/skills/` is shared with other agents |
+| Gemini CLI | n/a — an extension, generated | its front-end is not a `SKILL.md` |
+| GitHub Copilot CLI | unverified — copy | no offline command lists its skills |
+| Cursor | unverified — copy | no offline command lists its skills |
+| Zcode | unverified — copy | a desktop app; no command lists its skills |
+
+A filesystem or OS that refuses a symbolic link — Windows without Developer Mode — gets a
+written copy at the same path instead.
+
 ## Sources
 
 [cc-skills]: https://code.claude.com/docs/en/skills

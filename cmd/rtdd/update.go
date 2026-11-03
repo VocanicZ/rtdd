@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 
 	"github.com/VocanicZ/rtdd/internal/install"
 	"github.com/VocanicZ/rtdd/internal/selfupdate"
@@ -52,6 +53,18 @@ func renderUpdate(res selfupdate.Result) string {
 	}
 }
 
+// selfUpdate is selfupdate.Update, a variable so a test can stand in a release without a
+// download.
+var selfUpdate = selfupdate.Update
+
+// refreshWith runs `<bin> skill install --refresh`: the freshly installed binary refreshes
+// the machine-wide skill from its own agent table and renders. Its output is the command's.
+var refreshWith = func(bin string, stdout, stderr io.Writer) error {
+	cmd := exec.Command(bin, "skill", "install", "--refresh")
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	return cmd.Run()
+}
+
 // cmdUpdate replaces the running binary with a published release.
 //
 // Exit codes follow the usage block: 0 for every outcome that is merely a fact - already
@@ -63,7 +76,7 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "rtdd update: %v\n\n%s", err, usage)
 		return 2
 	}
-	res, err := selfupdate.Update(version, opts)
+	res, err := selfUpdate(version, opts)
 	if err != nil {
 		fmt.Fprintf(stderr, "rtdd update: %v\n", err)
 		if errors.Is(err, selfupdate.ErrNotComparable) || errors.Is(err, selfupdate.ErrNotWritable) {
@@ -73,10 +86,17 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprint(stdout, renderUpdate(res))
 	// The front-ends are embedded in the binary, so a replaced binary makes whatever is in
-	// the home directory stale. Only on an actual replacement: --check writes nothing, and
-	// an already-current install has nothing to refresh.
-	if res.Updated {
-		refreshGlobalSkill(stdout, stderr)
+	// the home directory stale. This process is the OLD release: its agent table and its
+	// renders are the ones being replaced, so the refresh is the new binary's to do (#566).
+	// An already-current install runs the same re-check itself — it is the newest release —
+	// for an agent installed since, or a skill deleted. --check writes nothing.
+	switch {
+	case res.Updated:
+		if err := refreshWith(res.Target, stdout, stderr); err != nil {
+			fmt.Fprintf(stderr, "note: the new rtdd could not refresh the agent skill (%v); run `rtdd skill install`\n", err)
+		}
+	case !opts.CheckOnly:
+		refreshGlobalSkill(stdout, stderr, false)
 	}
 	// What an older rtdd wrote outside its own files is reported on every outcome: it is a
 	// read, and an upgrade is when a user meets the new, self-contained footprint (#509).
