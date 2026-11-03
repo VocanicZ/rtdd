@@ -98,16 +98,20 @@ def test_the_preregistration_is_left_unsigned():
 #: The root README and the outcome file it is copied from (`outcomes_test.go`).
 README_DOCS = ("README.md", "docs/outcomes/README.positive.md")
 
+#: Where the verdicts are quoted in full. The README keeps the plain statement and links here
+#: (#568); the verbatim quotes moved with the rest of the benchmark detail.
+VERDICT_DOCS = ("docs/reference.md",)
+
 
 def _verdicts(repo_id: str) -> list[str]:
     text = (N4 / repo_id / "summary.md").read_text(encoding="utf-8")
     return [line for line in text.splitlines() if line.startswith("verdict")]
 
 
-@pytest.mark.parametrize("rel", README_DOCS)
+@pytest.mark.parametrize("rel", VERDICT_DOCS)
 @pytest.mark.parametrize("repo_id", corpus_ids())
 def test_the_readme_states_each_verdict_as_published(rel, repo_id):
-    """#506: the v0.3.0 release states the 2026-10-22 verdicts on its front page, verbatim.
+    """#506: the v0.3.0 release states the 2026-10-22 verdicts verbatim (docs/reference.md since #568).
 
     A verdict that says "this must be stated in the README" is stated there in the words
     the run wrote, so a softened or paraphrased verdict fails here.
@@ -118,3 +122,14 @@ def test_the_readme_states_each_verdict_as_published(rel, repo_id):
     assert "docs/results/n4-bench-rounds.md" in readme, f"{rel} does not link the 2026-10-22 page"
     for verdict in verdicts:
         assert verdict in readme, f"{rel} does not state `{repo_id}`'s verdict as published: {verdict!r}"
+
+
+@pytest.mark.parametrize("rel", README_DOCS)
+def test_the_front_page_says_plainly_that_rtdd_does_not_beat_the_path_heuristic(rel):
+    """#568: the front page is short, but the pre-registered criterion still requires it to
+    say, in its own words, that rtdd does not clearly beat the path heuristic, and to link the
+    run and the reference that quotes every verdict."""
+    readme = " ".join((ROOT / rel).read_text(encoding="utf-8").split())
+    assert "does not clearly beat the naive path heuristic" in readme, f"{rel} lost the plain statement"
+    assert "docs/results/n4-bench-rounds.md" in readme, f"{rel} does not link the 2026-10-22 page"
+    assert "docs/reference.md#does-it-work" in readme, f"{rel} does not link the verdicts"

@@ -9,7 +9,7 @@ import (
 // v030Docs are the pages that describe rtdd as it is now (PRD #411 AC7). README.md and
 // README.positive.md are one file twice (internal/installtest/outcomes_test.go).
 var v030Docs = []string{"README.md", "docs/outcomes/README.positive.md", "DEVELOPMENT.md", "docs/LIMITATIONS.md",
-	"docs/PRIOR-ART.md"}
+	"docs/PRIOR-ART.md", "docs/reference.md"}
 
 // v030Guides are the v030Docs that teach the commands and the process, so they must name them.
 var v030Guides = map[string]bool{"README.md": true, "docs/outcomes/README.positive.md": true, "DEVELOPMENT.md": true}
@@ -104,5 +104,36 @@ func TestSupersededSpecsAreMarkedNotDeleted(t *testing.T) {
 	}
 	if strings.Contains(readRepoFile(t, "docs/specs/2026-10-07-node-graph.md"), "**Superseded**") {
 		t.Error("the current spec carries a superseded banner")
+	}
+}
+
+// Issue #568: the README is the short front page — a Harness-style layout of a pitch, the
+// figure and compact sections — and every detail it dropped lives in docs/reference.md,
+// which it links. A README that grows back, or a reference the README no longer reaches,
+// fails here.
+func TestREADMEIsShortAndLinksTheReference(t *testing.T) {
+	readme := readRepoFile(t, "README.md")
+	if n := strings.Count(readme, "\n"); n > 180 {
+		t.Errorf("README.md is %d lines; the short front page stays near 170 and the rest goes to docs/reference.md", n)
+	}
+	if !strings.Contains(readme, "](docs/reference.md") {
+		t.Error("README.md does not link docs/reference.md")
+	}
+	for _, want := range []string{"## Features", "## Install", "## Quick start", "## Supported agents", "## Commands",
+		"## Does it work?", "## Limitations", "## Documentation", "## License", "## Star History",
+		"how-it-picks-v3-dark.svg", "how-it-picks-v3-light.svg",
+		"does not clearly beat\nthe naive path heuristic"} {
+		if !strings.Contains(readme, want) {
+			t.Errorf("README.md lacks %q", want)
+		}
+	}
+	ref := readRepoFile(t, "docs/reference.md")
+	for _, want := range []string{"## What rtdd writes", "## Supported agents", "## Recording every invocation",
+		"RTDD_EVENT_LOG", "## graphify is optional", "## What it cannot see", "## Does it work?",
+		"Exit codes: 0 success", "--swarm-job", "rtdd uninstall --legacy-files",
+		v02RecordOpen, v02RecordClose} {
+		if !strings.Contains(ref, want) {
+			t.Errorf("docs/reference.md lacks %q — a detail the README dropped was not relocated", want)
+		}
 	}
 }
