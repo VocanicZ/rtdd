@@ -235,7 +235,7 @@ func TestRefreshGlobalSkillRewritesAnOlderReleasesSkill(t *testing.T) {
 	}
 
 	var out, errOut strings.Builder
-	refreshGlobalSkill(&out, &errOut)
+	refreshGlobalSkill(&out, &errOut, false)
 
 	got := homeFile(t, home, ".claude/skills/rtdd/SKILL.md")
 	if strings.Contains(got, "an older release") {
@@ -271,7 +271,7 @@ func TestUnplannedLegacyDropsWhatThePlanDeletes(t *testing.T) {
 func TestRefreshGlobalSkillIsSilentWhenNoAgentIsInstalled(t *testing.T) {
 	fakeHome(t)
 	var out, errOut strings.Builder
-	refreshGlobalSkill(&out, &errOut)
+	refreshGlobalSkill(&out, &errOut, false)
 	if errOut.Len() != 0 {
 		t.Errorf("refresh complained on a machine with no agent installed: %s", errOut.String())
 	}

@@ -33,6 +33,9 @@ type matrixAgent struct {
 	shared  []string // home-relative files the agent shares with its user; seeded, never written
 	legacy  []string // the shared files an older `rtdd skill install` merged a block into
 	limit   string   // a phrase the skip note and doctor's line carry; "" when none
+	// link: user is a symbolic link to install.CanonicalSkill, not a copy — set only for an
+	// agent verified to load a SKILL.md through a link (docs/agent-capabilities.md, #566).
+	link bool
 }
 
 var matrixAgents = []matrixAgent{
@@ -76,6 +79,7 @@ var matrixAgents = []matrixAgent{
 	{
 		id: "opencode", name: "OpenCode", present: []string{".config/opencode/"},
 		user:    []string{".config/opencode/skills/rtdd/SKILL.md"},
+		link:    true,
 		project: []string{".agents/skills/rtdd/SKILL.md"},
 		shared:  []string{".config/opencode/AGENTS.md"},
 	},
@@ -86,12 +90,14 @@ var matrixAgents = []matrixAgent{
 	{
 		id: "hermes", name: "Hermes Agent", present: []string{".hermes/"},
 		user:    []string{".hermes/skills/rtdd/SKILL.md"},
+		link:    true,
 		project: []string{".agents/skills/rtdd/SKILL.md"},
 		shared:  []string{".hermes/config.yaml"},
 	},
 	{
 		id: "openclaw", name: "OpenClaw", present: []string{".openclaw/"},
 		user:    []string{".openclaw/skills/rtdd/SKILL.md"},
+		link:    true,
 		project: []string{".agents/skills/rtdd/SKILL.md"},
 		shared:  []string{".openclaw/workspace/AGENTS.md"},
 	},
@@ -330,7 +336,7 @@ func TestRefreshGlobalSkillSaysItRemovedTheOldCodexSkill(t *testing.T) {
 	home := fakeHome(t, ".codex")
 	writeFile(t, home, ".codex/skills/rtdd/SKILL.md", protocol.Generated+"\nv0.3.0's skill\n")
 	var out, errb strings.Builder
-	refreshGlobalSkill(&out, &errb)
+	refreshGlobalSkill(&out, &errb, false)
 	if _, err := os.Stat(filepath.Join(home, ".codex", "skills", "rtdd")); !os.IsNotExist(err) {
 		t.Errorf("rtdd update left the old ~/.codex/skills/rtdd/ (err %v)", err)
 	}
@@ -346,7 +352,7 @@ func TestSkillInstallWithEveryAgentPresentTouchesNoUserFile(t *testing.T) {
 	var want []string
 	for _, a := range matrixAgents {
 		seedAgent(t, home, a)
-		want = append(want, a.user...)
+		want = append(want, written(a)...)
 	}
 	before := snapshot(t, home)
 	if code, _, stderr := rtdd(t, t.TempDir(), "skill", "install"); code != 0 {
@@ -404,6 +410,26 @@ func snapshot(t *testing.T, dir string) map[string]string {
 	return out
 }
 
+// written is every file `rtdd skill install` makes for a: its user files, and the
+// canonical copy its links resolve to.
+func written(a matrixAgent) []string {
+	if a.link {
+		return append(slices.Clone(a.user), install.CanonicalSkill)
+	}
+	return a.user
+}
+
+// The matrix's link column and the table's say the same thing.
+func TestAgentMatrixLinksAreTheAgentsTable(t *testing.T) {
+	for _, a := range matrixAgents {
+		for _, f := range agentRow(t, a.id).User {
+			if f.Link != a.link {
+				t.Errorf("install.Agents() %s %s Link = %v, matrix link = %v", a.id, f.Rel, f.Link, a.link)
+			}
+		}
+	}
+}
+
 // assertOnlyCreated fails unless every file in before is byte-identical in dir now and the
 // files that appeared are exactly want.
 func assertOnlyCreated(t *testing.T, dir string, before map[string]string, want []string) {
@@ -444,7 +470,16 @@ func rowUserInstall(t *testing.T, a matrixAgent) {
 	if code != 0 {
 		t.Fatalf("rtdd skill install exited %d: %s", code, stderr)
 	}
-	assertOnlyCreated(t, home, before, a.user)
+	assertOnlyCreated(t, home, before, written(a))
+	for _, u := range a.user {
+		fi, err := os.Lstat(filepath.Join(home, filepath.FromSlash(u)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if isLink := fi.Mode()&os.ModeSymlink != 0; isLink != a.link {
+			t.Errorf("%s is a symbolic link: %v, want %v", u, isLink, a.link)
+		}
+	}
 	if a.limit != "" && !strings.Contains(stdout, a.limit) {
 		t.Errorf("the output does not state %s's limitation %q:\n%s", a.name, a.limit, stdout)
 	}
@@ -499,7 +534,7 @@ func rowUpdateRefreshes(t *testing.T, a matrixAgent) {
 	}
 	before := snapshot(t, home)
 	var out, errb strings.Builder
-	refreshGlobalSkill(&out, &errb)
+	refreshGlobalSkill(&out, &errb, false)
 	var want []string
 	for _, f := range ag.User {
 		if got := homeFile(t, home, f.Rel); got != f.Content(files) {

@@ -34,7 +34,9 @@ func RenderInit(steps []install.Step) string {
 // file with --append-to (rtdd's block between its markers, nothing outside them touched).
 // A whole-file front-end is replaced only when an earlier rtdd wrote it; one rtdd did not
 // write is a conflict no flag overrides. What an older init wrote outside .rtdd/ is
-// reported, never touched. It detects nothing and refuses no git repository: the node
+// reported, never touched. Outside the repository it installs the machine-wide skill for an
+// agent that is present and lacks it, as `rtdd skill install` would, and refreshes nothing
+// (#566). It detects nothing and refuses no git repository: the node
 // graph serves every language the scanner reads (spec §8).
 //
 // The root is resolved with findRepoRoot, so running init from a subdirectory installs
@@ -101,6 +103,9 @@ func cmdInit(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "rtdd init: %v\n", err)
 		return 2
 	}
+	// An agent present on this machine without rtdd's skill — installed after rtdd was, or
+	// its skill deleted — gets it now (#566). Only what is missing: init is not an upgrade.
+	refreshGlobalSkill(stdout, stderr, true)
 	fmt.Fprint(stdout, RenderNextStep())
 	return 0
 }
