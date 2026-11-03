@@ -80,7 +80,7 @@ func TestREADMETimeAxisMatchesTheCommittedAgentSession(t *testing.T) {
 		t.Fatalf("parse %s: %v", path, err)
 	}
 
-	b, err := os.ReadFile("README.md")
+	b, err := os.ReadFile(filepath.Join("docs", "reference.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestREADMETimeAxisMatchesTheCommittedAgentSession(t *testing.T) {
 		"which after memoising":  s.SingleCommandMs.WhichAfter,
 	} {
 		if !strings.Contains(text, fmt.Sprintf("%d ms", want)) {
-			t.Errorf("README.md does not carry the committed %s (%d ms)", what, want)
+			t.Errorf("docs/reference.md does not carry the committed %s (%d ms)", what, want)
 		}
 	}
 
@@ -164,7 +164,7 @@ func TestREADMESafetyAxisMatchesThePairedRun(t *testing.T) {
 		t.Fatalf("parse %s: %v", path, err)
 	}
 
-	b, err := os.ReadFile("README.md")
+	b, err := os.ReadFile(filepath.Join("docs", "reference.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,13 +203,13 @@ func TestREADMESafetyAxisMatchesThePairedRun(t *testing.T) {
 		}
 	}
 	if row == "" {
-		t.Fatal("README.md has no rtdd row in the safety table")
+		t.Fatal("docs/reference.md has no rtdd row in the safety table")
 	}
 	if !strings.Contains(row, want) {
-		t.Errorf("README.md's rtdd row is %q, which does not carry the committed paired recall %q", row, want)
+		t.Errorf("docs/reference.md's rtdd row is %q, which does not carry the committed paired recall %q", row, want)
 	}
 	if !strings.Contains(text, fmt.Sprintf("| **%d** |", rtdd.DetectingCommits)) {
-		t.Errorf("README.md does not carry the paired run's detecting count (%d)", rtdd.DetectingCommits)
+		t.Errorf("docs/reference.md does not carry the paired run's detecting count (%d)", rtdd.DetectingCommits)
 	}
 }
 
@@ -224,6 +224,7 @@ func TestREADMEHasNoDuplicatedSection(t *testing.T) {
 		"README.md",
 		filepath.Join("docs", "outcomes", "README.positive.md"),
 		filepath.Join("docs", "outcomes", "README.negative.md"),
+		filepath.Join("docs", "reference.md"),
 	} {
 		b, err := os.ReadFile(name)
 		if err != nil {

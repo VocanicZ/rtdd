@@ -587,15 +587,28 @@ def test_readme_figures_never_use_v02_vocabulary(readme):
             assert not _v02_words(captions), f"{rel}, on {readme}, says {_v02_words(captions)}"
 
 
-def test_the_how_it_picks_section_embeds_both_themes_of_the_rounds_figure():
+def test_the_readme_embeds_both_themes_of_the_rounds_figure_under_the_pitch():
+    """#568: the front page has no `## How it picks` heading; the figure sits right under the
+    pitch, before the first section, and docs/reference.md keeps the section that explains it."""
     src = (REPO_ROOT / "README.md").read_text()
+    head = src[:src.index("\n## ")]
+    picture = PICTURE.search(head)
+    assert picture, "the README embeds no figure between the pitch and its first section"
+    assert 'media="(prefers-color-scheme: dark)" srcset="docs/results/figures/how-it-picks-v3-dark.svg"' in picture[1]
+    assert 'src="docs/results/figures/how-it-picks-v3-light.svg"' in picture[1]
+    # directly under the intro paragraph, before the rounds it then lists
+    assert head.index("<picture>") > head.index("rtdd tells a coding agent")
+    assert src.index("<picture>") < src.index("- **Round 1**")
+
+
+def test_the_reference_how_it_picks_section_embeds_both_themes_of_the_rounds_figure():
+    src = (REPO_ROOT / "docs/reference.md").read_text()
     section = src[src.index("## How it picks"):]
     section = section[:section.index("\n## ", 1)]
     picture = PICTURE.search(section)
     assert picture, "## How it picks embeds no figure"
-    assert 'media="(prefers-color-scheme: dark)" srcset="docs/results/figures/how-it-picks-v3-dark.svg"' in picture[1]
-    assert 'src="docs/results/figures/how-it-picks-v3-light.svg"' in picture[1]
-    # directly under the intro paragraph, before the rounds it then lists
+    assert 'media="(prefers-color-scheme: dark)" srcset="results/figures/how-it-picks-v3-dark.svg"' in picture[1]
+    assert 'src="results/figures/how-it-picks-v3-light.svg"' in picture[1]
     assert section.index("<picture>") < section.index("- **Round 1**")
 
 
