@@ -14,8 +14,9 @@ import (
 // fixtureLangs is spec §4.4's corpus. Each directory under testdata/ is one small project
 // and its want.json; all eight languages of spec §1, then signatures: parameter lists
 // that wrap, one-line and Allman-style bodies, and definitions inside comments and
-// strings that are none (#507).
-var fixtureLangs = []string{"python", "go", "typescript", "java", "rust", "ruby", "lua", "bash", "signatures"}
+// strings that are none (#507); luau: a spec whose cases are anonymous `fn = function()`
+// bodies in the table it returns, their calls the file node's (#570).
+var fixtureLangs = []string{"python", "go", "typescript", "java", "rust", "ruby", "lua", "luau", "bash", "signatures"}
 
 type wantNode struct {
 	ID    string     `json:"id"`

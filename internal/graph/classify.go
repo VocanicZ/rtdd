@@ -44,7 +44,8 @@ func Classify(nodes []Node, cfg Config) {
 // every func in it becomes a helper, and one synthetic WholeFileNode, which calls each of
 // them, is its only test. In any other test file the tests are its test nodes and its
 // convention-named funcs; every other func is a helper. files is the scanned file list: a
-// WholeFileTests file in it gets its file node even when it defines nothing.
+// WholeFileTests file in it gets its file node even when it defines nothing, and so does a
+// test file whose file node calls (#570).
 func SplitTests(g *Graph, files []string, cfg Config) {
 	tested := map[string]bool{} // test file -> it defines a test
 	for _, n := range g.Nodes {
@@ -61,6 +62,14 @@ func SplitTests(g *Graph, files []string, cfg Config) {
 	for _, f := range files {
 		if matchAny(cfg.WholeFileTests, f) && !matchAny(cfg.TestExclude, f) {
 			whole[f] = true
+		}
+	}
+	// A test file that defines nothing yet calls code — a spec whose cases are anonymous
+	// literals in the table it returns (#570) — is whole-file too: its file node calls.
+	for _, e := range g.Edges {
+		if _, defines := tested[e.From]; e.Relation == RelCalls && !defines && !whole[e.From] &&
+			!strings.Contains(e.From, "::") && IsTestFile(e.From, cfg) {
+			whole[e.From] = true
 		}
 	}
 	if len(whole) == 0 && len(tested) == 0 {
