@@ -1,0 +1,14 @@
+{
+  "nodes": [
+    {"id": "src/Server/Friends.luau::new", "name": "new", "kind": "func", "start": 3, "end": 4},
+    {"id": "src/Server/Friends.luau::add", "name": "add", "kind": "func", "start": 7, "end": 8},
+    {"id": "src/Server/Friends.luau::areFriends", "name": "areFriends", "kind": "func", "start": 11, "end": 12},
+    {"id": "src/Server/Friends.spec.luau::check", "name": "check", "kind": "func", "start": 3, "end": 6}
+  ],
+  "calls": [
+    {"from": "src/Server/Friends.spec.luau", "to": "src/Server/Friends.luau::add"},
+    {"from": "src/Server/Friends.spec.luau", "to": "src/Server/Friends.luau::areFriends"},
+    {"from": "src/Server/Friends.spec.luau", "to": "src/Server/Friends.luau::new"},
+    {"from": "src/Server/Friends.spec.luau", "to": "src/Server/Friends.spec.luau::check"}
+  ]
+}

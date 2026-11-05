@@ -23,13 +23,15 @@ import (
 // made over every file at once (Link, References), because each names a definition or a
 // file that may live anywhere.
 type FileResult struct {
-	Path    string
-	Nodes   []graph.Node
-	Edges   []graph.Edge
-	Calls   map[string][]string // node ID -> sorted, de-duplicated call tokens (see Link)
-	Imports []string            // import specs in line order; a relative one rooted at "/"
-	Supers  map[string][]Super  // class node ID -> what its definition line extends or implements
-	Lines   int                 // the file's line count: its file node's end (#504)
+	Path  string
+	Nodes []graph.Node
+	Edges []graph.Edge
+	// Calls is node ID — or Path, for the calls in an anonymous function literal in no
+	// definition (#570) — -> sorted, de-duplicated call tokens (see Link).
+	Calls   map[string][]string
+	Imports []string           // import specs in line order; a relative one rooted at "/"
+	Supers  map[string][]Super // class node ID -> what its definition line extends or implements
+	Lines   int                // the file's line count: its file node's end (#504)
 	// Refs is node ID — or Path, for the lines in no definition — -> the sorted path
 	// tokens in its code (not its comments), see References.
 	Refs map[string][]string
@@ -37,6 +39,10 @@ type FileResult struct {
 
 // callSite is `X(` with X a whole word.
 var callSite = regexp.MustCompile(`[A-Za-z_$][\w$]*\(`)
+
+// anonymousLiteral opens an anonymous function literal — Lua/JS `function(`, Go `func(` —
+// the shape of a spec's `fn = function() ... end` case body (#570).
+var anonymousLiteral = regexp.MustCompile(`(?:^|[^\w$.:])(?:function|func)\s*\(`)
 
 // commandSite is a word in command position — the first word of a statement, followed by
 // an argument or nothing — as in `add 1 2` (shell) or `helper x` (Ruby). An assignment
@@ -204,16 +210,28 @@ func ScanFile(rel string, src []byte) FileResult {
 		}
 		return recv + "." + name
 	}
-	named := map[int]map[string]bool{} // owner (-1: none) -> path tokens
-	called := map[int]map[string]bool{}
+	// anon marks the lines in no definition that lie in an anonymous function literal
+	// opened in none — a spec's `return { { name = "x", fn = function() ... end } }` cases
+	// (#570). Their calls are the file's: its file node calls what they call.
+	anon := make([]bool, len(lines))
+	for l, line := range codeLines {
+		if owner[l] >= 0 || anon[l] || !anonymousLiteral.MatchString(line) {
+			continue
+		}
+		for k := l; k <= endLine(codeLines, l) && owner[k] < 0; k++ {
+			anon[k] = true
+		}
+	}
+	named := map[int]map[string]bool{}  // owner (-1: none) -> path tokens
+	called := map[int]map[string]bool{} // owner (-1: an anon line) -> call tokens
 	for l, line := range codeLines {
 		o := owner[l]
 		if named[o] == nil {
 			named[o] = map[string]bool{}
 		}
 		pathTokens(line, named[o])
-		if o < 0 || defs[o].start == l {
-			continue // top-level code, or the node's own definition line
+		if o < 0 && !anon[l] || o >= 0 && defs[o].start == l {
+			continue // other top-level code, or the node's own definition line
 		}
 		for _, loc := range callSite.FindAllStringIndex(line, -1) {
 			if loc[0] > 0 && isWord(line[loc[0]-1]) {
@@ -248,7 +266,11 @@ func ScanFile(rel string, src []byte) FileResult {
 			list = append(list, n)
 		}
 		sort.Strings(list)
-		res.Calls[ids[o]] = list
+		if o < 0 {
+			res.Calls[rel] = list
+		} else {
+			res.Calls[ids[o]] = list
+		}
 	}
 	for o, set := range named {
 		if toks := sortedSet(set); toks != nil {

@@ -74,7 +74,8 @@ type Stats struct {
 //     definitions links to none, counted in Stats.AmbiguousCalls.
 //
 // A supertype name resolves to class nodes by rules 3-4. nodes is the whole graph's node
-// set, whichever source produced each node. The caller itself is never a target.
+// set, whichever source produced each node. The caller itself is never a target. A call
+// keyed by a file path (see FileResult.Calls) is that file's node's (#570).
 func Link(nodes []graph.Node, refs Refs) ([]graph.Edge, Stats) {
 	edges, st := link(nodes, refs)
 	g := graph.Graph{Edges: edges}
@@ -190,7 +191,18 @@ func link(nodes []graph.Node, refs Refs) ([]graph.Edge, Stats) {
 	for from, toks := range refs.Calls {
 		n, ok := l.byID[from]
 		if !ok {
-			continue
+			if strings.Contains(from, "::") {
+				continue
+			}
+			// A file's own calls (an anonymous literal in no definition, #570): its file
+			// node, not yet in the graph, is the caller.
+			n = graph.FileNode(from, 0)
+			if _, ok := l.extOf[from]; !ok {
+				l.extOf[from], l.dirOf[from] = filepath.Ext(from), pathpkg.Dir(from)
+			}
+			if _, ok := l.pkg[from]; !ok {
+				l.pkg[from] = packageKey(pathpkg.Dir(from))
+			}
 		}
 		sc := scopes(n)
 		for _, tok := range toks {

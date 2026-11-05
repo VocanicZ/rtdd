@@ -21,8 +21,9 @@ import (
 // class is rtdd_parent on its node, so a read never decodes links. 3: a file's import
 // specs are rtdd_imports, a class's supertypes rtdd_supers on its node. 4: a file's line
 // count is rtdd_lines, the path tokens of its lines in no definition rtdd_refs, and a
-// node's rtdd_refs on the node (#504).
-const cacheVersion = 4
+// node's rtdd_refs on the node (#504). 5: the calls of a file's anonymous literals in no
+// definition are rtdd_file_calls (#570).
+const cacheVersion = 5
 
 // cacheFile is .rtdd/graph.json: graphify's graph.json node-link shape (so a graphify
 // reader can open it), plus rtdd's own keys, all prefixed rtdd_ (spec §4.5). Links are
@@ -34,10 +35,11 @@ type cacheFile struct {
 	BuiltAtCommit string              `json:"built_at_commit"`
 	Cache         int                 `json:"rtdd_cache"`
 	Scanner       string              `json:"rtdd_scanner"`
-	Files         map[string]string   `json:"rtdd_files"`   // path -> blob id it was scanned from; "" = working-tree content
-	Imports       map[string][]string `json:"rtdd_imports"` // path -> its import specs, when it has any
-	Lines         map[string]int      `json:"rtdd_lines"`   // path -> its line count
-	Refs          map[string][]string `json:"rtdd_refs"`    // path -> the path tokens of its lines in no definition
+	Files         map[string]string   `json:"rtdd_files"`      // path -> blob id it was scanned from; "" = working-tree content
+	Imports       map[string][]string `json:"rtdd_imports"`    // path -> its import specs, when it has any
+	Lines         map[string]int      `json:"rtdd_lines"`      // path -> its line count
+	Refs          map[string][]string `json:"rtdd_refs"`       // path -> the path tokens of its lines in no definition
+	FileCalls     map[string][]string `json:"rtdd_file_calls"` // path -> its file node's call tokens (#570)
 	Nodes         []cacheNode         `json:"nodes"`
 	Links         []cacheLink         `json:"links"`
 }
@@ -71,6 +73,7 @@ type cacheRead struct {
 	Imports       map[string][]string `json:"rtdd_imports"`
 	Lines         map[string]int      `json:"rtdd_lines"`
 	Refs          map[string][]string `json:"rtdd_refs"`
+	FileCalls     map[string][]string `json:"rtdd_file_calls"`
 }
 
 type cacheLink struct {
@@ -164,6 +167,12 @@ func readCache(p, id string) *cache {
 			c.results[p] = r
 		}
 	}
+	for p, toks := range f.FileCalls {
+		if r, ok := c.results[p]; ok {
+			r.Calls[p] = toks
+			c.results[p] = r
+		}
+	}
 	return c
 }
 
@@ -176,7 +185,7 @@ func decodeCache(r io.Reader) (cacheRead, error) {
 		return f, errors.New("cache is not a JSON object")
 	}
 	seen := map[string]bool{}
-	for len(seen) < 8 && dec.More() {
+	for len(seen) < 9 && dec.More() {
 		t, err := dec.Token()
 		if err != nil {
 			return f, err
@@ -200,6 +209,8 @@ func decodeCache(r io.Reader) (cacheRead, error) {
 			v = &f.Lines
 		case "rtdd_refs":
 			v = &f.Refs
+		case "rtdd_file_calls":
+			v = &f.FileCalls
 		default:
 			v = &json.RawMessage{}
 		}
@@ -251,7 +262,7 @@ func writeCache(p, id, head string, files []string, blobs map[string]string, cha
 		keep[r.Path] = r
 	}
 	f := cacheFile{BuiltAtCommit: head, Cache: cacheVersion, Scanner: id, Files: map[string]string{}, Imports: map[string][]string{},
-		Lines: map[string]int{}, Refs: map[string][]string{}}
+		Lines: map[string]int{}, Refs: map[string][]string{}, FileCalls: map[string][]string{}}
 	all := make([]scan.FileResult, 0, len(keep))
 	for path, r := range keep {
 		blob := blobs[path]
@@ -265,6 +276,9 @@ func writeCache(p, id, head string, files []string, blobs map[string]string, cha
 		f.Lines[path] = r.Lines
 		if toks := r.Refs[path]; len(toks) > 0 {
 			f.Refs[path] = toks
+		}
+		if toks := r.Calls[path]; len(toks) > 0 {
+			f.FileCalls[path] = toks
 		}
 		all = append(all, r)
 	}

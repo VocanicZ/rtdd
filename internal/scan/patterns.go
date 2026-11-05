@@ -169,7 +169,7 @@ func lastSegment(s string) string {
 
 // spanRules versions the language-agnostic rules in scan.go. Bump it with any change to
 // how spans, ownership or edges are computed, so every cached graph is rebuilt.
-const spanRules = "5"
+const spanRules = "6"
 
 // Fingerprint identifies this scanner: the pattern table, the keyword set, the call-site
 // expressions and the span rules. The graph cache is valid only for the fingerprint that
@@ -190,7 +190,7 @@ func Fingerprint() string {
 		fmt.Fprintf(h, "import %s %s\n", r.sep, r.re)
 	}
 	fmt.Fprintf(h, "%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n", strings.Join(importWords, " "), goImportBlock, goImportLine, generics, sortedKeys(supertypeWords), sortedKeys(selfReceivers), sortedKeys(bindingKeywords), superReceiver)
-	fmt.Fprintf(h, "%s\n", refRule)
+	fmt.Fprintf(h, "%s\n%s\n", refRule, anonymousLiteral)
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
