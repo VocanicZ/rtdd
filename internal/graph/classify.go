@@ -1,7 +1,9 @@
 package graph
 
 import (
+	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -20,7 +22,20 @@ var testName = regexp.MustCompile(`^(?:[Tt]est|Benchmark|Fuzz|Example)(?:_|[A-Z0
 // IsTestFile reports whether rel is a test file: it matches a TestFiles or WholeFileTests
 // glob and no TestExclude glob (spec §6 — testdata/ and fixtures/ are never test files).
 func IsTestFile(rel string, cfg Config) bool {
+	if isDataFile(rel) {
+		return false
+	}
 	return (matchAny(cfg.TestFiles, rel) || matchAny(cfg.WholeFileTests, rel)) && !matchAny(cfg.TestExclude, rel)
+}
+
+// dataExtensions are the extensions of files that hold output or data, never tests: a log
+// or transcript a smoke run wrote, a table a test reads (#573). .json is left out: a
+// repository may keep test code in it. Built in rather than a
+// test_exclude default, which only a repository with no config — or a new init — would get.
+var dataExtensions = []string{".log", ".jsonl", ".txt", ".out", ".csv", ".tsv"}
+
+func isDataFile(rel string) bool {
+	return slices.Contains(dataExtensions, strings.ToLower(path.Ext(rel)))
 }
 
 // Classify sets IsTest on every node, whichever source produced it: a func, method or

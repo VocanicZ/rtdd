@@ -34,7 +34,8 @@ func TestAChangedFileNothingNamesIsUntested(t *testing.T) {
 }
 
 // #504: Round 1 also holds the tests of a node that names the changed file — they run
-// what loads it — over one references edge, not two.
+// what loads it — over one references edge, not two. A changed file node adds nothing to
+// Round 2 (#573): the tests of the docs that reach it over more edges are not run.
 func TestTheTestsOfWhatLoadsAChangedFileAreRoundOne(t *testing.T) {
 	conf := graph.FileNode("conf/app.yaml", 3)
 	load := n("src/cfg.py", "load", 1, 4)
@@ -49,7 +50,6 @@ func TestTheTestsOfWhatLoadsAChangedFileAreRoundOne(t *testing.T) {
 	check(t, Rounds(g, lines("conf/app.yaml", LineRange{2, 2})), want{
 		changed: []string{"conf/app.yaml"},
 		round1:  []string{"tests/test_cfg.py::test_load"},
-		round2:  []string{"tests/test_docs.py::test_docs"},
 	})
 }
 

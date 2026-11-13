@@ -12,7 +12,7 @@ It builds a **code graph** whose nodes are functions, methods and classes, whose
 relationships, and in which every test is a node linked to the code it calls. When code changes:
 
 1. **Round 1** — the tests linked to the changed nodes (and every changed test itself).
-2. **Round 2** — the tests linked to the changed nodes' **depth-1 neighbours**, minus Round 1.
+2. **Round 2** — the tests linked to the changed nodes' **depth-1 neighbours**, minus Round 1. A changed whole-file node (prose, data, a file that defines nothing) or a changed test, helper or test-file top level adds no neighbour (#573).
 3. **Round 3** — the full suite, run **once**, at the end of the task.
 
 The agent runs every round with the project's own test command. rtdd never executes a test,
@@ -286,13 +286,17 @@ repository, unreadable graph). No exit code reports a test result — rtdd runs 
   "changed_nodes": [{"id": "src/auth.py::login", "file": "src/auth.py", "name": "login", "start": 48, "end": 70}],
   "rounds": [
     {"round": 1, "tests": [{"id": "tests/test_auth.py::test_login", "file": "tests/test_auth.py", "name": "test_login"}], "files": ["tests/test_auth.py"]},
-    {"round": 2, "tests": [], "files": []},
+    {"round": 2, "tests": [], "files": [], "large_selection": false},
     {"round": 3, "full_suite": true}
   ],
   "untested": ["src/auth.py::login_hint"],
   "warnings": []
 }
 ```
+
+`large_selection` is true when Round 1 and Round 2 together select more than half of all
+tests, in a repository with at least 10; `warnings` then also carries the sentence saying so.
+It is present on Round 2's object only.
 
 Consumers reject any `schema` other than `3`. `files` is the de-duplicated test files of the
 round, for runners that cannot select a single test.

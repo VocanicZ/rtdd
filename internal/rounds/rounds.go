@@ -244,6 +244,9 @@ func Rounds(g graph.Graph, changed map[string][]LineRange) Result {
 		for _, t := range testsOfChanged(c) {
 			round1[t.ID] = t
 		}
+		if spreadsNothing(c) {
+			continue
+		}
 		for _, e := range ix.out[id] {
 			if n, ok := ix.byID[e.To]; ok && !n.IsTest {
 				neighbours[id] = append(neighbours[id], n.ID)
@@ -296,6 +299,17 @@ func Rounds(g graph.Graph, changed map[string][]LineRange) Result {
 		Round2:       runnable(round2, r1),
 		Untested:     ordered(untested),
 	}
+}
+
+// spreadsNothing reports whether a change to c adds no neighbour to Round 2 (#573). A
+// changed function's callers and callees are code whose behaviour may shift. A whole-file
+// node (prose, data, anything that defines nothing) only names files: changing it cannot
+// change them, and the tests that read it are already Round 1. A test, a test file's
+// helper or its top level calls the code under test: changing it cannot break that code's
+// other tests, and it is Round 1 itself. Round 2 for a diff that changes code and tests
+// together comes from the code.
+func spreadsNothing(c graph.Node) bool {
+	return c.Kind == graph.KindFile || c.IsTest || c.Helper
 }
 
 // runnable is a round's tests in order, each by its runnable ID (graph.RunnableID), one
