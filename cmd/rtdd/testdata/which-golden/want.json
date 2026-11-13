@@ -124,7 +124,8 @@
       "files": [
         "money/money_test.go",
         "tests/test_calc.py"
-      ]
+      ],
+      "large_selection": false
     },
     {
       "round": 3,

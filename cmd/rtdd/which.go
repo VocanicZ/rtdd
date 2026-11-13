@@ -80,6 +80,10 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 	}
 	ranges, warnings := changedRanges(changes)
 	r := rounds.Rounds(res.Graph, ranges)
+	large, largeMsg := largeSelection(res.Graph, r)
+	if large {
+		warnings = append(warnings, largeMsg)
+	}
 	current.recordWhich(*base, r, warnings)
 	if jobDir != "" {
 		return emitSwarmJob(root, jobDir, *runCmd, r, warnings, stdout, stderr)
@@ -88,7 +92,7 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 		enc := json.NewEncoder(stdout)
 		enc.SetEscapeHTML(false) // "<module>" stays readable
 		enc.SetIndent("", "  ")
-		if err := enc.Encode(buildWhichJSON(*base, res, changes, r, warnings)); err != nil {
+		if err := enc.Encode(buildWhichJSON(*base, res, changes, r, warnings, large)); err != nil {
 			fmt.Fprintf(stderr, "rtdd which: %v\n", err)
 			return 3
 		}
@@ -119,6 +123,30 @@ func emitSwarmJob(root, jobDir, runCmd string, r rounds.Result, warnings []strin
 	}
 	fmt.Fprintln(stdout, name)
 	return 0
+}
+
+// largeSelectionMinTests is the fewest tests a repository needs before a big share selected
+// is news: in a 4-test repository nearly every change selects more than half.
+const largeSelectionMinTests = 10
+
+// largeSelection reports whether Rounds 1 and 2 together select more than half of all
+// tests, with the warning that says so (#573). A lane that sees it is about to run most of
+// the suite, which is usually a sign the change names much of the repository (prose, data)
+// rather than that it needs that many tests. Tests are counted by runnable id, as the
+// rounds list them.
+func largeSelection(g graph.Graph, r rounds.Result) (bool, string) {
+	all := map[string]bool{}
+	for _, n := range g.Nodes {
+		if n.IsTest {
+			all[graph.RunnableID(n)] = true
+		}
+	}
+	picked := len(r.Round1) + len(r.Round2)
+	if len(all) < largeSelectionMinTests || picked*2 <= len(all) {
+		return false, ""
+	}
+	return true, fmt.Sprintf("Round 1 and Round 2 select %d of %d tests, more than half of the suite; "+
+		"if the change is only prose, data or tests, check what names it with `rtdd explain`", picked, len(all))
 }
 
 // changedRanges is the changed set as rounds' input: each file's new-side line ranges
@@ -231,13 +259,20 @@ type testRound struct {
 	Files []string   `json:"files"` // the round's test files, de-duplicated, in test order
 }
 
+// round2JSON is Round 2's object: a testRound and large_selection, true when Rounds 1 and 2
+// together select more than half of all tests (#573, spec §9).
+type round2JSON struct {
+	testRound
+	LargeSelection bool `json:"large_selection"`
+}
+
 type fullSuiteRound struct {
 	Round     int  `json:"round"`
 	FullSuite bool `json:"full_suite"`
 }
 
 // buildWhichJSON is the schema-3 document (spec §9) for one answer.
-func buildWhichJSON(base string, res *graphbuild.Result, changes []gitctx.Change, r rounds.Result, warnings []string) whichJSON {
+func buildWhichJSON(base string, res *graphbuild.Result, changes []gitctx.Change, r rounds.Result, warnings []string, large bool) whichJSON {
 	doc := whichJSON{Schema: 3, Command: "which", Base: base, Graph: graphObjectOf(res),
 		Changed: []changedFile{}, ChangedNodes: []nodeJSON{}, Untested: []string{}, Warnings: nonNilStrings(warnings)}
 	for _, c := range changes {
@@ -259,6 +294,10 @@ func buildWhichJSON(base string, res *graphbuild.Result, changes []gitctx.Change
 				seen[t.File] = true
 				rd.Files = append(rd.Files, t.File)
 			}
+		}
+		if i == 1 {
+			doc.Rounds = append(doc.Rounds, round2JSON{testRound: rd, LargeSelection: large})
+			continue
 		}
 		doc.Rounds = append(doc.Rounds, rd)
 	}

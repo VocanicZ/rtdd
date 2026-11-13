@@ -166,7 +166,11 @@ the code it calls, and reads the lines you changed against it:
 
 - **Round 1** — the tests linked to the code you changed, and every test you changed.
 - **Round 2** — the tests linked to that code's direct neighbours, its callers and its
-  callees, minus Round 1.
+  callees, minus Round 1. A changed prose, data or test file adds nothing to Round 2: a
+  file that defines nothing (a changelog, a doc, a `.tsv`) only names other files, and a test
+  only calls the code under test, so changing either cannot change what its neighbours do.
+  Prose and data select the tests that read them in Round 1; a test selects itself. Round 2
+  for a change to code and tests together comes from the code.
 - **Round 3** — the full suite, once, at the end of the task.
 
 Take `src/calc.py`, where `total` calls `add`, and `tests/test_calc.py` with `test_add` and
@@ -201,7 +205,15 @@ When Rounds 1 and 2 are both empty, `rtdd which` prints `no linked test`. That i
 what it means — nothing links a test to the code you changed — and never a pass. Round 3
 still runs the full suite once at the end.
 
-`rtdd which --json` is the same answer as one object, schema 3, for tools that read it.
+Files ending in `.log`, `.jsonl`, `.txt`, `.out`, `.csv` or `.tsv` are never tests, even
+under `test/` or `tests/`, whatever `test_files` says: they hold output or data.
+
+When Round 1 and Round 2 together select more than half of all tests (and the repository has
+at least 10), `rtdd which` warns of it: a change that selects most of the suite usually names
+much of the repository, and the warning says so before you run it.
+
+`rtdd which --json` is the same answer as one object, schema 3, for tools that read it. The
+selection warning is also its Round 2 object's `large_selection` field and a `warnings` entry.
 
 The rounds can also run across spare machines with
 [swarm](https://github.com/VocanicZ/swarm). `rtdd which --swarm-job .rtdd/swarm --run
