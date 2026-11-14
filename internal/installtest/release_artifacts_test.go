@@ -121,7 +121,7 @@ func releaseMatrix(cfg goreleaserConfig) []releaseTarget {
 func buildReleaseArtifact(t *testing.T, dir string, tg releaseTarget) string {
 	t.Helper()
 	out := filepath.Join(dir, "rtdd-"+tg.goos+"-"+tg.goarch)
-	args := append([]string{"build"}, tg.flags...)
+	args := append([]string{"build", "-buildvcs=false"}, tg.flags...)
 	args = append(args, "-o", out, tg.main)
 	cmd := exec.Command("go", args...)
 	cmd.Env = append(os.Environ(), "GOOS="+tg.goos, "GOARCH="+tg.goarch)
@@ -356,7 +356,7 @@ func TestReleaseLinkageCheckRejectsADynamicallyLinkedBinary(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := filepath.Join(dir, "counterexample")
-	cmd := exec.Command("go", "build", "-o", out, ".")
+	cmd := exec.Command("go", "build", "-buildvcs=false", "-o", out, ".")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=1", "GOFLAGS=-mod=mod")
 	if b, err := cmd.CombinedOutput(); err != nil {

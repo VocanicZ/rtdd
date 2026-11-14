@@ -37,7 +37,7 @@ func archiveName(osName, arch string) string {
 func buildFixtureBinary(t *testing.T, dir string) string {
 	t.Helper()
 	out := filepath.Join(dir, "rtdd")
-	cmd := exec.Command("go", "build", "-ldflags", "-X main.version="+versionNum(), "-o", out, "./cmd/rtdd")
+	cmd := exec.Command("go", "build", "-buildvcs=false", "-ldflags", "-X main.version="+versionNum(), "-o", out, "./cmd/rtdd")
 	if b, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("go build cmd/rtdd: %v\n%s", err, b)
 	}

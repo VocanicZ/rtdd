@@ -517,6 +517,7 @@ func TestReleasePreflightOnThisRepoReportsFourPasses(t *testing.T) {
 	cmd := exec.Command(filepath.Join(repoRoot, "scripts", "release-preflight.sh"))
 	cmd.Dir = repoRoot
 	cmd.Env = append(os.Environ(), "PATH="+stubDir+":"+os.Getenv("PATH"))
+	cmd.Env = append(cmd.Env, uvCacheEnv(t)...)
 	var outBuf strings.Builder
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &outBuf
@@ -589,4 +590,17 @@ func packageDefinesTest(t *testing.T, dir, name string) bool {
 		}
 	}
 	return false
+}
+
+// uvCacheEnv points uv at a scratch cache when its own cache directory cannot be created
+// (a dangling ~/.cache/uv symlink, a read-only home): the script's `uv run pytest` fails
+// there with "Failed to initialize cache", which reads as a red test suite and has nothing
+// to do with the repository.
+func uvCacheEnv(t *testing.T) []string {
+	t.Helper()
+	out, err := exec.Command("uv", "cache", "dir").Output()
+	if err != nil || os.MkdirAll(strings.TrimSpace(string(out)), 0o755) == nil {
+		return nil
+	}
+	return []string{"UV_CACHE_DIR=" + t.TempDir()}
 }

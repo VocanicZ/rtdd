@@ -141,7 +141,7 @@ func TestTestOnlyHelpersDoNotCompileInTesting(t *testing.T) {
 	root := repoRoot(t)
 
 	for _, pkg := range []string{"./cmd/rtdd"} {
-		cmd := exec.Command("go", "list", "-deps", pkg)
+		cmd := exec.Command("go", "list", "-buildvcs=false", "-deps", pkg)
 		cmd.Dir = root
 		out, err := cmd.CombinedOutput()
 		if err != nil {

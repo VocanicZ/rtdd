@@ -143,7 +143,7 @@ func TestEventLogUnsetCreatesNoFile(t *testing.T) {
 // #503 AC3: 20 rtdd processes writing at once leave 20 whole lines.
 func TestEventLogParallelProcessesWriteWholeLines(t *testing.T) {
 	bin := filepath.Join(t.TempDir(), "rtdd")
-	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
+	if out, err := exec.Command("go", "build", "-buildvcs=false", "-o", bin, ".").CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}
 	dir := goldenWhichRepo(t)

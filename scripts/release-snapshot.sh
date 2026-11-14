@@ -33,4 +33,9 @@ cd "$(dirname "$0")/.."
 # and write the answer in.
 GORELEASER="${GORELEASER:-github.com/goreleaser/goreleaser/v2@v2.12.7}"
 
+# A snapshot is a local check, not a shippable build: it needs no VCS stamp, and in a git
+# worktree (whose .git is a file) go looks for a repository above it and fails with
+# "error obtaining VCS status".
+export GOFLAGS="${GOFLAGS:+$GOFLAGS }-buildvcs=false"
+
 exec go run "$GORELEASER" release --snapshot --clean --skip=publish "$@"
