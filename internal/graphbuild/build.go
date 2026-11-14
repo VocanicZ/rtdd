@@ -122,7 +122,7 @@ func Build(root string, cfg graph.Config, opt Options) (*Result, error) {
 			return nil, err
 		}
 	}
-	addFiles(&res.Graph, root, files, results)
+	addFiles(&res.Graph, root, files, results, prose)
 	graph.Classify(res.Graph.Nodes, cfg)
 	graph.SplitTests(&res.Graph, files, cfg)
 	return res, nil
@@ -202,7 +202,7 @@ func currentChangedSet(root, base string, rescan []string, againstHEAD map[strin
 // addFiles gives every file the scanner may read its file node, defining anything or not,
 // and makes the references edges from the scanned files to them (#504). A file graphify
 // vouches for was not scanned: its node's end is its line count, read here.
-func addFiles(g *graph.Graph, root string, files []string, results []scan.FileResult) {
+func addFiles(g *graph.Graph, root string, files []string, results []scan.FileResult, prose func(string) bool) {
 	lines := make(map[string]int, len(results))
 	for _, r := range results {
 		lines[r.Path] = r.Lines
@@ -212,7 +212,9 @@ func addFiles(g *graph.Graph, root string, files []string, results []scan.FileRe
 		if !ok {
 			n = countLines(filepath.Join(root, filepath.FromSlash(f)))
 		}
-		g.Nodes = append(g.Nodes, graph.FileNode(f, n))
+		fn := graph.FileNode(f, n)
+		fn.Prose = prose(f)
+		g.Nodes = append(g.Nodes, fn)
 	}
 	g.Edges = append(g.Edges, scan.References(files, results)...)
 	graph.Sort(g)

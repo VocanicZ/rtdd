@@ -611,3 +611,14 @@ func AssembleStats(results []FileResult) (graph.Graph, Stats) {
 	graph.Sort(&g)
 	return g, st
 }
+
+// CodeLines reports, per line of src, whether the line holds code: false for a line that
+// is blank or that comments and multi-line strings (docstrings) blank entirely (#578).
+func CodeLines(src []byte) []bool {
+	lines := strings.Split(string(src), "\n")
+	out := make([]bool, len(lines))
+	for i, l := range code(lines) {
+		out[i] = !blank(l)
+	}
+	return out
+}
