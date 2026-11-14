@@ -405,8 +405,9 @@ func endLine(lines []string, i int) int {
 // line, before a space, -, [ or the end) to end of line — not a shell `cmd -- path` — or
 // a /* block */ (see blockOpens). A block comment, a `backtick` string and a string
 // opened by three " or three ' may span lines; any other string ends at end of line. A '
-// opens a string only when another ' closes it later on the line, so a lone one (a Rust
-// lifetime such as &'static, an apostrophe) does not swallow the line's brackets.
+// or " opens a string only when another of its kind closes it later on the line, so a lone
+// one (a Rust lifetime such as &'static, an apostrophe, the shell `')"; }` that ends a
+// multi-line `python3 -c '...'` program, #572) does not swallow the line's brackets.
 type tokenizer struct {
 	paren, brace int
 	block        bool
@@ -490,7 +491,7 @@ func (t *tokenizer) scan(s string, mask []byte) {
 		case (c == '"' || c == '\'') && tripled(s, k):
 			quote, triple, from, opened = c, true, k, [2]int{t.row, k}
 			k += 2
-		case c == '"' || c == '`' || c == '\'' && closes(s, k):
+		case c == '`' || (c == '"' || c == '\'') && closes(s, k):
 			quote, triple, from, opened = c, false, k, [2]int{t.row, k}
 		case c == '/' && k+1 < len(s) && s[k+1] == '/':
 			wipe(k, len(s))
