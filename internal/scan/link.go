@@ -326,7 +326,7 @@ func (l *linker) resolve(n graph.Node, sc []string, tok string) ([]string, bool)
 	if local {
 		var keep []string
 		for _, id := range cands {
-			if f := l.byID[id].File; f == n.File || l.imported[n.File][f] {
+			if f := l.byID[id].File; f == n.File || l.imported[n.File][f] || pkgScoped[family(l.extOf[n.File])] && l.dirOf[f] == l.dirOf[n.File] {
 				keep = append(keep, id)
 			}
 		}
@@ -370,6 +370,10 @@ var families = func() map[string]string {
 	}
 	return m
 }()
+
+// pkgScoped are the families whose files see a directory's siblings without importing
+// them: a same-directory file is local to a call on an unnamed receiver.
+var pkgScoped = map[string]bool{".go": true, "jvm": true, ".cs": true}
 
 // family is ext's language family, ext itself when it shares with none.
 func family(ext string) string {

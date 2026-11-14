@@ -22,10 +22,10 @@ func TestFallbackNeverCrossesLanguages(t *testing.T) {
 	g, _ := assembleAll(
 		[2]string{"tools/app.js", "function save(x) {\n  return x\n}\n"},
 		[2]string{"tools/other.mjs", "function save(x) {\n  return x\n}\n"},
-		[2]string{"scripts/run.py", "def main(img):\n    img.save('a.png')\n    save(img)\n"},
+		[2]string{"tools/run.py", "def main(img):\n    img.save('a.png')\n    save(img)\n"},
 		[2]string{"tools/use.ts", "function go(o) {\n  save(o)\n}\n"},
 	)
-	if got := callsFrom(g, "scripts/run.py::main"); len(got) != 0 {
+	if got := callsFrom(g, "tools/run.py::main"); len(got) != 0 {
 		t.Errorf("python main links %v, want none", got)
 	}
 	if got := callsFrom(g, "tools/use.ts::go"); len(got) != 2 {
@@ -37,9 +37,9 @@ func TestFallbackNeverCrossesLanguages(t *testing.T) {
 func TestExternalReceiverLinksNowhere(t *testing.T) {
 	g, _ := assembleAll(
 		[2]string{"tools/img.py", "def open(p):\n    return p\n"},
-		[2]string{"scripts/run.py", "from PIL import Image\n\ndef main():\n    Image.open('a')\n"},
+		[2]string{"tools/run.py", "from PIL import Image\n\ndef main():\n    Image.open('a')\n"},
 	)
-	if got := callsFrom(g, "scripts/run.py::main"); len(got) != 0 {
+	if got := callsFrom(g, "tools/run.py::main"); len(got) != 0 {
 		t.Errorf("links %v, want none", got)
 	}
 }
@@ -92,5 +92,21 @@ func TestFamilyGroupsOneLanguagesExtensions(t *testing.T) {
 		if (family(c.a) == family(c.b)) != c.same {
 			t.Errorf("family(%s) vs family(%s): same = %v, want %v", c.a, c.b, !c.same, c.same)
 		}
+	}
+}
+
+// A package-scoped language sees its directory's files without imports; Python does not.
+func TestSameDirectoryIsLocalOnlyInPackageScopedLanguages(t *testing.T) {
+	g, _ := assembleAll(
+		[2]string{"app/Calc.java", "class Calc {\n    int apply(int a) {\n        return a;\n    }\n}\n"},
+		[2]string{"app/CalcTest.java", "class CalcTest {\n    void testApply() {\n        new Calc().apply(1);\n    }\n}\n"},
+		[2]string{"app/calc.py", "def apply(a):\n    return a\n"},
+		[2]string{"app/test_calc.py", "def main():\n    make().apply(1)\n"},
+	)
+	if want := []string{"app/Calc.java::Calc", "app/Calc.java::Calc::apply"}; !reflect.DeepEqual(callsFrom(g, "app/CalcTest.java::CalcTest::testApply"), want) {
+		t.Errorf("java: %v, want %v", callsFrom(g, "app/CalcTest.java::CalcTest::testApply"), want)
+	}
+	if got := callsFrom(g, "app/test_calc.py::main"); len(got) != 0 {
+		t.Errorf("python links %v, want none", got)
 	}
 }

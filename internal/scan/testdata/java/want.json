@@ -14,6 +14,7 @@
     {"from": "Calc.java::Calc::sum", "to": "Calc.java::Calc::apply"},
     {"from": "CalcTest.java::CalcTest::testApply", "to": "Calc.java::Calc"},
     {"from": "CalcTest.java::CalcTest::testApply", "to": "Calc.java::Calc::Calc"},
+    {"from": "CalcTest.java::CalcTest::testApply", "to": "Calc.java::Calc::apply"},
     {"from": "CalcTest.java::CalcTest::testSum", "to": "Calc.java::Calc"},
     {"from": "CalcTest.java::CalcTest::testSum", "to": "Calc.java::Calc::Calc"},
     {"from": "CalcTest.java::CalcTest::testSum", "to": "Calc.java::Calc::sum"},
