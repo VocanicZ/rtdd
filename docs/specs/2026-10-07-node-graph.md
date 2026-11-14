@@ -164,6 +164,25 @@ The full regex set lives in one Go file and is the only place language shapes ap
      to **none**, and `rtdd graph` counts the call in `ambiguous_calls`. A name that
      common carries no signal about which definition is meant.
 
+  *(Amended by issue #579: the name-only fallback linked plainly wrong definitions.)*
+  Before rules 1-4 narrow anything, the candidates are cut and a call on a receiver may
+  stop early:
+  - **Languages.** The candidates are limited to A's language family — `.js .mjs .cjs
+    .jsx .ts .tsx .mts .cts`, `.sh .bash .zsh`, `.c .h .cc .cpp .cxx .hpp .hh .hxx`,
+    `.java .kt .kts .scala .groovy`, `.py .pyi`; any other extension is its own family. The
+    fallback never crosses families.
+  - **External receiver.** `R.X(` where A's file imports `R` from outside the repository
+    (`Image`, `os`, `json`) links to **nothing**.
+  - **Receiver naming a file.** `R.X(` where `R` is the stem of a repository file of A's
+    family (`portable.pid_alive(` and `scripts/portable.py`, loaded by `importlib` or not),
+    or the last segment of an import A's file resolves, links only to that file's `X`
+    when it defines one; otherwise it goes on.
+  - **Local or unnamed receiver.** `.X(`, or `R.X(` where `R` is none of the above (a
+    local variable), links only to definitions in A's own file or in files A's file
+    imports. If there are such candidates elsewhere only, the call links to nothing and
+    is counted in `ambiguous_calls`, never linked repo-wide. Under-linking is accepted:
+    the rounds' third round is the safety net.
+
   The same rule links the scanner's calls from stale files against the merged graph in the
   §5 overlay (step 3's re-pointing stays within one file, so one extension).
 - **`inherits` / `implements` edges** from a class node to the class nodes its definition

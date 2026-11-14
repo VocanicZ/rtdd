@@ -312,7 +312,7 @@ func TestACallNarrowsToItsPackageAcrossSourceRoots(t *testing.T) {
 	for _, p := range []string{"src/main/java/net/x/sched", "src/main/java/net/x/cmd", "lib/a", "lib/b", "lib/c", "lib/d"} {
 		files = append(files, [2]string{p + "/Set.java", "class Set {\n    int size() {\n        return 0;\n    }\n}\n"})
 	}
-	files = append(files, [2]string{"src/test/java/net/x/sched/SetTest.java", "class SetTest {\n    void testSize() {\n        assertEquals(0, make().size());\n    }\n}\n"})
+	files = append(files, [2]string{"src/test/java/net/x/sched/SetTest.java", "class SetTest {\n    void testSize() {\n        assertEquals(0, size());\n    }\n}\n"})
 	g, st := assembleAll(files...)
 	want := []graph.Edge{{From: "src/test/java/net/x/sched/SetTest.java::SetTest::testSize", To: "src/main/java/net/x/sched/Set.java::Set::size", Relation: graph.RelCalls}}
 	if got := edgesOf(g, graph.RelCalls); !reflect.DeepEqual(got, want) || st.AmbiguousCalls != 0 {

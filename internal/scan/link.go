@@ -101,6 +101,7 @@ type linker struct {
 	classes  map[[2]string][]string         // classesNamed, memoized by caller file and name
 	isClass  map[string]bool                // names some class node bears
 	extOf    map[string]string              // file -> its extension
+	stems    map[string][]string            // language family and file stem -> files
 	dirOf    map[string]string              // file -> its directory
 }
 
@@ -109,12 +110,14 @@ func link(nodes []graph.Node, refs Refs) ([]graph.Edge, Stats) {
 	l := &linker{byID: make(map[string]graph.Node, len(nodes)), byName: make(map[string][]string, len(nodes)), byExt: map[string]map[string][]string{},
 		dirs: map[string]map[string]bool{}, together: map[[2]string]bool{}, children: map[string]map[string][]string{},
 		supers: map[string][]string{}, subs: map[string][]string{}, imported: map[string]map[string]bool{}, external: map[string]map[string]bool{}, typeFile: map[string]map[string][]string{}, pkg: map[string]string{},
-		parent: make(map[string]string, len(nodes)), isClass: map[string]bool{}, extOf: map[string]string{}, dirOf: map[string]string{}, cands: map[string]map[string][]string{}, classes: map[[2]string][]string{}}
+		parent: make(map[string]string, len(nodes)), isClass: map[string]bool{}, extOf: map[string]string{}, dirOf: map[string]string{}, stems: map[string][]string{}, cands: map[string]map[string][]string{}, classes: map[[2]string][]string{}}
 	for _, n := range nodes {
 		ext, ok := l.extOf[n.File]
 		if !ok {
 			ext = filepath.Ext(n.File)
 			l.extOf[n.File], l.dirOf[n.File] = ext, pathpkg.Dir(n.File)
+			k := family(ext) + "|" + strings.TrimSuffix(pathpkg.Base(n.File), ext)
+			l.stems[k] = append(l.stems[k], n.File)
 		}
 		l.byID[n.ID] = n
 		l.byName[n.Name] = append(l.byName[n.Name], n.ID)
@@ -232,6 +235,7 @@ func (l *linker) resolve(n graph.Node, sc []string, tok string) ([]string, bool)
 		}
 	}
 	bare := recv == "" && !strings.Contains(tok, ".")
+	local := !bare && recv == "" // `.X`: a receiver nothing names
 	switch {
 	case strings.Contains(tok, "#"):
 		classes := l.classesNamed(n, recv)
@@ -264,6 +268,7 @@ func (l *linker) resolve(n graph.Node, sc []string, tok string) ([]string, bool)
 			return out, false
 		}
 		// T holds no body for X (a Go struct, whose methods are not nested in it): go on.
+		local = len(classes) == 0 // T names no class here: as good as a local variable
 	case recv == superReceiver:
 		for _, scope := range sc {
 			for _, sup := range l.supers[scope] {
@@ -278,6 +283,22 @@ func (l *linker) resolve(n graph.Node, sc []string, tok string) ([]string, bool)
 			if ids := without(l.member(c, name), n.ID); len(ids) > 0 {
 				return ids, false
 			}
+		}
+		if l.external[n.File][recv] {
+			return nil, false // a module the file imports from outside the repository
+		}
+		if files := l.recvFiles(n, recv); len(files) > 0 {
+			var out []string
+			for _, id := range l.candidates(n, name) {
+				if files[l.byID[id].File] && id != n.ID {
+					out = append(out, id)
+				}
+			}
+			if len(out) > 0 {
+				return out, false
+			}
+		} else {
+			local = true // a variable: nothing names it
 		}
 	case bare:
 		for _, scope := range sc {
@@ -302,7 +323,64 @@ func (l *linker) resolve(n graph.Node, sc []string, tok string) ([]string, bool)
 		}
 		cands = keep
 	}
+	if local {
+		var keep []string
+		for _, id := range cands {
+			if f := l.byID[id].File; f == n.File || l.imported[n.File][f] || pkgScoped[family(l.extOf[n.File])] && l.dirOf[f] == l.dirOf[n.File] {
+				keep = append(keep, id)
+			}
+		}
+		if len(keep) == 0 {
+			return nil, len(cands) > 0
+		}
+		cands = keep
+	}
 	return l.narrow(n.File, cands)
+}
+
+// recvFiles is the files a call on receiver recv may mean: same-family files whose stem
+// is recv (an importlib-loaded module), and the files n's file imports under that name.
+func (l *linker) recvFiles(n graph.Node, recv string) map[string]bool {
+	fam := family(l.extOf[n.File])
+	out := map[string]bool{}
+	for _, f := range l.stems[fam+"|"+recv] {
+		out[f] = true
+	}
+	for _, f := range l.typeFile[n.File][recv] {
+		if family(l.extOf[f]) == fam {
+			out[f] = true
+		}
+	}
+	return out
+}
+
+// families maps each extension of a multi-extension language to its family.
+var families = func() map[string]string {
+	m := map[string]string{}
+	for fam, exts := range map[string]string{
+		"js":  ".js .mjs .cjs .jsx .ts .tsx .mts .cts",
+		"sh":  ".sh .bash .zsh",
+		"c":   ".c .h .cc .cpp .cxx .hpp .hh .hxx",
+		"jvm": ".java .kt .kts .scala .groovy",
+		"py":  ".py .pyi",
+	} {
+		for _, e := range strings.Fields(exts) {
+			m[e] = fam
+		}
+	}
+	return m
+}()
+
+// pkgScoped are the families whose files see a directory's siblings without importing
+// them: a same-directory file is local to a call on an unnamed receiver.
+var pkgScoped = map[string]bool{".go": true, "jvm": true, ".cs": true}
+
+// family is ext's language family, ext itself when it shares with none.
+func family(ext string) string {
+	if f, ok := families[ext]; ok {
+		return f
+	}
+	return ext
 }
 
 // without is ids less id.
@@ -392,7 +470,7 @@ func (l *linker) candidates(n graph.Node, name string) []string {
 	}
 	var out []string
 	for _, id := range l.byName[name] {
-		if l.sharesDir(ext, l.extOf[l.byID[id].File]) {
+		if oe := l.extOf[l.byID[id].File]; family(oe) == family(ext) && l.sharesDir(ext, oe) {
 			out = append(out, id)
 		}
 	}
