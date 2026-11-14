@@ -109,7 +109,9 @@ func TestCompiledModulesAreYAMLOnly(t *testing.T) {
 	root := repoRoot(t)
 
 	list := func(args ...string) []string {
-		cmd := exec.Command("go", args...)
+		// -buildvcs=false: the tests need no VCS stamp, and a worktree's .git file makes go
+		// look for a repository above it.
+		cmd := exec.Command("go", append([]string{args[0], "-buildvcs=false"}, args[1:]...)...)
 		cmd.Dir = root
 		out, err := cmd.CombinedOutput()
 		if err != nil {
