@@ -120,6 +120,7 @@ rtdd init                          set up this repository (writes only .rtdd/)
 rtdd which [--base REF] [--json]   the tests your changes need, in rounds
 rtdd graph [--json]                the graph's source, node, edge and test counts, staleness
 rtdd explain <file[:line]|name>    a node's tests, callers and callees
+rtdd obsidian [--no-open]          open the graph as an Obsidian vault (.rtdd/obsidian/)
 rtdd doctor                        graph source, graphify staleness, test files found
 rtdd skill install|prompt|uninstall the machine-wide agent skill
 rtdd update [--check]              replace the binary with the latest release

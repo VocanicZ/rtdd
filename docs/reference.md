@@ -228,6 +228,7 @@ which is the job's workdir.
 ```
 rtdd graph [--json]                the graph's source, node, edge and test counts, staleness
 rtdd explain <file[:line]|name>    a node's tests, callers and callees
+rtdd obsidian [--no-open]          open the graph as an Obsidian vault (.rtdd/obsidian/)
 rtdd doctor                        graph source, graphify staleness, test files found, names defined 8+ times
 rtdd uninstall [--state]           remove what init wrote
 rtdd uninstall --legacy-files      remove what an older rtdd wrote outside .rtdd/
@@ -238,6 +239,20 @@ rtdd --version                     print the version
 Exit codes: 0 success, empty rounds included; 2 usage; 3 environment (not a git repository,
 a graph that cannot be built). No exit code is a test result, because rtdd runs none.
 It is a context provider, not a gate.
+
+`rtdd obsidian` refreshes the graph as `rtdd which` does and writes it to `.rtdd/obsidian/`
+as an Obsidian vault: one note per node at a path mirroring the repository
+(`scripts/waitlib.py::cmd_set` is `scripts/waitlib.py/cmd_set.md`; a file's own note is
+`_file.md` in its folder). A note's frontmatter holds the source file, start and end line,
+kind and test flag; its body lists the node's tests, callers and callees as wikilinks with
+their relation, and it carries the tag `#rtdd/test`, `#rtdd/code` or `#rtdd/file`. Each run
+rewrites the notes, removes those of vanished nodes and leaves `.rtdd/obsidian/.obsidian/`
+alone; `obsidian/` is added to `.rtdd/.gitignore`. Without `--no-open` it registers the
+vault in Obsidian's `obsidian.json` (an existing entry for the path is reused, every other
+key is kept) and opens it with `xdg-open`, `open` or `cmd /c start`. If Obsidian is already
+running and does not show the vault, restart it. With no `obsidian.json` it only writes the
+vault and tells you to open the folder in Obsidian. `--no-open` writes the vault and does
+nothing else.
 
 ## Recording every invocation
 
