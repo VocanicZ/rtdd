@@ -41,7 +41,7 @@ depends on a per-language coverage adapter does not survive contact with real re
 One internal model, whatever built it:
 
 ```
-Node { id, file, name, kind (func|method|class|test|file), start, end, is_test, helper }
+Node { id, file, name, kind (func|method|class|test|file), start, end, is_test, helper, prose }
 Edge { from, to, relation (calls|method|inherits|implements|references) }
 ```
 
@@ -49,6 +49,8 @@ Edge { from, to, relation (calls|method|inherits|implements|references) }
 Every file of §4.1 also has a **file node** (#504): `{kind: file, id: <path>, name: <base
 name>, start: 1, end: <eof>}`, whether it defines anything or not — so a prompt, a config,
 data, a template or shell top-level code is never invisible. A file node is never a test.
+`prose` is true on the file node of a file matched by `definition_exclude` (prose or data, not
+code); the `references` hop of §7 never passes through such a node (#578).
 A test node's runnable id is `file::name` — its id without the `@line` suffix that tells
 same-named definitions apart — and a whole-file test's is `file` (§6).
 
