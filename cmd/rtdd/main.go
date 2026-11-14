@@ -15,6 +15,7 @@ usage:
   rtdd which  [--base <ref>] [--json] [--swarm-job <dir> --run '<cmd with {tests}>']
   rtdd explain <file[:line]|name>
   rtdd graph  [--json]
+  rtdd obsidian [--no-open]
   rtdd doctor
   rtdd update [--check] [--version <tag>]
   rtdd skill install   [--dry-run] [--force]
@@ -58,6 +59,8 @@ func dispatch(args []string, stdout, stderr io.Writer) int {
 		return cmdExplain(args[1:], stdout, stderr)
 	case "graph":
 		return cmdGraph(args[1:], stdout, stderr)
+	case "obsidian":
+		return cmdObsidian(args[1:], stdout, stderr)
 	case "doctor":
 		return cmdDoctor(args[1:], stdout, stderr)
 	case "update":
