@@ -57,6 +57,7 @@ type Node struct {
 	End    int
 	IsTest bool
 	Helper bool // a func or method in a test file that is not itself a test (#505)
+	Prose  bool // a file node of a definition_exclude file: prose or data, not code (#578)
 }
 
 // FileNode is file's node: its ID is the path, its name the base name, and it spans lines

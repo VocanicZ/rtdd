@@ -95,24 +95,26 @@ func TestOwnerIsTheInnermostNodeOfALine(t *testing.T) {
 	}
 }
 
-// Spec §7: a changed line in no node maps to file::<module>, whose callers are the nodes
-// of OTHER files that call any node in that file.
-func TestTopLevelLineIsTheModuleNodeAndItsCrossFileCallers(t *testing.T) {
+// Spec §7 (#578): a changed line in no node maps to file::<module>. Its Round 1 is the tests
+// that load or name the file (its file node's tests); the callers of the file's other
+// nodes are not its callers, so they select nothing.
+func TestTopLevelLineIsTheModuleNodeAndTheTestsThatNameTheFile(t *testing.T) {
+	file := graph.FileNode("src/lib.py", 8)
 	f := n("src/lib.py", "f", 3, 4)
 	g2 := n("src/lib.py", "g", 6, 7)
 	run := n("src/app.py", "run", 1, 2)
 	testF := tn("tests/test_lib.py", "test_f", 1, 2)
 	testG := tn("tests/test_lib.py", "test_g", 4, 5)
 	testRun := tn("tests/test_app.py", "test_run", 1, 2)
+	testLoad := tn("tests/test_load.py", "test_load", 1, 2)
 	g := graph.Graph{
-		Nodes: []graph.Node{f, g2, run, testF, testG, testRun},
-		Edges: []graph.Edge{calls(g2, f), calls(run, f), calls(testF, f), calls(testG, g2), calls(testRun, run)},
+		Nodes: []graph.Node{file, f, g2, run, testF, testG, testRun, testLoad},
+		Edges: []graph.Edge{calls(g2, f), calls(run, f), calls(testF, f), calls(testG, g2), calls(testRun, run), refs(testLoad, file)},
 	}
 	got := Rounds(g, lines("src/lib.py", LineRange{1, 1}))
 	check(t, got, want{
 		changed: []string{"src/lib.py::<module>"},
-		round1:  []string{"tests/test_lib.py::test_f", "tests/test_lib.py::test_g"},
-		round2:  []string{"tests/test_app.py::test_run"},
+		round1:  []string{"tests/test_load.py::test_load"},
 	})
 	mod := got.ChangedNodes[0]
 	if mod.Name != ModuleName || mod.Kind != KindModule || mod.File != "src/lib.py" || mod.Start != 1 || mod.End != 1 {

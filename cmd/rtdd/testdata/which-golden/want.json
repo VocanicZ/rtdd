@@ -94,17 +94,11 @@
           "id": "tests/test_calc.py::test_total",
           "file": "tests/test_calc.py",
           "name": "test_total"
-        },
-        {
-          "id": "tests/test_report.py::test_report",
-          "file": "tests/test_report.py",
-          "name": "test_report"
         }
       ],
       "files": [
         "money/money_test.go",
-        "tests/test_calc.py",
-        "tests/test_report.py"
+        "tests/test_calc.py"
       ]
     },
     {
@@ -119,11 +113,17 @@
           "id": "tests/test_calc.py::test_add",
           "file": "tests/test_calc.py",
           "name": "test_add"
+        },
+        {
+          "id": "tests/test_report.py::test_report",
+          "file": "tests/test_report.py",
+          "name": "test_report"
         }
       ],
       "files": [
         "money/money_test.go",
-        "tests/test_calc.py"
+        "tests/test_calc.py",
+        "tests/test_report.py"
       ],
       "large_selection": false
     },
@@ -133,7 +133,8 @@
     }
   ],
   "untested": [
-    "src/calc.py::unused"
+    "src/calc.py::unused",
+    "src/report.py::<module>"
   ],
   "warnings": [
     "src/legacy.py was deleted: tests that called it are linked to nothing now; Round 3 runs them"

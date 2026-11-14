@@ -125,7 +125,6 @@ func Owner(g graph.Graph, file string, line int) (graph.Node, bool) {
 func Rounds(g graph.Graph, changed map[string][]LineRange) Result {
 	ix := newIndex(g)
 	changedSet := map[string]graph.Node{}
-	moduleIn := map[string][]graph.Edge{} // a <module> node's callers, as edges into it
 	round1 := map[string]graph.Node{}
 
 	for file, ranges := range changed {
@@ -165,21 +164,10 @@ func Rounds(g graph.Graph, changed map[string][]LineRange) Result {
 				mod.IsTest = true // a test file's top level: its tests are the changed tests
 				round1[n.ID] = n
 			}
-			for _, e := range ix.in[n.ID] {
-				if e.Relation == graph.RelCalls && ix.byID[e.From].File != file {
-					moduleIn[mod.ID] = append(moduleIn[mod.ID], graph.Edge{From: e.From, To: mod.ID, Relation: graph.RelCalls})
-				}
-			}
 		}
 		changedSet[mod.ID] = *mod
 	}
 
-	in := func(id string) []graph.Edge {
-		if es, ok := moduleIn[id]; ok {
-			return es
-		}
-		return ix.in[id]
-	}
 	// walk is memoized: a widely called neighbour is reached from many changed nodes,
 	// and re-walking its callers for each one made a large diff quadratic (#454).
 	// A helper is transparent: its callers' tests are the tests of what it calls, and a
@@ -205,7 +193,7 @@ func Rounds(g graph.Graph, changed map[string][]LineRange) Result {
 		walking[k] = true
 		var out []graph.Node
 		hop = hop && ix.byID[id].Kind == graph.KindFile
-		for _, e := range in(id) {
+		for _, e := range ix.in[id] {
 			t, ok := ix.byID[e.From]
 			switch {
 			case !ok:
@@ -215,7 +203,7 @@ func Rounds(g graph.Graph, changed map[string][]LineRange) Result {
 				out = append(out, walk(t.ID, hop)...)
 			case t.Kind == graph.KindFile && len(ix.testsIn[t.File]) > 0:
 				out = append(out, ix.testsIn[t.File]...)
-			case hop && e.Relation == graph.RelReferences:
+			case hop && e.Relation == graph.RelReferences && !t.Prose:
 				out = append(out, walk(t.ID, false)...)
 			}
 		}
@@ -252,7 +240,7 @@ func Rounds(g graph.Graph, changed map[string][]LineRange) Result {
 				neighbours[id] = append(neighbours[id], n.ID)
 			}
 		}
-		for _, e := range in(id) {
+		for _, e := range ix.in[id] {
 			if n, ok := ix.byID[e.From]; ok && !n.IsTest {
 				neighbours[id] = append(neighbours[id], n.ID)
 			}

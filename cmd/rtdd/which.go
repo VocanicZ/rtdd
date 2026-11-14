@@ -6,12 +6,15 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/VocanicZ/rtdd/internal/gitctx"
 	"github.com/VocanicZ/rtdd/internal/graph"
 	"github.com/VocanicZ/rtdd/internal/graphbuild"
 	"github.com/VocanicZ/rtdd/internal/rounds"
+	"github.com/VocanicZ/rtdd/internal/scan"
 )
 
 // noLinkedTest is what an empty Round 1 or Round 2 says. It is never a pass: rtdd ran
@@ -79,6 +82,7 @@ func cmdWhich(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	ranges, warnings := changedRanges(changes)
+	ranges = codeRanges(root, res.Graph, ranges)
 	r := rounds.Rounds(res.Graph, ranges)
 	large, largeMsg := largeSelection(res.Graph, r)
 	if large {
@@ -165,6 +169,42 @@ func changedRanges(changes []gitctx.Change) (map[string][]rounds.LineRange, []st
 		}
 	}
 	return ranges, warnings
+}
+
+// codeRanges drops the changed lines that hold no code (#578): scan's code() blanks a
+// comment, a docstring or a multi-line string, and a blank line has nothing either, so
+// such a line changes no node. A file read as prose (definition_exclude) or unreadable
+// keeps its ranges whole. Rounds stays pure; the file reads happen here.
+func codeRanges(root string, g graph.Graph, ranges map[string][]rounds.LineRange) map[string][]rounds.LineRange {
+	prose := map[string]bool{}
+	for _, n := range g.Nodes {
+		if n.Kind == graph.KindFile && n.Prose {
+			prose[n.File] = true
+		}
+	}
+	out := make(map[string][]rounds.LineRange, len(ranges))
+	for f, rs := range ranges {
+		src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(f)))
+		if prose[f] || err != nil {
+			out[f] = rs
+			continue
+		}
+		isCode := scan.CodeLines(src)
+		var kept []rounds.LineRange
+		for _, r := range rs {
+			for l := max(r.Start, 1); l <= r.End; l++ {
+				switch {
+				case l > len(isCode) || !isCode[l-1]:
+				case len(kept) > 0 && kept[len(kept)-1].End == l-1:
+					kept[len(kept)-1].End = l
+				default:
+					kept = append(kept, rounds.LineRange{Start: l, End: l})
+				}
+			}
+		}
+		out[f] = kept
+	}
+	return out
 }
 
 // renderWhich is the human answer: the graph, what changed, the three rounds, untested.

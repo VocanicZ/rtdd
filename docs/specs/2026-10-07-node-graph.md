@@ -242,13 +242,19 @@ each runnable id once.
 
 Pure function `Rounds(graph, changedRanges) → {changed_nodes, round1, round2, untested}`:
 
-- **changed_nodes** — the innermost node containing each changed line; a changed line in no
-  node (top-level code) maps to a synthetic `file::<module>` node whose callers are the nodes
-  of other files that call any node in that file; a changed line of a file that defines
-  nothing maps to its file node (#504).
+- **changed_nodes** — the innermost node containing each changed line. A changed line that
+  holds no code — the scanner's `code()` blanks it entirely (a comment, a docstring or other
+  multi-line string) or it is blank — maps to no node (#578); a file read as prose
+  (`definition_exclude`) is not filtered. A changed line of code in no node (top-level code)
+  maps to a synthetic `file::<module>` node: its Round 1 tests are the tests that load or
+  name the file (its file node's tests), and its neighbours are only what its own lines call
+  or reference — never the callers of the file's other nodes (#578). A changed line of a
+  file that defines nothing maps to its file node (#504).
 - **round1** — changed test nodes, plus every test node with an edge **to** a changed node,
   directly or through helpers (§6). For a file node (#504) that includes the tests of a node
-  with a `references` edge to it — one edge, never two — and a test file's lines in no test
+  with a `references` edge to it — one edge, never two, and only a node that is code: a node
+  in a file matched by `definition_exclude` (`**/*.md`, say) naming the file does not make
+  its tests the file's tests (#578) — and a test file's lines in no test
   stand for all its tests. A changed node's file node's tests are its tests too: a test that
   names a file loads it, whichever of its lines changed.
 - **neighbours** — nodes one edge from a changed node, **both directions**, over

@@ -145,6 +145,7 @@ verdicts as published and the v0.2 record are in the
 - Links are by name, without a parser; a name matching more than five definitions links to none.
 - A call the text does not show — reflection, a string, a registry — has no edge.
 - Depth is one, and a deleted file owns no node: Round 3 is the safety net.
+- A changed comment, docstring or blank line is no change. A changed top-level line selects the tests that load or name the file, not the callers of its functions; and a doc that merely names a file does not make the tests that read the doc the file's tests.
 
 See [Limitations](docs/LIMITATIONS.md) and [What it cannot see](docs/reference.md#what-it-cannot-see).
 
