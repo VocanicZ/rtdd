@@ -23,9 +23,19 @@ type Links struct {
 	Callees []Link
 }
 
+// Linker answers Links lookups for one graph from a single index, so a caller that needs
+// the links of many nodes builds the index once, not once per node.
+type Linker struct{ ix *index }
+
+// NewLinker indexes g once.
+func NewLinker(g graph.Graph) *Linker { return &Linker{ix: newIndex(g)} }
+
 // LinksOf returns the links of the node with the given ID; an unknown ID has none.
-func LinksOf(g graph.Graph, id string) Links {
-	ix := newIndex(g)
+func LinksOf(g graph.Graph, id string) Links { return NewLinker(g).Links(id) }
+
+// Links returns the links of the node with the given ID; an unknown ID has none.
+func (k *Linker) Links(id string) Links {
+	ix := k.ix
 	l := Links{Tests: []Link{}, Callers: []Link{}, Callees: []Link{}}
 	for _, e := range ix.in[id] {
 		if n, ok := ix.byID[e.From]; ok {

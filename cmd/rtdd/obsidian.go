@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"cmp"
 	"crypto/rand"
 	"encoding/hex"
@@ -318,13 +319,18 @@ func notePaths(nodes []graph.Node) map[string]string {
 func writeVault(vault string, g graph.Graph) error {
 	paths := notePaths(g.Nodes)
 	keep := map[string]bool{}
+	linker := rounds.NewLinker(g)
 	for _, n := range g.Nodes {
 		keep[paths[n.ID]] = true
 		p := filepath.Join(vault, filepath.FromSlash(paths[n.ID]))
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(p, []byte(renderNote(n, rounds.LinksOf(g, n.ID), paths)), 0o644); err != nil {
+		note := []byte(renderNote(n, linker.Links(n.ID), paths))
+		if old, err := os.ReadFile(p); err == nil && bytes.Equal(old, note) {
+			continue // unchanged: leave the mtime alone so Obsidian does not reindex it
+		}
+		if err := os.WriteFile(p, note, 0o644); err != nil {
 			return err
 		}
 	}

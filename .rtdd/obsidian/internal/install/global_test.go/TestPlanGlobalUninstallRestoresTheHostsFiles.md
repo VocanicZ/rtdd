@@ -1,0 +1,32 @@
+---
+id: "internal/install/global_test.go::TestPlanGlobalUninstallRestoresTheHostsFiles"
+source: "internal/install/global_test.go"
+start: 234
+end: 275
+kind: "func"
+is-test: true
+tags: [rtdd/test]
+---
+# TestPlanGlobalUninstallRestoresTheHostsFiles
+
+#rtdd/test
+
+## Tests
+
+none
+
+## Callers
+
+none
+
+## Callees
+
+- [[internal/install/global.go/PlanGlobal]] (calls)
+- [[internal/install/global.go/PlanGlobalUninstall]] (calls)
+- [[internal/install/global_test.go/globalFiles]] (calls)
+- [[internal/install/global_test.go/homeWith]] (calls)
+- [[internal/install/install.go/Apply]] (calls)
+- [[internal/install/install_test.go/repoFiles]] (calls)
+- [[internal/install/plan_v030_test.go/writeAt]] (calls)
+- [[internal/install/uninstall.go/ApplyUninstall]] (calls)
+- [[internal/protocol/testdata/golden/AGENTS.md/_file]] (references)

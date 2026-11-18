@@ -1,0 +1,26 @@
+{
+  "active": "rtddgraph0000001",
+  "main": {
+    "children": [
+      {
+        "children": [
+          {
+            "id": "rtddgraph0000001",
+            "state": {
+              "icon": "lucide-git-fork",
+              "state": {},
+              "title": "Graph view",
+              "type": "graph"
+            },
+            "type": "leaf"
+          }
+        ],
+        "id": "rtddtabs00000001",
+        "type": "tabs"
+      }
+    ],
+    "direction": "vertical",
+    "id": "rtddmain00000001",
+    "type": "split"
+  }
+}

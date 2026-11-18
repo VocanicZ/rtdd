@@ -7,7 +7,9 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/VocanicZ/rtdd/internal/gitctx/gittest"
 	"github.com/VocanicZ/rtdd/internal/graph"
 	"github.com/VocanicZ/rtdd/internal/graphbuild"
 )
@@ -379,5 +381,75 @@ func TestObsidianInHelp(t *testing.T) {
 	_, out, _ := rtdd(t, newTestRepo(t), "--help")
 	if !strings.Contains(out, "rtdd obsidian") {
 		t.Errorf("usage lacks obsidian:\n%s", out)
+	}
+}
+
+// notesMtime sets every .md note under vault to at, so a later bump is the rtdd run's doing.
+func notesMtime(t *testing.T, vault string, at time.Time) []string {
+	t.Helper()
+	var out []string
+	for p := range mdFiles(t, vault) {
+		full := filepath.Join(vault, filepath.FromSlash(p))
+		if err := os.Chtimes(full, at, at); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// #586: a rerun with nothing changed leaves every note's mtime alone, and a change
+// rewrites only the notes whose rendered content changed.
+func TestObsidianRerunRewritesOnlyChangedNotes(t *testing.T) {
+	obsidianEnv(t, "linux")
+	dir := explainRepo(t)
+	if code, _, e := rtdd(t, dir, "obsidian", "--no-open"); code != 0 {
+		t.Fatalf("run 1 exit %d %q", code, e)
+	}
+	root, _ := graphRoot()
+	vault := filepath.Join(root, ".rtdd", "obsidian")
+	past := time.Now().Add(-48 * time.Hour).Truncate(time.Second)
+	notes := notesMtime(t, vault, past)
+	if len(notes) == 0 {
+		t.Fatal("no notes written")
+	}
+	if code, _, e := rtdd(t, dir, "obsidian", "--no-open"); code != 0 {
+		t.Fatalf("run 2 exit %d %q", code, e)
+	}
+	mtime := func(p string) time.Time {
+		fi, err := os.Stat(filepath.Join(vault, filepath.FromSlash(p)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return fi.ModTime()
+	}
+	for _, p := range notes {
+		if !mtime(p).Equal(past) {
+			t.Errorf("unchanged note %s was rewritten", p)
+		}
+	}
+
+	// Edit one function: total's end line moves, so its note changes.
+	gittest.Write(t, dir, "src/calc.py", "def add(a, b):\n    return a + b\n\n\ndef total(xs):\n    s = add(xs[0], xs[1])\n    return s\n\n\ndef unused():\n    return 0\n")
+	if code, _, e := rtdd(t, dir, "obsidian", "--no-open"); code != 0 {
+		t.Fatalf("run 3 exit %d %q", code, e)
+	}
+	if got := readFile(t, filepath.Join(vault, "src/calc.py/total.md")); !strings.Contains(got, "end: 7") {
+		t.Errorf("total's note has no new line range:\n%s", got)
+	}
+	if mtime("src/calc.py/total.md").Equal(past) {
+		t.Error("changed note total.md kept the past mtime")
+	}
+	kept := 0
+	for _, p := range notes {
+		if mtime(p).Equal(past) {
+			kept++
+		}
+	}
+	if kept == 0 {
+		t.Error("every note was rewritten after a one-function edit")
+	}
+	if !mtime("src/report.py/report.md").Equal(past) {
+		t.Error("unrelated note report.md was rewritten")
 	}
 }
