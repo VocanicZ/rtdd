@@ -110,6 +110,73 @@ func TestObsidianNoOpenWritesOneNotePerNode(t *testing.T) {
 	}
 }
 
+// #587: a fresh vault is seeded with tag colour groups and a graph main leaf; an existing
+// .obsidian/ is never touched; the hint follows a successful open only.
+func TestObsidianSeedsFreshVaultOnly(t *testing.T) {
+	home, _ := obsidianEnv(t, "linux")
+	dir := explainRepo(t)
+	if code, out, e := rtdd(t, dir, "obsidian", "--no-open"); code != 0 || strings.Contains(out, "Ctrl+G") {
+		t.Fatalf("exit %d out %q err %q", code, out, e)
+	}
+	obs := filepath.Join(dir, ".rtdd", "obsidian", ".obsidian")
+	var g struct {
+		ColorGroups []struct {
+			Query string
+			Color struct{ A, Rgb int }
+		}
+	}
+	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(obs, "graph.json"))), &g); err != nil {
+		t.Fatal(err)
+	}
+	var qs []string
+	for _, c := range g.ColorGroups {
+		if c.Color.A != 1 || c.Color.Rgb == 0 {
+			t.Errorf("group %q has no colour: %+v", c.Query, c.Color)
+		}
+		qs = append(qs, c.Query)
+	}
+	if strings.Join(qs, ",") != "tag:#rtdd/test,tag:#rtdd/code,tag:#rtdd/file" {
+		t.Errorf("colour groups = %v", qs)
+	}
+	var ws struct {
+		Main struct {
+			Children []struct {
+				Children []struct {
+					Type  string
+					State struct{ Type string }
+				}
+			}
+		}
+	}
+	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(obs, "workspace.json"))), &ws); err != nil {
+		t.Fatal(err)
+	}
+	if len(ws.Main.Children) != 1 || len(ws.Main.Children[0].Children) != 1 || ws.Main.Children[0].Children[0].State.Type != "graph" {
+		t.Errorf("main leaf is not the graph view: %+v", ws)
+	}
+
+	// Edited settings survive a rerun byte for byte, including a rerun that opens.
+	edited := map[string]string{"graph.json": `{"mine":1}`, "workspace.json": "{\"main\":{}}\n"}
+	for n, c := range edited {
+		os.WriteFile(filepath.Join(obs, n), []byte(c), 0o644)
+	}
+	cfgDir := filepath.Join(home, ".config", "obsidian")
+	os.MkdirAll(cfgDir, 0o755)
+	os.WriteFile(filepath.Join(cfgDir, "obsidian.json"), []byte(`{"vaults":{}}`), 0o644)
+	code, out, e := rtdd(t, dir, "obsidian")
+	if code != 0 {
+		t.Fatalf("rerun exit %d %q", code, e)
+	}
+	for n, c := range edited {
+		if got := readFile(t, filepath.Join(obs, n)); got != c {
+			t.Errorf("%s changed: %q", n, got)
+		}
+	}
+	if !strings.Contains(out, "Graph view: Ctrl+G") || !strings.Contains(out, "Open local graph") {
+		t.Errorf("no graph hint after open: %s", out)
+	}
+}
+
 // #575 AC3: a rerun drops notes of vanished nodes and leaves .obsidian/ alone.
 func TestObsidianRerunRemovesStaleNotesKeepsSettings(t *testing.T) {
 	obsidianEnv(t, "linux")
