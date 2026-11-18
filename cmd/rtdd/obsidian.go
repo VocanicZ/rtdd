@@ -62,6 +62,10 @@ func cmdObsidian(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	vault := filepath.Join(root, ".rtdd", "obsidian")
+	if err := seedVault(vault); err != nil {
+		fmt.Fprintf(stderr, "rtdd obsidian: %v\n", err)
+		return 3
+	}
 	if err := writeVault(vault, res.Graph); err != nil {
 		fmt.Fprintf(stderr, "rtdd obsidian: %v\n", err)
 		return 3
@@ -90,7 +94,56 @@ func cmdObsidian(args []string, stdout, stderr io.Writer) int {
 		return 3
 	}
 	fmt.Fprintln(stdout, "If Obsidian was already running and does not show the vault, restart it: a running Obsidian keeps its vault list in memory.")
+	fmt.Fprintln(stdout, graphViewHint)
 	return 0
+}
+
+const graphViewHint = `Graph view: Ctrl+G. A node's neighbours: open its note, then "Open local graph".`
+
+// seedVault gives a vault being created its first-open settings: tag colour groups in
+// .obsidian/graph.json and a main leaf showing the graph view in .obsidian/workspace.json.
+// A vault that already has a .obsidian/ is left alone: the owner's settings win.
+func seedVault(vault string) error {
+	dir := filepath.Join(vault, ".obsidian")
+	if _, err := os.Lstat(dir); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	group := func(tag string, rgb int) map[string]any {
+		return map[string]any{"query": "tag:#rtdd/" + tag, "color": map[string]any{"a": 1, "rgb": rgb}}
+	}
+	files := map[string]any{
+		"graph.json": map[string]any{"colorGroups": []any{
+			group("test", 0x3fb950), group("code", 0x58a6ff), group("file", 0xd29922),
+		}},
+		"workspace.json": map[string]any{
+			"main": map[string]any{
+				"id": "rtddmain00000001", "type": "split", "direction": "vertical",
+				"children": []any{map[string]any{
+					"id": "rtddtabs00000001", "type": "tabs",
+					"children": []any{map[string]any{
+						"id": "rtddgraph0000001", "type": "leaf",
+						"state": map[string]any{"type": "graph", "state": map[string]any{}, "icon": "lucide-git-fork", "title": "Graph view"},
+					}},
+				}},
+			},
+			"active": "rtddgraph0000001",
+		},
+	}
+	for name, v := range files {
+		b, err := json.MarshalIndent(v, "", "  ")
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), append(b, '\n'), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // obsidianConfigDirs lists where obsidian.json may live on goos, in the order to try.
