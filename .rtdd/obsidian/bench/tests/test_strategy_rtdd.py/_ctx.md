@@ -1,0 +1,29 @@
+---
+id: "bench/tests/test_strategy_rtdd.py::_ctx"
+source: "bench/tests/test_strategy_rtdd.py"
+start: 22
+end: 34
+kind: "func"
+is-test: false
+tags: [rtdd/code]
+---
+# _ctx
+
+#rtdd/code
+
+## Tests
+
+- [[bench/tests/test_strategy_rtdd.py/test_prepare_builds_the_graph_with_the_configured_binary]] (calls)
+- [[bench/tests/test_strategy_rtdd.py/test_select_takes_round_1_expanded_to_collected_ids]] (calls)
+- [[bench/tests/test_strategy_rtdd.py/test_select_passes_only_shipped_defaults]] (calls)
+- [[bench/tests/test_strategy_rtdd.py/test_an_empty_round_1_is_an_empty_selection_not_an_escalation]] (calls)
+- [[bench/tests/test_strategy_rtdd.py/test_verified_against_the_synthetic_repo]] (calls)
+
+## Callers
+
+none
+
+## Callees
+
+- [[bench/replay/gitwork.py/Change]] (calls)
+- [[bench/replay/strategies/base.py/CommitContext]] (calls)

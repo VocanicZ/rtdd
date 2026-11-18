@@ -2,6 +2,7 @@ package rounds
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/VocanicZ/rtdd/internal/graph"
@@ -61,4 +62,41 @@ type pair struct{ From, To graph.Node }
 
 func (p pair) edge(r graph.Relation) graph.Edge {
 	return graph.Edge{From: p.From.ID, To: p.To.ID, Relation: r}
+}
+
+// The Linker answers every lookup from one index and agrees with LinksOf for each node of a
+// graph — including a test file's file node with an edge, whose edge counts as from each of
+// the file's tests (#504) — and for an unknown ID, which has non-nil empty lists.
+func TestLinkerMatchesLinksOf(t *testing.T) {
+	add := n("src/calc.py", "add", 1, 2)
+	total := n("src/calc.py", "total", 5, 6)
+	report := n("src/report.py", "report", 4, 5)
+	testAdd := tn("tests/test_calc.py", "test_add", 4, 5)
+	testTotal := tn("tests/test_calc.py", "test_total", 8, 9)
+	testFile := graph.Node{ID: "tests/test_calc.py", File: "tests/test_calc.py", Name: "test_calc.py", Kind: graph.KindFile, Start: 1, End: 9, IsTest: true}
+	g := graph.Graph{
+		Nodes: []graph.Node{add, total, report, testAdd, testTotal, testFile},
+		Edges: []graph.Edge{
+			calls(total, add),
+			calls(report, total),
+			calls(testTotal, total),
+			calls(testFile, add),
+		},
+	}
+	if got := LinksOf(g, add.ID); !slices.Contains(linkIDs(got.Tests), testTotal.ID+" calls") {
+		t.Fatalf("fixture misses the #504 testsIn branch: tests of add = %v", linkIDs(got.Tests))
+	}
+	k := NewLinker(g)
+	for _, node := range g.Nodes {
+		if got, want := k.Links(node.ID), LinksOf(g, node.ID); !reflect.DeepEqual(got, want) {
+			t.Errorf("Linker.Links(%s) = %#v, want %#v", node.ID, got, want)
+		}
+	}
+	got := k.Links("nope")
+	if got.Tests == nil || got.Callers == nil || got.Callees == nil {
+		t.Errorf("Linker.Links(unknown) = %#v; want non-nil empty lists", got)
+	}
+	if !reflect.DeepEqual(got, LinksOf(g, "nope")) {
+		t.Errorf("Linker.Links(unknown) = %#v, LinksOf = %#v", got, LinksOf(g, "nope"))
+	}
 }
